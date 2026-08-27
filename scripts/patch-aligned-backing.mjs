@@ -63,7 +63,7 @@ patchFile('app/MelodyWorkspace.tsx', [
 patchFile('app/page.tsx', [
   [
     "import DrobMixPlayer from './DrobMixPlayer';",
-    "import DrobMixPlayer from './DrobMixPlayer';\nimport TrainVoiceWorkspace from './TrainVoiceWorkspace';",
+    "import DrobMixPlayer from './DrobMixPlayer';\nimport VoiceWorkspace from './VoiceWorkspace';",
   ],
   [
     "type Screen = 'create' | 'songs';",
@@ -93,11 +93,21 @@ patchFile('app/page.tsx', [
       <main>
         <section className="hero">
           <div className="brand">AI SONGS</div>
-          <p className="eyebrow">Voice Lab</p>
-          <h1>Build your own singing voice.</h1>
-          <p className="sub">Record and prepare a clean voice-training dataset from your phone.</p>
+          <p className="eyebrow">Voice</p>
+          <h1>Build the vocal.</h1>
+          <p className="sub">Record a live performance over your song or train your custom AI singing voice.</p>
         </section>
-        <TrainVoiceWorkspace />
+        <VoiceWorkspace
+          backingUrl={backingUrl || audioUrl}
+          lyrics={lyrics}
+          songTitle={songTitle}
+          onUseVocal={(blob) => {
+            if (drobVocalUrl) URL.revokeObjectURL(drobVocalUrl);
+            setDrobVocalUrl(URL.createObjectURL(blob));
+            setMasterBlob(null);
+            setDrobStatus('Live vocal loaded into the song.');
+          }}
+        />
         <nav className="bottomNav">
           <span onClick={() => setScreen('create')}>🏠<small>Home</small></span>
           <span onClick={() => setScreen('songs')}>🎵<small>Songs</small></span>
@@ -128,4 +138,4 @@ patchFile('app/page.tsx', [
   fs.writeFileSync(path, source);
 }
 
-console.log('Applied aligned Mureka backing, Voice Lab, Sheets navigation, Voice label, and removed duplicate Create nav icon.');
+console.log('Applied aligned Mureka backing and Voice workspace patches.');

@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
-
-const lamejs = require('@breezystack/lamejs');
+import * as lamejs from '@breezystack/lamejs';
 
 type CompactNote = [number, number, number];
 

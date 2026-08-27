@@ -1,262 +1,156 @@
-import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
 
-const CANTAI_BASE = 'https://cantai.app';
+const BASE = 'https://apiv2.soundverse.ai';
+const PPQ = 480;
 
 type MelodyNote = {
-  note: string;
   midi?: number;
   start: number;
   duration: number;
 };
 
-type PrecisionPayload = {
-  lyrics: string;
-  vocalRange: string;
-  tempo: number;
-  notes: MelodyNote[];
-  noteLyrics: string[];
+type Tool = {
+  id?: string;
+  operation?: string;
+  model?: string;
 };
 
-function stripSections(lyrics: string) {
-  return lyrics
-    .split('\n')
-    .filter((line) => !/^\s*\[[^\]]+\]\s*$/.test(line))
-    .join(' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+function vlq(value: number) {
+  let v = Math.max(0, Math.floor(value));
+  const bytes = [v & 0x7f];
+  while ((v >>= 7) > 0) bytes.unshift((v & 0x7f) | 0x80);
+  return bytes;
 }
 
-async function makeNoteLyrics(lyrics: string, notes: MelodyNote[], openaiKey?: string) {
-  const fallback = stripSections(lyrics)
-    .replace(/[^A-Za-z0-9' -]/g, ' ')
-    .split(/\s+/)
-    .filter(Boolean);
-
-  if (!openaiKey) {
-    return notes.map((_, index) => fallback[index % Math.max(1, fallback.length)] || 'ah');
-  }
-
-  const client = new OpenAI({ apiKey: openaiKey });
-  const response = await client.responses.create({
-    model: process.env.OPENAI_TEXT_MODEL || 'gpt-5.6',
-    input: [
-      {
-        role: 'system',
-        content: `You align song lyrics to a monophonic melody for singing synthesis. Return ONLY valid JSON: {"tokens":[...]}. The tokens array MUST contain exactly the requested number of items. Each item must be one short singable lyric syllable or word fragment for one note. Preserve lyric meaning and order. Split multisyllabic words naturally across notes. Do not include section labels, punctuation, explanations, or blank tokens.`,
-      },
-      {
-        role: 'user',
-        content: `Need exactly ${notes.length} lyric tokens, one per melody note.\nLyrics:\n${lyrics}\n\nNotes and timing:\n${JSON.stringify(notes.map((n) => ({ note: n.note, midi: n.midi, start: Math.round(n.start * 1000) / 1000, duration: Math.round(n.duration * 1000) / 1000 })))}`,
-      },
-    ],
-  });
-
-  try {
-    const cleaned = response.output_text.trim().replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
-    const parsed = JSON.parse(cleaned);
-    if (Array.isArray(parsed.tokens) && parsed.tokens.length === notes.length) {
-      return parsed.tokens.map((token: unknown) => String(token || 'ah').trim() || 'ah');
-    }
-  } catch {}
-
-  return notes.map((_, index) => fallback[index % Math.max(1, fallback.length)] || 'ah');
+function u32(value: number) {
+  return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
 }
 
-function voiceProfile(vocalRange: string) {
-  const lower = vocalRange.toLowerCase();
-  if (lower.includes('bass')) return 'Bass';
-  if (lower.includes('baritone')) return 'Baritone';
-  if (lower.includes('tenor')) return 'Tenor';
-  if (lower.includes('alto')) return 'Alto';
-  if (lower.includes('soprano')) return 'Soprano';
-  return 'Tenor';
-}
-
-function isAudio(contentType: string) {
-  return contentType.includes('audio/') || contentType.includes('octet-stream');
-}
-
-async function audioResponseFromProvider(response: Response, provider: string, authHeader?: string) {
-  const contentType = response.headers.get('content-type') || '';
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`${provider}: ${text || `request failed (${response.status})`}`);
-  }
-
-  if (isAudio(contentType)) {
-    const bytes = await response.arrayBuffer();
-    return new NextResponse(bytes, {
-      status: 200,
-      headers: {
-        'Content-Type': contentType.includes('audio/') ? contentType : 'audio/wav',
-        'Cache-Control': 'no-store',
-        'X-Precision-Provider': provider,
-      },
-    });
-  }
-
-  const data = await response.json().catch(() => ({}));
-  const providerUrl = data.audio_url || data.audioUrl || data.download_url || data.downloadUrl || data.url;
-  if (typeof providerUrl === 'string' && providerUrl.startsWith('http')) {
-    const headers: Record<string, string> = {};
-    if (authHeader) headers.Authorization = authHeader;
-    const audioResponse = await fetch(providerUrl, { headers, cache: 'no-store' });
-    if (!audioResponse.ok) throw new Error(`${provider}: generated audio could not be retrieved.`);
-    const bytes = await audioResponse.arrayBuffer();
-    return new NextResponse(bytes, {
-      status: 200,
-      headers: {
-        'Content-Type': audioResponse.headers.get('content-type') || 'audio/wav',
-        'Cache-Control': 'no-store',
-        'X-Precision-Provider': provider,
-      },
-    });
-  }
-
-  const jobId = data.job_id || data.jobId || data.id;
-  if (jobId) {
-    return NextResponse.json(
-      { jobId: String(jobId), status: data.status || 'queued', provider },
-      { status: 202, headers: { 'X-Precision-Provider': provider } },
-    );
-  }
-
-  throw new Error(`${provider}: unsupported response.`);
-}
-
-async function synthesizeWithDiffSinger(payload: PrecisionPayload) {
-  const rawBase = process.env.DIFFSINGER_API_URL?.trim();
-  if (!rawBase) return null;
-
-  const base = rawBase.replace(/\/$/, '');
-  const apiKey = process.env.DIFFSINGER_API_KEY?.trim();
-  const authHeader = apiKey ? `Bearer ${apiKey}` : undefined;
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    Accept: 'audio/wav, application/json',
-  };
-  if (authHeader) headers.Authorization = authHeader;
-
-  const response = await fetch(`${base}/v1/synthesize`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify({
-      format: 'wav',
-      dry: true,
-      tempo: payload.tempo,
-      voiceProfile: voiceProfile(payload.vocalRange),
-      lyrics: payload.noteLyrics,
-      notes: payload.notes.map((n, index) => ({
-        note: n.note,
-        midi: n.midi,
-        lyric: payload.noteLyrics[index] || 'ah',
-        start: Math.round(n.start * 1000) / 1000,
-        duration: Math.round(n.duration * 1000) / 1000,
-      })),
-    }),
-    cache: 'no-store',
-  });
-
-  return audioResponseFromProvider(response, 'diffsinger', authHeader);
-}
-
-async function synthesizeWithCantai(payload: PrecisionPayload) {
-  const apiKey = process.env.CANTAI_API_KEY?.trim();
-  if (!apiKey) return null;
-
-  const authHeader = `Bearer ${apiKey}`;
-  const response = await fetch(`${CANTAI_BASE}/v1/synthesize`, {
-    method: 'POST',
-    headers: {
-      Authorization: authHeader,
-      'Content-Type': 'application/json',
-      Accept: 'audio/wav, application/json',
+function makeMidi(notes: MelodyNote[], tempo: number) {
+  const bpm = Math.min(240, Math.max(40, Math.round(tempo || 120)));
+  const ticksPerSecond = (PPQ * bpm) / 60;
+  const micros = Math.round(60_000_000 / bpm);
+  const events: Array<{ tick: number; order: number; bytes: number[] }> = [
+    {
+      tick: 0,
+      order: 0,
+      bytes: [0xff, 0x51, 0x03, (micros >>> 16) & 0xff, (micros >>> 8) & 0xff, micros & 0xff],
     },
-    body: JSON.stringify({
-      song: {
-        notes: payload.notes.map((n) => n.note),
-        lyrics: payload.noteLyrics,
-        tempo: payload.tempo,
-        starts: payload.notes.map((n) => Math.round(n.start * 1000) / 1000),
-        durations: payload.notes.map((n) => Math.round(n.duration * 1000) / 1000),
-      },
-      voiceProfile: voiceProfile(payload.vocalRange),
-      outputFormat: 'wav',
-      reverb: false,
-    }),
+  ];
+
+  let lastTick = 0;
+  for (const note of notes) {
+    if (!Number.isFinite(note.midi) || !Number.isFinite(note.start) || !Number.isFinite(note.duration)) continue;
+    const midi = Math.min(127, Math.max(0, Math.round(note.midi as number)));
+    const startSeconds = Math.min(59.5, Math.max(0, note.start));
+    const endSeconds = Math.min(59.9, Math.max(startSeconds + 0.06, startSeconds + note.duration));
+    const startTick = Math.round(startSeconds * ticksPerSecond);
+    const endTick = Math.max(startTick + 1, Math.round(endSeconds * ticksPerSecond));
+    events.push({ tick: startTick, order: 2, bytes: [0x90, midi, 92] });
+    events.push({ tick: endTick, order: 1, bytes: [0x80, midi, 0] });
+    lastTick = Math.max(lastTick, endTick);
+  }
+
+  events.sort((a, b) => a.tick - b.tick || a.order - b.order);
+  const track: number[] = [];
+  let previousTick = 0;
+  for (const event of events) {
+    track.push(...vlq(event.tick - previousTick), ...event.bytes);
+    previousTick = event.tick;
+  }
+
+  const minimumEndTick = Math.round(5 * ticksPerSecond);
+  const endTick = Math.max(lastTick, minimumEndTick);
+  track.push(...vlq(endTick - previousTick), 0xff, 0x2f, 0x00);
+
+  const header = [
+    0x4d, 0x54, 0x68, 0x64,
+    0x00, 0x00, 0x00, 0x06,
+    0x00, 0x00,
+    0x00, 0x01,
+    (PPQ >>> 8) & 0xff, PPQ & 0xff,
+  ];
+  const chunk = [0x4d, 0x54, 0x72, 0x6b, ...u32(track.length), ...track];
+  return Buffer.from([...header, ...chunk]);
+}
+
+async function getToolId(apiKey: string, operation: string, model: string) {
+  const response = await fetch(`${BASE}/v1/tools`, {
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     cache: 'no-store',
   });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.message || data?.error || 'Could not load Soundverse tools.');
+  const tools: Tool[] = Array.isArray(data) ? data : Array.isArray(data?.tools) ? data.tools : [];
+  const tool = tools.find((item) => item.operation === operation && item.model === model);
+  if (!tool?.id) throw new Error(`Soundverse ${operation} ${model} is not enabled for this account.`);
+  return tool.id;
+}
 
-  return audioResponseFromProvider(response, 'cantai', authHeader);
+function safeRequestId(value: unknown) {
+  const clean = String(value || '').replace(/[^A-Za-z0-9_.:-]/g, '').slice(0, 120);
+  return clean || `${Date.now()}`;
 }
 
 export async function POST(req: Request) {
+  const apiKey = process.env.SOUNDVERSE_API_KEY?.trim();
+  if (!apiKey) {
+    return NextResponse.json({ error: 'SOUNDVERSE_API_KEY is not configured.' }, { status: 503 });
+  }
+
   try {
-    const { lyrics, vocalRange = 'Tenor', analysis, tempo = 120 } = await req.json();
+    const { lyrics, analysis, tempo = 120, requestId } = await req.json();
     const notes: MelodyNote[] = Array.isArray(analysis?.notes)
-      ? analysis.notes
-          .filter((n: MelodyNote) => n?.note && Number.isFinite(n?.start) && Number.isFinite(n?.duration))
-          .map((n: MelodyNote) => ({ note: n.note, midi: n.midi, start: n.start, duration: n.duration }))
+      ? analysis.notes.filter((note: MelodyNote) => Number.isFinite(note?.midi) && Number.isFinite(note?.start) && Number.isFinite(note?.duration))
       : [];
 
     if (!lyrics?.trim() || !notes.length) {
       return NextResponse.json({ error: 'Fitted lyrics and analyzed melody notes are required.' }, { status: 400 });
     }
 
-    const noteLyrics = await makeNoteLyrics(lyrics, notes, process.env.OPENAI_API_KEY);
-    const payload: PrecisionPayload = {
-      lyrics,
-      vocalRange,
-      tempo: Number.isFinite(Number(tempo)) ? Number(tempo) : 120,
-      notes,
-      noteLyrics,
-    };
+    const midi = makeMidi(notes, Number(tempo) || 120);
+    const encoded = midi.toString('base64url');
+    const origin = new URL(req.url).origin;
+    const midiUrl = `${origin}/api/soundverse/midi-file?data=${encodeURIComponent(encoded)}`;
+    const toolId = await getToolId(apiKey, 'midi_to_song', 'v7');
 
-    const preferred = (process.env.PRECISION_VOCAL_PROVIDER || 'auto').toLowerCase();
-    const errors: string[] = [];
+    const response = await fetch(`${BASE}/v1/generations`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+        'Idempotency-Key': `ai-songs-midi-${safeRequestId(requestId)}`,
+      },
+      body: JSON.stringify({
+        tool_id: toolId,
+        license: 1,
+        payload_json: JSON.stringify({
+          midi: { url: midiUrl },
+          lyrics: String(lyrics).slice(0, 3000),
+          versions: 1,
+        }),
+      }),
+      cache: 'no-store',
+    });
 
-    if (preferred === 'diffsinger' || preferred === 'auto') {
-      try {
-        const result = await synthesizeWithDiffSinger(payload);
-        if (result) return result;
-      } catch (error) {
-        errors.push(error instanceof Error ? error.message : 'DiffSinger failed.');
-        if (preferred === 'diffsinger') {
-          return NextResponse.json({ error: errors[0] }, { status: 502 });
-        }
-      }
-    }
-
-    if (preferred === 'cantai' || preferred === 'auto') {
-      try {
-        const result = await synthesizeWithCantai(payload);
-        if (result) return result;
-      } catch (error) {
-        errors.push(error instanceof Error ? error.message : 'Cantai failed.');
-        if (preferred === 'cantai') {
-          return NextResponse.json({ error: errors[errors.length - 1] }, { status: 502 });
-        }
-      }
-    }
-
-    if (errors.length) {
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
       return NextResponse.json(
-        { error: 'No precision vocal provider completed the render.', detail: errors.join(' | ') },
-        { status: 502 },
+        { error: data?.message || data?.error || 'Soundverse MIDI-to-Song could not start.', detail: data },
+        { status: response.status },
       );
     }
 
+    const taskId = data?.task_id || data?.job_id || data?.id;
+    if (!taskId) return NextResponse.json({ error: 'Soundverse did not return a task ID.' }, { status: 502 });
+
     return NextResponse.json(
-      {
-        error: 'No precision vocal provider is configured yet.',
-        needsSetup: true,
-        setup: 'Configure DIFFSINGER_API_URL for a self-hosted DiffSinger-compatible service, or CANTAI_API_KEY as an optional fallback.',
-      },
-      { status: 503 },
+      { provider: 'soundverse', stage: 'song', taskId: String(taskId), status: data?.status || 'queued' },
+      { status: 202 },
     );
   } catch (error) {
     console.error(error);
-    return NextResponse.json({ error: 'Precision guide vocal generation failed.' }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not start Soundverse precision vocal generation.' }, { status: 500 });
   }
 }

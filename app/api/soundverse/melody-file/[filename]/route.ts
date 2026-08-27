@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 
-const lamejs = require('lamejs');
+const lamejs = require('@breezystack/lamejs');
 
 type CompactNote = [number, number, number];
 
@@ -68,6 +68,6 @@ export async function GET(req: Request) {
     });
   } catch (error) {
     console.error(error);
-    return NextResponse.json({ error: 'Could not synthesize melody guide.' }, { status: 400 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not synthesize melody guide.' }, { status: 400 });
   }
 }

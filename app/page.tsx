@@ -1,10 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { unzipSync } from 'fflate';
 import DrobMixPlayer from './DrobMixPlayer';
+import { getSongVersions, listSongs, saveVersion, type SavedSong, type SavedVersion } from './songStore';
 
 type StartMode = 'music' | 'lyrics' | 'melody';
+type Screen = 'create' | 'songs';
 
 const modes = [
   { id: 'music' as StartMode, icon: '🎹', title: 'Music First', copy: 'Generate the music first, then build lyrics, melody, and your final vocal around it.' },
@@ -28,7 +30,12 @@ function audioMime(name: string) {
   return 'audio/mpeg';
 }
 
+function blobUrl(blob?: Blob) {
+  return blob ? URL.createObjectURL(blob) : '';
+}
+
 export default function Home() {
+  const [screen, setScreen] = useState<Screen>('create');
   const [mode, setMode] = useState<StartMode>('music');
   const [vocalRange, setVocalRange] = useState('Baritone');
   const [prompt, setPrompt] = useState('');
@@ -46,6 +53,28 @@ export default function Home() {
   const [drobVocalUrl, setDrobVocalUrl] = useState('');
   const [guideVocalUrl, setGuideVocalUrl] = useState('');
   const [backingUrl, setBackingUrl] = useState('');
+  const [masterBlob, setMasterBlob] = useState<Blob | null>(null);
+  const [songTitle, setSongTitle] = useState('Untitled Song');
+  const [currentSongId, setCurrentSongId] = useState<string | undefined>();
+  const [currentVersionNumber, setCurrentVersionNumber] = useState<number | undefined>();
+  const [saveStatus, setSaveStatus] = useState('');
+  const [songs, setSongs] = useState<SavedSong[]>([]);
+  const [versionsBySong, setVersionsBySong] = useState<Record<string, SavedVersion[]>>({});
+
+  async function refreshLibrary() {
+    try {
+      const allSongs = await listSongs();
+      setSongs(allSongs);
+      const pairs = await Promise.all(allSongs.map(async (song) => [song.id, await getSongVersions(song.id)] as const));
+      setVersionsBySong(Object.fromEntries(pairs));
+    } catch {
+      setSongs([]);
+    }
+  }
+
+  useEffect(() => {
+    if (screen === 'songs') refreshLibrary();
+  }, [screen]);
 
   async function generateDirection() {
     setLoading(true);
@@ -75,7 +104,10 @@ export default function Home() {
     setDrobVocalUrl('');
     setGuideVocalUrl('');
     setBackingUrl('');
+    setMasterBlob(null);
     setGeneratedBlob(null);
+    setCurrentVersionNumber(undefined);
+    setSaveStatus('');
 
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
@@ -90,11 +122,7 @@ export default function Home() {
       const res = await fetch('/api/elevenlabs/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: productionPrompt,
-          music_length_ms: durationMs,
-          force_instrumental: instrumental,
-        }),
+        body: JSON.stringify({ prompt: productionPrompt, music_length_ms: durationMs, force_instrumental: instrumental }),
       });
 
       if (!res.ok) {
@@ -137,6 +165,7 @@ export default function Home() {
     setDrobLoading(true);
     setDrobError('');
     setDrobStatus('Finding Drob voice…');
+    setMasterBlob(null);
 
     try {
       const modelsRes = await fetch('/api/kits/models', { cache: 'no-store' });
@@ -149,10 +178,7 @@ export default function Home() {
       const stemForm = new FormData();
       stemForm.append('file', generatedBlob, 'generated-song.mp3');
       const stemsRes = await fetch('/api/elevenlabs/stems', { method: 'POST', body: stemForm });
-      if (!stemsRes.ok) {
-        const message = await stemsRes.text();
-        throw new Error(message || 'ElevenLabs stem separation failed.');
-      }
+      if (!stemsRes.ok) throw new Error((await stemsRes.text()) || 'ElevenLabs stem separation failed.');
 
       const archive = unzipSync(new Uint8Array(await stemsRes.arrayBuffer()));
       const entries = Object.entries(archive).filter(([name]) => /\.(mp3|wav|m4a)$/i.test(name));
@@ -188,6 +214,117 @@ export default function Home() {
     }
   }
 
+  async function urlToBlob(url: string) {
+    if (!url) return undefined;
+    const res = await fetch(url);
+    if (!res.ok) return undefined;
+    return res.blob();
+  }
+
+  async function saveCurrentVersion() {
+    if (!generatedBlob) return;
+    setSaveStatus('Saving song version…');
+    try {
+      const [backingBlob, guideVocalBlob, drobVocalBlob] = await Promise.all([
+        urlToBlob(backingUrl),
+        urlToBlob(guideVocalUrl),
+        urlToBlob(drobVocalUrl),
+      ]);
+      const saved = await saveVersion({
+        songId: currentSongId,
+        title: songTitle.trim() || 'Untitled Song',
+        prompt,
+        mode,
+        vocalRange,
+        durationMs,
+        instrumental,
+        generatedBlob,
+        backingBlob,
+        guideVocalBlob,
+        drobVocalBlob,
+        masterBlob: masterBlob || undefined,
+      });
+      setCurrentSongId(saved.song.id);
+      setCurrentVersionNumber(saved.version.versionNumber);
+      setSaveStatus(`Saved Version ${saved.version.versionNumber}`);
+    } catch (error) {
+      setSaveStatus(error instanceof Error ? error.message : 'Could not save this version.');
+    }
+  }
+
+  function loadSavedVersion(song: SavedSong, version: SavedVersion) {
+    setCurrentSongId(song.id);
+    setCurrentVersionNumber(version.versionNumber);
+    setSongTitle(song.title);
+    setPrompt(version.prompt);
+    setMode(version.mode);
+    setVocalRange(version.vocalRange);
+    setDurationMs(version.durationMs);
+    setInstrumental(version.instrumental);
+    setGeneratedBlob(version.generatedBlob || null);
+    setAudioUrl(blobUrl(version.generatedBlob));
+    setBackingUrl(blobUrl(version.backingBlob));
+    setGuideVocalUrl(blobUrl(version.guideVocalBlob));
+    setDrobVocalUrl(blobUrl(version.drobVocalBlob));
+    setMasterBlob(version.masterBlob || null);
+    setDrobStatus(version.drobVocalBlob ? `Loaded ${song.title} — Version ${version.versionNumber}` : '');
+    setSaveStatus(`Loaded Version ${version.versionNumber}`);
+    setScreen('create');
+  }
+
+  function newSong() {
+    setCurrentSongId(undefined);
+    setCurrentVersionNumber(undefined);
+    setSongTitle('Untitled Song');
+    setPrompt('');
+    setGeneratedBlob(null);
+    setAudioUrl('');
+    setBackingUrl('');
+    setGuideVocalUrl('');
+    setDrobVocalUrl('');
+    setMasterBlob(null);
+    setSaveStatus('');
+    setDrobStatus('');
+    setScreen('create');
+  }
+
+  if (screen === 'songs') {
+    return (
+      <main>
+        <section className="hero">
+          <div className="brand">AI SONGS</div>
+          <p className="eyebrow">Song Library</p>
+          <h1>Your songs & versions.</h1>
+          <p className="sub">Saved locally on this device so your audio and versions survive refreshes.</p>
+          <button className="primary" onClick={newSong}>＋ New Song</button>
+        </section>
+
+        <section className="panel">
+          {songs.length === 0 && <div className="statusBox">No saved songs yet. Create a song, then tap Save Song Version.</div>}
+          {songs.map((song) => (
+            <div className="playerCard" key={song.id}>
+              <strong>{song.title}</strong>
+              <small>{(versionsBySong[song.id] || []).length} saved version(s)</small>
+              {(versionsBySong[song.id] || []).map((version) => (
+                <button className="secondary" key={version.id} onClick={() => loadSavedVersion(song, version)}>
+                  Open Version {version.versionNumber} · {new Date(version.createdAt).toLocaleString()}
+                </button>
+              ))}
+            </div>
+          ))}
+        </section>
+
+        <nav className="bottomNav">
+          <span onClick={() => setScreen('create')}>🏠<small>Home</small></span>
+          <span className="navActive">🎵<small>Songs</small></span>
+          <span onClick={newSong}>＋<small>Create</small></span>
+          <span>🎚️<small>Mix</small></span>
+          <span>📄<small>Sheets</small></span>
+        </nav>
+      </main>
+    );
+  }
+
   return (
     <main>
       <section className="hero">
@@ -198,13 +335,17 @@ export default function Home() {
       </section>
 
       <section className="panel">
+        <h2>Song project</h2>
+        <input value={songTitle} onChange={(e) => setSongTitle(e.target.value)} placeholder="Song title" />
+        {currentVersionNumber && <div className="statusBox">Working from Version {currentVersionNumber}</div>}
+      </section>
+
+      <section className="panel">
         <h2>How do you want to start?</h2>
         <div className="modeGrid">
           {modes.map((item) => (
             <button key={item.id} className={`modeCard ${mode === item.id ? 'active' : ''}`} onClick={() => setMode(item.id)}>
-              <span className="icon">{item.icon}</span>
-              <strong>{item.title}</strong>
-              <small>{item.copy}</small>
+              <span className="icon">{item.icon}</span><strong>{item.title}</strong><small>{item.copy}</small>
             </button>
           ))}
         </div>
@@ -212,9 +353,7 @@ export default function Home() {
 
       <section className="panel">
         <h2>Lead vocal range</h2>
-        <div className="chips">
-          {ranges.map((r) => <button key={r} className={vocalRange === r ? 'chip activeChip' : 'chip'} onClick={() => setVocalRange(r)}>{r}</button>)}
-        </div>
+        <div className="chips">{ranges.map((r) => <button key={r} className={vocalRange === r ? 'chip activeChip' : 'chip'} onClick={() => setVocalRange(r)}>{r}</button>)}</div>
       </section>
 
       <section className="panel">
@@ -225,9 +364,7 @@ export default function Home() {
           <div className="musicControls">
             <div>
               <div className="controlLabel">Generation length</div>
-              <div className="chips">
-                {durations.map((d) => <button key={d.value} className={durationMs === d.value ? 'chip activeChip' : 'chip'} onClick={() => setDurationMs(d.value)}>{d.label}</button>)}
-              </div>
+              <div className="chips">{durations.map((d) => <button key={d.value} className={durationMs === d.value ? 'chip activeChip' : 'chip'} onClick={() => setDurationMs(d.value)}>{d.label}</button>)}</div>
             </div>
 
             <label className="toggleRow">
@@ -239,14 +376,9 @@ export default function Home() {
 
             {audioUrl && (
               <div className="playerCard">
-                <strong>Generated track</strong>
-                <audio controls src={audioUrl} />
-                {!instrumental && generatedBlob && (
-                  <button className="secondary" onClick={useDrobVoice} disabled={drobLoading}>
-                    {drobLoading ? 'Building Clean Drob Vocal…' : 'Use Drob Voice — Clean Stem'}
-                  </button>
-                )}
-                <small>{instrumental ? 'Instrumental version ready for lyrics and vocals.' : 'Drob now uses ElevenLabs’ dedicated vocal stem instead of a second separation pass through Kits.'}</small>
+                <strong>Generated track</strong><audio controls src={audioUrl} />
+                {!instrumental && generatedBlob && <button className="secondary" onClick={useDrobVoice} disabled={drobLoading}>{drobLoading ? 'Building Clean Drob Vocal…' : 'Use Drob Voice — Clean Stem'}</button>}
+                <small>{instrumental ? 'Instrumental version ready for lyrics and vocals.' : 'Drob uses ElevenLabs’ dedicated vocal stem before Kits conversion.'}</small>
               </div>
             )}
 
@@ -254,7 +386,15 @@ export default function Home() {
             {drobError && <div className="errorBox">{drobError}</div>}
 
             {drobVocalUrl && backingUrl && guideVocalUrl && (
-              <DrobMixPlayer backingUrl={backingUrl} guideVocalUrl={guideVocalUrl} drobVocalUrl={drobVocalUrl} />
+              <DrobMixPlayer backingUrl={backingUrl} guideVocalUrl={guideVocalUrl} drobVocalUrl={drobVocalUrl} onMasterRendered={setMasterBlob} />
+            )}
+
+            {generatedBlob && (
+              <div className="playerCard">
+                <button className="primary" onClick={saveCurrentVersion}>💾 Save Song Version</button>
+                {saveStatus && <small>{saveStatus}</small>}
+                <small>Saving again creates the next version instead of overwriting the previous one.</small>
+              </div>
             )}
 
             {musicError && <div className="errorBox">{musicError}</div>}
@@ -268,8 +408,8 @@ export default function Home() {
 
       <nav className="bottomNav">
         <span>🏠<small>Home</small></span>
-        <span>🎵<small>Songs</small></span>
-        <span className="navActive">＋<small>Create</small></span>
+        <span onClick={() => setScreen('songs')}>🎵<small>Songs</small></span>
+        <span className="navActive" onClick={newSong}>＋<small>Create</small></span>
         <span>🎚️<small>Mix</small></span>
         <span>📄<small>Sheets</small></span>
       </nav>

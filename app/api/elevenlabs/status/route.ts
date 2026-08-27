@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 
+// Connectivity probe for the production ElevenLabs Music v2 integration.
 export async function GET() {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {

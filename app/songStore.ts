@@ -1,5 +1,7 @@
 'use client';
 
+import type { MelodyAnalysis } from './MelodyWorkspace';
+
 export type SavedSong = {
   id: string;
   title: string;
@@ -18,6 +20,8 @@ export type SavedVersion = {
   durationMs: number;
   instrumental: boolean;
   lyrics?: string;
+  melodyBlob?: Blob;
+  melodyAnalysis?: MelodyAnalysis;
   generatedBlob?: Blob;
   backingBlob?: Blob;
   guideVocalBlob?: Blob;
@@ -110,6 +114,8 @@ export async function saveVersion(input: SaveVersionInput) {
       durationMs: input.durationMs,
       instrumental: input.instrumental,
       lyrics: input.lyrics,
+      melodyBlob: input.melodyBlob,
+      melodyAnalysis: input.melodyAnalysis,
       generatedBlob: input.generatedBlob,
       backingBlob: input.backingBlob,
       guideVocalBlob: input.guideVocalBlob,

@@ -329,7 +329,7 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
         try {
           const parsed = JSON.parse(raw);
           message = parsed.error || parsed.detail || message;
-          if (parsed.needsSetup) message += ' Add CANTAI_API_KEY in Vercel Environment Variables.';
+          if (parsed.needsSetup && parsed.setup) message += ` ${parsed.setup}`;
         } catch {}
         throw new Error(message);
       }
@@ -337,7 +337,8 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
       const contentType = response.headers.get('content-type') || '';
       if (contentType.includes('application/json')) {
         const data = await response.json();
-        throw new Error(data?.status === 'queued' ? 'Cantai queued the render; background polling is the next connector step.' : 'Cantai did not return audio yet.');
+        const provider = data?.provider ? ` (${data.provider})` : '';
+        throw new Error(data?.status === 'queued' ? `Precision vocal render queued${provider}; background polling is the next connector step.` : `Precision vocal provider did not return audio yet${provider}.`);
       }
 
       const blob = await response.blob();
@@ -345,7 +346,8 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
       const url = URL.createObjectURL(blob);
       setPrecisionGuideUrl(url);
       onPrecisionGuide(blob);
-      setStatus('Precision guide vocal ready — dry, note-timed, and ready for Drob.');
+      const provider = response.headers.get('x-precision-provider');
+      setStatus(`Precision guide vocal ready${provider ? ` via ${provider}` : ''} — dry, note-timed, and ready for Drob.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not generate the precision guide vocal.');
     } finally {
@@ -410,7 +412,7 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
       {analysis && lyrics.trim() && (
         <div className="playerCard">
           <strong>Precision Vocal Engine</strong>
-          <small>Render a dry guide singer from the exact detected notes and fitted lyrics, before any reverb or backing track.</small>
+          <small>Render a dry guide singer from the exact detected notes and fitted lyrics. The app can use a self-hosted DiffSinger-compatible engine first, with an optional fallback provider.</small>
           <button className="primary" onClick={generatePrecisionGuide} disabled={guideLoading}>
             {guideLoading ? 'Rendering Precision Guide…' : '4. Generate Precision Guide Vocal'}
           </button>

@@ -45,6 +45,7 @@ export default function Home() {
   const [lyricsStatus, setLyricsStatus] = useState('');
   const [melodyBlob, setMelodyBlob] = useState<Blob | null>(null);
   const [melodyAnalysis, setMelodyAnalysis] = useState<MelodyAnalysis | null>(null);
+  const [precisionGuideBlob, setPrecisionGuideBlob] = useState<Blob | null>(null);
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
   const [musicLoading, setMusicLoading] = useState(false);
@@ -129,12 +130,15 @@ export default function Home() {
     setDrobStatus('');
     setDrobError('');
     setDrobVocalUrl('');
-    setGuideVocalUrl('');
-    setBackingUrl('');
     setMasterBlob(null);
     setGeneratedBlob(null);
     setCurrentVersionNumber(undefined);
     setSaveStatus('');
+
+    if (!precisionGuideBlob) {
+      setGuideVocalUrl('');
+    }
+    setBackingUrl('');
 
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
@@ -171,7 +175,9 @@ export default function Home() {
 
       const blob = await res.blob();
       setGeneratedBlob(blob);
-      setAudioUrl(URL.createObjectURL(blob));
+      const url = URL.createObjectURL(blob);
+      setAudioUrl(url);
+      if (instrumental) setBackingUrl(url);
     } catch {
       setMusicError('Could not reach ElevenLabs Music v2.');
     } finally {
@@ -191,6 +197,45 @@ export default function Home() {
     throw new Error('Voice conversion timed out. Try again.');
   }
 
+  async function findDrobModel() {
+    const modelsRes = await fetch('/api/kits/models', { cache: 'no-store' });
+    const models = await modelsRes.json();
+    const model = models?.data?.find((m: { title?: string; isUsable?: boolean }) => m.title?.toLowerCase() === 'drob' && m.isUsable)
+      || models?.data?.find((m: { isUsable?: boolean }) => m.isUsable);
+    if (!modelsRes.ok || !model?.id) throw new Error('No usable Kits custom voice was found.');
+    return model;
+  }
+
+  async function convertGuideToDrob(guideBlob: Blob, filename = 'precision-guide.wav') {
+    setDrobLoading(true);
+    setDrobError('');
+    setDrobStatus('Sending the dry precision guide to Drob…');
+    setMasterBlob(null);
+
+    try {
+      const model = await findDrobModel();
+      const guideUrl = URL.createObjectURL(guideBlob);
+      setGuideVocalUrl(guideUrl);
+
+      const convertForm = new FormData();
+      convertForm.append('file', guideBlob, filename);
+      convertForm.append('modelId', String(model.id));
+      convertForm.append('pitchShift', '0');
+      const convertRes = await fetch('/api/kits/convert', { method: 'POST', body: convertForm });
+      const conversionJob = await convertRes.json();
+      if (!convertRes.ok || !conversionJob?.id) throw new Error(conversionJob?.error || 'Could not start Drob voice conversion.');
+
+      await waitForConversion(conversionJob.id);
+      setDrobVocalUrl(`/api/kits/conversion-audio?id=${encodeURIComponent(String(conversionJob.id))}`);
+      setDrobStatus('Drob precision vocal is ready.');
+    } catch (error) {
+      setDrobError(error instanceof Error ? error.message : 'Could not create the Drob precision vocal.');
+      setDrobStatus('');
+    } finally {
+      setDrobLoading(false);
+    }
+  }
+
   async function useDrobVoice() {
     if (!generatedBlob || instrumental) return;
     setDrobLoading(true);
@@ -199,11 +244,7 @@ export default function Home() {
     setMasterBlob(null);
 
     try {
-      const modelsRes = await fetch('/api/kits/models', { cache: 'no-store' });
-      const models = await modelsRes.json();
-      const model = models?.data?.find((m: { title?: string; isUsable?: boolean }) => m.title?.toLowerCase() === 'drob' && m.isUsable)
-        || models?.data?.find((m: { isUsable?: boolean }) => m.isUsable);
-      if (!modelsRes.ok || !model?.id) throw new Error('No usable Kits custom voice was found.');
+      const model = await findDrobModel();
 
       setDrobStatus('Creating clean vocal and instrumental stems in ElevenLabs…');
       const stemForm = new FormData();
@@ -253,7 +294,7 @@ export default function Home() {
   }
 
   async function saveCurrentVersion() {
-    if (!generatedBlob && !lyrics.trim() && !melodyBlob) return;
+    if (!generatedBlob && !lyrics.trim() && !melodyBlob && !precisionGuideBlob) return;
     setSaveStatus('Saving song version…');
     try {
       const [backingBlob, guideVocalBlob, drobVocalBlob] = await Promise.all([
@@ -272,6 +313,7 @@ export default function Home() {
         lyrics: lyrics || undefined,
         melodyBlob: melodyBlob || undefined,
         melodyAnalysis: melodyAnalysis || undefined,
+        precisionGuideBlob: precisionGuideBlob || undefined,
         generatedBlob: generatedBlob || undefined,
         backingBlob,
         guideVocalBlob,
@@ -294,6 +336,7 @@ export default function Home() {
     setLyrics(version.lyrics || '');
     setMelodyBlob(version.melodyBlob || null);
     setMelodyAnalysis(version.melodyAnalysis || null);
+    setPrecisionGuideBlob(version.precisionGuideBlob || null);
     setMode(version.mode);
     setVocalRange(version.vocalRange);
     setDurationMs(version.durationMs);
@@ -301,7 +344,7 @@ export default function Home() {
     setGeneratedBlob(version.generatedBlob || null);
     setAudioUrl(blobUrl(version.generatedBlob));
     setBackingUrl(blobUrl(version.backingBlob));
-    setGuideVocalUrl(blobUrl(version.guideVocalBlob));
+    setGuideVocalUrl(blobUrl(version.guideVocalBlob || version.precisionGuideBlob));
     setDrobVocalUrl(blobUrl(version.drobVocalBlob));
     setMasterBlob(version.masterBlob || null);
     setDrobStatus(version.drobVocalBlob ? `Loaded ${song.title} — Version ${version.versionNumber}` : '');
@@ -317,6 +360,7 @@ export default function Home() {
     setLyrics('');
     setMelodyBlob(null);
     setMelodyAnalysis(null);
+    setPrecisionGuideBlob(null);
     setGeneratedBlob(null);
     setAudioUrl('');
     setBackingUrl('');
@@ -430,6 +474,7 @@ export default function Home() {
               lyrics={lyrics}
               initialBlob={melodyBlob}
               initialAnalysis={melodyAnalysis}
+              initialPrecisionGuide={precisionGuideBlob}
               onLyricsFitted={(fittedLyrics) => {
                 setLyrics(fittedLyrics);
                 setLyricsStatus('Lyrics fitted to your melody.');
@@ -437,8 +482,33 @@ export default function Home() {
               onMelodyChanged={(blob, analysis) => {
                 setMelodyBlob(blob);
                 setMelodyAnalysis(analysis);
+                setPrecisionGuideBlob(null);
+              }}
+              onPrecisionGuide={(blob) => {
+                setPrecisionGuideBlob(blob);
+                setGuideVocalUrl(URL.createObjectURL(blob));
+                setDrobVocalUrl('');
               }}
             />
+
+            {precisionGuideBlob && (
+              <div className="playerCard">
+                <strong>Precision guide → Drob</strong>
+                <small>This bypasses ElevenLabs vocal extraction. Kits receives the dry score-based guide directly.</small>
+                <button className="primary" onClick={() => convertGuideToDrob(precisionGuideBlob)} disabled={drobLoading}>
+                  {drobLoading ? 'Creating Drob Precision Vocal…' : '5. Convert Precision Guide to Drob'}
+                </button>
+                {drobStatus && <div className="statusBox">{drobStatus}</div>}
+                {drobError && <div className="errorBox">{drobError}</div>}
+                {drobVocalUrl && (
+                  <>
+                    <small>Drob precision vocal</small>
+                    <audio controls src={drobVocalUrl} />
+                  </>
+                )}
+              </div>
+            )}
+
             {lyrics.trim() && (
               <div className="playerCard">
                 <strong>Melody-fit lyrics</strong>
@@ -462,6 +532,9 @@ export default function Home() {
             {melodyAnalysis && (
               <div className="statusBox">Melody attached: {melodyAnalysis.lowestNote}–{melodyAnalysis.highestNote}, {melodyAnalysis.phrases.length} phrases.</div>
             )}
+            {precisionGuideBlob && (
+              <div className="statusBox">Precision guide attached. You can generate an instrumental around it, then mix with Drob.</div>
+            )}
             <div>
               <div className="controlLabel">Generation length</div>
               <div className="chips">{durations.map((d) => <button key={d.value} className={durationMs === d.value ? 'chip activeChip' : 'chip'} onClick={() => setDurationMs(d.value)}>{d.label}</button>)}</div>
@@ -477,8 +550,13 @@ export default function Home() {
             {audioUrl && (
               <div className="playerCard">
                 <strong>Generated track</strong><audio controls src={audioUrl} />
-                {!instrumental && generatedBlob && <button className="secondary" onClick={useDrobVoice} disabled={drobLoading}>{drobLoading ? 'Building Clean Drob Vocal…' : 'Use Drob Voice — Clean Stem'}</button>}
-                <small>{instrumental ? 'Instrumental version ready for lyrics and vocals.' : 'Drob uses ElevenLabs’ dedicated vocal stem before Kits conversion.'}</small>
+                {!instrumental && generatedBlob && !precisionGuideBlob && <button className="secondary" onClick={useDrobVoice} disabled={drobLoading}>{drobLoading ? 'Building Clean Drob Vocal…' : 'Use Drob Voice — Clean Stem'}</button>}
+                {precisionGuideBlob && !drobVocalUrl && (
+                  <button className="secondary" onClick={() => convertGuideToDrob(precisionGuideBlob)} disabled={drobLoading}>
+                    {drobLoading ? 'Creating Drob Precision Vocal…' : 'Use Precision Guide for Drob'}
+                  </button>
+                )}
+                <small>{precisionGuideBlob ? 'Precision mode uses the dry score-based vocal instead of extracting a singer from the generated song.' : instrumental ? 'Instrumental version ready for lyrics and vocals.' : 'Drob uses ElevenLabs’ dedicated vocal stem before Kits conversion.'}</small>
               </div>
             )}
 

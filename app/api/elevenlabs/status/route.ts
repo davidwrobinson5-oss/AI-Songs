@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 
 // Connectivity probe for the production ElevenLabs Music v2 integration.
+// Rebuilt after ELEVENLABS_API_KEY was corrected in Vercel.
 export async function GET() {
   const apiKey = process.env.ELEVENLABS_API_KEY;
   if (!apiKey) {

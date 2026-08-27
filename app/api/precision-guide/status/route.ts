@@ -52,15 +52,7 @@ function pickAudioAsset(assets: Asset[]) {
   return assets.find((asset) => assetFileId(asset)) || null;
 }
 
-async function signedDownload(apiKey: string, fileId: string) {
-  const data = await getJson(apiKey, `${BASE}/v1/files/${encodeURIComponent(fileId)}/download`);
-  const url = data?.download_url || data?.signed_url || data?.url;
-  if (!url) throw new Error('Soundverse did not return a downloadable song URL.');
-  return String(url);
-}
-
 async function startStemSplit(apiKey: string, songFileId: string, requestId: string) {
-  const audioUrl = await signedDownload(apiKey, songFileId);
   const toolId = await getToolId(apiKey, 'separate_stems', '2stem');
   const response = await fetch(`${BASE}/v1/generations`, {
     method: 'POST',
@@ -73,7 +65,7 @@ async function startStemSplit(apiKey: string, songFileId: string, requestId: str
     body: JSON.stringify({
       tool_id: toolId,
       license: 1,
-      payload_json: JSON.stringify({ audio: { url: audioUrl } }),
+      payload_json: JSON.stringify({ audio: { file_id: songFileId } }),
     }),
     cache: 'no-store',
   });

@@ -62,6 +62,14 @@ patchFile('app/MelodyWorkspace.tsx', [
 
 patchFile('app/page.tsx', [
   [
+    "import DrobMixPlayer from './DrobMixPlayer';",
+    "import DrobMixPlayer from './DrobMixPlayer';\nimport TrainVoiceWorkspace from './TrainVoiceWorkspace';",
+  ],
+  [
+    "type Screen = 'create' | 'songs';",
+    "type Screen = 'create' | 'songs' | 'train';",
+  ],
+  [
 `              onPrecisionGuide={(blob) => {
                 setPrecisionGuideBlob(blob);
                 setGuideVocalUrl(URL.createObjectURL(blob));
@@ -78,6 +86,37 @@ patchFile('app/page.tsx', [
     '<small>This bypasses ElevenLabs vocal extraction. Kits receives the dry score-based guide directly.</small>',
     '<small>The Drob vocal now uses the instrumental separated from the exact same Mureka performance for tight alignment.</small>',
   ],
+  [
+`  if (screen === 'songs') {`,
+`  if (screen === 'train') {
+    return (
+      <main>
+        <section className="hero">
+          <div className="brand">AI SONGS</div>
+          <p className="eyebrow">Voice Lab</p>
+          <h1>Build your own singing voice.</h1>
+          <p className="sub">Record and prepare a clean voice-training dataset from your phone.</p>
+        </section>
+        <TrainVoiceWorkspace />
+        <nav className="bottomNav">
+          <span onClick={() => setScreen('create')}>🏠<small>Home</small></span>
+          <span onClick={() => setScreen('songs')}>🎵<small>Songs</small></span>
+          <span onClick={newSong}>＋<small>Create</small></span>
+          <span className="navActive">🎤<small>Train Voice</small></span>
+          <span>🎚️<small>Mix</small></span>
+        </nav>
+      </main>
+    );
+  }
+
+  if (screen === 'songs') {`,
+  ],
+  [
+`        <span>🎚️<small>Mix</small></span>
+        <span>📄<small>Sheets</small></span>`,
+`        <span onClick={() => setScreen('train')}>🎤<small>Train Voice</small></span>
+        <span>🎚️<small>Mix</small></span>`,
+  ],
 ]);
 
-console.log('Applied aligned Mureka backing patch.');
+console.log('Applied aligned Mureka backing and Voice Lab patches.');

@@ -8,8 +8,8 @@
     "start": "next start"
   },
   "dependencies": {
+    "@breezystack/lamejs": "^1.2.7",
     "fflate": "latest",
-    "lamejs": "^1.2.1",
     "next": "latest",
     "openai": "latest",
     "react": "latest",

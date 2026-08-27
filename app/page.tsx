@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 type StartMode = 'music' | 'lyrics' | 'melody';
 
@@ -17,6 +17,8 @@ const durations = [
   { label: '2 min', value: 120000 },
 ];
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 export default function Home() {
   const [mode, setMode] = useState<StartMode>('music');
   const [vocalRange, setVocalRange] = useState('Baritone');
@@ -26,8 +28,17 @@ export default function Home() {
   const [musicLoading, setMusicLoading] = useState(false);
   const [musicError, setMusicError] = useState('');
   const [audioUrl, setAudioUrl] = useState('');
+  const [generatedBlob, setGeneratedBlob] = useState<Blob | null>(null);
   const [durationMs, setDurationMs] = useState(30000);
   const [instrumental, setInstrumental] = useState(true);
+  const [drobLoading, setDrobLoading] = useState(false);
+  const [drobStatus, setDrobStatus] = useState('');
+  const [drobError, setDrobError] = useState('');
+  const [drobVocalUrl, setDrobVocalUrl] = useState('');
+  const [backingUrl, setBackingUrl] = useState('');
+
+  const backingRef = useRef<HTMLAudioElement>(null);
+  const vocalRef = useRef<HTMLAudioElement>(null);
 
   async function generateDirection() {
     setLoading(true);
@@ -52,6 +63,11 @@ export default function Home() {
     setMusicLoading(true);
     setMusicError('');
     setResult('');
+    setDrobStatus('');
+    setDrobError('');
+    setDrobVocalUrl('');
+    setBackingUrl('');
+    setGeneratedBlob(null);
 
     if (audioUrl) {
       URL.revokeObjectURL(audioUrl);
@@ -87,12 +103,102 @@ export default function Home() {
       }
 
       const blob = await res.blob();
+      setGeneratedBlob(blob);
       setAudioUrl(URL.createObjectURL(blob));
     } catch {
       setMusicError('Could not reach ElevenLabs Music v2.');
     } finally {
       setMusicLoading(false);
     }
+  }
+
+  async function waitForSeparation(id: number | string) {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const res = await fetch(`/api/kits/separation-status?id=${encodeURIComponent(String(id))}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Could not check vocal separation.');
+      if (data.status === 'success') return data;
+      if (data.status === 'error' || data.status === 'cancelled') throw new Error('Kits vocal separation failed.');
+      await sleep(2000);
+    }
+    throw new Error('Vocal separation timed out. Try again.');
+  }
+
+  async function waitForConversion(id: number | string) {
+    for (let attempt = 0; attempt < 60; attempt++) {
+      const res = await fetch(`/api/kits/conversion-status?id=${encodeURIComponent(String(id))}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Could not check voice conversion.');
+      if (data.status === 'success') return data;
+      if (data.status === 'error' || data.status === 'cancelled') throw new Error('Kits voice conversion failed.');
+      await sleep(2000);
+    }
+    throw new Error('Voice conversion timed out. Try again.');
+  }
+
+  async function useDrobVoice() {
+    if (!generatedBlob || instrumental) return;
+    setDrobLoading(true);
+    setDrobError('');
+    setDrobStatus('Finding Drob voice…');
+
+    try {
+      const modelsRes = await fetch('/api/kits/models', { cache: 'no-store' });
+      const models = await modelsRes.json();
+      const model = models?.data?.find((m: { title?: string; isUsable?: boolean }) => m.title?.toLowerCase() === 'drob' && m.isUsable)
+        || models?.data?.find((m: { isUsable?: boolean }) => m.isUsable);
+      if (!modelsRes.ok || !model?.id) throw new Error('No usable Kits custom voice was found.');
+
+      setDrobStatus('Separating the original singer…');
+      const form = new FormData();
+      form.append('file', generatedBlob, 'generated-song.mp3');
+      const separateRes = await fetch('/api/kits/separate', { method: 'POST', body: form });
+      const separationJob = await separateRes.json();
+      if (!separateRes.ok || !separationJob?.id) throw new Error(separationJob?.error || 'Could not start vocal separation.');
+
+      const separation = await waitForSeparation(separationJob.id);
+      const backing = separation.backingAudioFileUrl
+        || separation.stemFileUrls?.find((s: { instrument?: string }) => s.instrument === 'backing')?.url
+        || separation.lossyStemFileUrls?.find((s: { instrument?: string }) => s.instrument === 'backing')?.url;
+      if (!backing) throw new Error('Kits separated the vocal but did not return the backing track.');
+      setBackingUrl(backing);
+
+      setDrobStatus('Converting the singer to Drob…');
+      const convertRes = await fetch('/api/kits/convert', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ modelId: model.id, separationId: separationJob.id, pitchShift: 0 }),
+      });
+      const conversionJob = await convertRes.json();
+      if (!convertRes.ok || !conversionJob?.id) throw new Error(conversionJob?.error || 'Could not start Drob voice conversion.');
+
+      const conversion = await waitForConversion(conversionJob.id);
+      const converted = conversion.outputFileUrl || conversion.lossyOutputFileUrl || conversion.recombinedAudioFileUrl;
+      if (!converted) throw new Error('Kits finished the conversion but no output audio was returned.');
+      setDrobVocalUrl(converted);
+      setDrobStatus('Drob voice is ready.');
+    } catch (error) {
+      setDrobError(error instanceof Error ? error.message : 'Could not create the Drob vocal.');
+      setDrobStatus('');
+    } finally {
+      setDrobLoading(false);
+    }
+  }
+
+  async function playDrobMix() {
+    const backing = backingRef.current;
+    const vocal = vocalRef.current;
+    if (!backing || !vocal) return;
+    backing.pause();
+    vocal.pause();
+    backing.currentTime = 0;
+    vocal.currentTime = 0;
+    await Promise.all([backing.play(), vocal.play()]);
+  }
+
+  function stopDrobMix() {
+    backingRef.current?.pause();
+    vocalRef.current?.pause();
   }
 
   return (
@@ -139,7 +245,7 @@ export default function Home() {
 
             <label className="toggleRow">
               <input type="checkbox" checked={instrumental} onChange={(e) => setInstrumental(e.target.checked)} />
-              <span><strong>Instrumental first</strong><small>Generate the music without vocals so we can build lyrics and your final voice afterward.</small></span>
+              <span><strong>Instrumental first</strong><small>Turn this off when you want ElevenLabs to create a guide singer that we can convert into Drob.</small></span>
             </label>
 
             <button className="primary" onClick={generateMusic} disabled={musicLoading || !prompt.trim()}>{musicLoading ? 'Generating Music…' : 'Generate Music v2'}</button>
@@ -148,9 +254,38 @@ export default function Home() {
               <div className="playerCard">
                 <strong>Generated track</strong>
                 <audio controls src={audioUrl} />
-                <small>Next: keep this version, regenerate it, add lyrics, or build your vocal.</small>
+                {!instrumental && generatedBlob && (
+                  <button className="secondary" onClick={useDrobVoice} disabled={drobLoading}>
+                    {drobLoading ? 'Building Drob Vocal…' : 'Use Drob Voice'}
+                  </button>
+                )}
+                <small>{instrumental ? 'Instrumental version ready for lyrics and vocals.' : 'The generated singer is a guide. Use Drob Voice to replace that singer with your Kits voice.'}</small>
               </div>
             )}
+
+            {drobStatus && <div className="statusBox">{drobStatus}</div>}
+            {drobError && <div className="errorBox">{drobError}</div>}
+
+            {drobVocalUrl && backingUrl && (
+              <div className="playerCard">
+                <strong>Drob vocal preview</strong>
+                <div className="mixButtons">
+                  <button className="primary" onClick={playDrobMix}>▶ Play Drob + Music</button>
+                  <button className="secondary" onClick={stopDrobMix}>■ Stop</button>
+                </div>
+                <audio ref={backingRef} src={backingUrl} preload="auto" />
+                <audio ref={vocalRef} src={drobVocalUrl} preload="auto" />
+                <details>
+                  <summary>Solo tracks</summary>
+                  <small>Backing track</small>
+                  <audio controls src={backingUrl} />
+                  <small>Drob vocal</small>
+                  <audio controls src={drobVocalUrl} />
+                </details>
+                <small>This is the preview mix. The next production step is rendering the two stems into one downloadable master.</small>
+              </div>
+            )}
+
             {musicError && <div className="errorBox">{musicError}</div>}
 
             <button className="secondary" onClick={generateDirection} disabled={loading || !prompt.trim()}>{loading ? 'Planning…' : 'Plan Song Before Generating'}</button>

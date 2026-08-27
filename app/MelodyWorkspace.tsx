@@ -44,6 +44,7 @@ type Props = {
 };
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function midiToNote(midi: number) {
   const rounded = Math.round(midi);
@@ -81,8 +82,7 @@ function detectFrequency(samples: Float32Array, sampleRate: number) {
       energyA += a * a;
       energyB += b * b;
     }
-    const denom = Math.sqrt(energyA * energyB) || 1;
-    const corr = cross / denom;
+    const corr = cross / (Math.sqrt(energyA * energyB) || 1);
     if (corr > bestCorr) {
       bestCorr = corr;
       bestLag = lag;
@@ -118,22 +118,19 @@ async function analyzeMelody(blob: Blob): Promise<MelodyAnalysis> {
     const frameSize = Math.floor(targetRate * 0.05);
     const hopSize = Math.floor(targetRate * 0.04);
     const frames: Array<{ time: number; midi: number; frequency: number }> = [];
-
     for (let start = 0; start + frameSize < down.length; start += hopSize) {
-      const frame = down.subarray(start, start + frameSize);
-      const frequency = detectFrequency(frame, targetRate);
+      const frequency = detectFrequency(down.subarray(start, start + frameSize), targetRate);
       if (frequency >= 60 && frequency <= 900) {
-        const midi = 69 + 12 * Math.log2(frequency / 440);
-        frames.push({ time: start / targetRate, midi, frequency });
+        frames.push({ time: start / targetRate, midi: 69 + 12 * Math.log2(frequency / 440), frequency });
       }
     }
 
     if (frames.length < 3) throw new Error('I could not detect a stable melody. Try humming one clear note at a time with less background noise.');
 
-    const smoothed = frames.map((frame, i) => {
-      const neighborhood = frames.slice(Math.max(0, i - 1), Math.min(frames.length, i + 2)).map((f) => f.midi);
-      return { ...frame, midi: median(neighborhood) };
-    });
+    const smoothed = frames.map((frame, i) => ({
+      ...frame,
+      midi: median(frames.slice(Math.max(0, i - 1), Math.min(frames.length, i + 2)).map((f) => f.midi)),
+    }));
 
     const rawNotes: MelodyNote[] = [];
     let current: MelodyNote | null = null;
@@ -142,17 +139,9 @@ async function analyzeMelody(blob: Blob): Promise<MelodyAnalysis> {
       const noteStart = frame.time;
       const noteEnd = frame.time + hopSize / targetRate;
       if (!current) {
-        current = {
-          midi: roundedMidi,
-          note: midiToNote(roundedMidi),
-          start: noteStart,
-          end: noteEnd,
-          duration: noteEnd - noteStart,
-          frequency: frame.frequency,
-        };
+        current = { midi: roundedMidi, note: midiToNote(roundedMidi), start: noteStart, end: noteEnd, duration: noteEnd - noteStart, frequency: frame.frequency };
         continue;
       }
-
       const gap = noteStart - current.end;
       if (Math.abs(roundedMidi - current.midi) <= 1 && gap <= 0.09) {
         current.end = noteEnd;
@@ -160,39 +149,30 @@ async function analyzeMelody(blob: Blob): Promise<MelodyAnalysis> {
         current.frequency = (current.frequency + frame.frequency) / 2;
       } else {
         if (current.duration >= 0.08) rawNotes.push(current);
-        current = {
-          midi: roundedMidi,
-          note: midiToNote(roundedMidi),
-          start: noteStart,
-          end: noteEnd,
-          duration: noteEnd - noteStart,
-          frequency: frame.frequency,
-        };
+        current = { midi: roundedMidi, note: midiToNote(roundedMidi), start: noteStart, end: noteEnd, duration: noteEnd - noteStart, frequency: frame.frequency };
       }
     }
     if (current && current.duration >= 0.08) rawNotes.push(current);
-
     if (!rawNotes.length) throw new Error('I detected pitch, but not enough stable notes. Try holding each melody note a little longer.');
 
     const phrases: MelodyPhrase[] = [];
     let phraseNotes: MelodyNote[] = [];
-    function closePhrase() {
+    const closePhrase = () => {
       if (!phraseNotes.length) return;
       const start = phraseNotes[0].start;
       const end = phraseNotes[phraseNotes.length - 1].end;
       const noteDuration = phraseNotes.reduce((sum, n) => sum + n.duration, 0);
-      const suggestedSyllables = Math.max(2, Math.round(noteDuration / 0.28));
       phrases.push({
         index: phrases.length + 1,
         start,
         end,
         duration: end - start,
         noteCount: phraseNotes.length,
-        suggestedSyllables,
+        suggestedSyllables: Math.max(2, Math.round(noteDuration / 0.28)),
         notes: phraseNotes.map((n) => n.note),
       });
       phraseNotes = [];
-    }
+    };
 
     rawNotes.forEach((note, index) => {
       if (index > 0 && note.start - rawNotes[index - 1].end > 0.48) closePhrase();
@@ -203,7 +183,6 @@ async function analyzeMelody(blob: Blob): Promise<MelodyAnalysis> {
     const midis = rawNotes.map((n) => n.midi);
     const lowestMidi = Math.min(...midis);
     const highestMidi = Math.max(...midis);
-
     return {
       duration: decoded.duration,
       lowestNote: midiToNote(lowestMidi),
@@ -250,9 +229,7 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
       chunksRef.current = [];
       const recorder = new MediaRecorder(stream);
       recorderRef.current = recorder;
-      recorder.ondataavailable = (event) => {
-        if (event.data.size) chunksRef.current.push(event.data);
-      };
+      recorder.ondataavailable = (event) => { if (event.data.size) chunksRef.current.push(event.data); };
       recorder.onstop = () => {
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || 'audio/webm' });
         setBlob(blob);
@@ -315,39 +292,48 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
   async function generatePrecisionGuide() {
     if (!analysis || !lyrics.trim()) return;
     setGuideLoading(true);
-    setStatus('Rendering a dry score-based guide vocal…');
+    setStatus('Building exact MIDI from your melody…');
+    const requestId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
     try {
-      const response = await fetch('/api/precision-guide', {
+      const startRes = await fetch('/api/precision-guide', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lyrics, vocalRange, analysis, tempo: 120 }),
+        body: JSON.stringify({ lyrics, vocalRange, analysis, tempo: 120, requestId }),
       });
+      const start = await startRes.json();
+      if (!startRes.ok) throw new Error(start?.error || start?.message || 'Could not start Soundverse MIDI-to-Song.');
 
-      if (!response.ok) {
-        const raw = await response.text();
-        let message = raw || 'Precision guide vocal generation failed.';
-        try {
-          const parsed = JSON.parse(raw);
-          message = parsed.error || parsed.detail || message;
-          if (parsed.needsSetup && parsed.setup) message += ` ${parsed.setup}`;
-        } catch {}
-        throw new Error(message);
+      let stage = String(start.stage || 'song');
+      let taskId = String(start.taskId || '');
+      if (!taskId) throw new Error('Soundverse did not return a task ID.');
+
+      for (let attempt = 0; attempt < 120; attempt++) {
+        setStatus(stage === 'song' ? 'Soundverse is singing your fitted lyrics to the MIDI melody…' : 'Soundverse is isolating the vocal from the generated song…');
+        await sleep(3000);
+        const pollRes = await fetch(`/api/precision-guide/status?stage=${encodeURIComponent(stage)}&taskId=${encodeURIComponent(taskId)}&requestId=${encodeURIComponent(requestId)}`, { cache: 'no-store' });
+        const poll = await pollRes.json();
+        if (!pollRes.ok) throw new Error(poll?.error || 'Soundverse precision vocal generation failed.');
+
+        if (poll.stage === 'complete' && poll.vocalFileId) {
+          setStatus('Downloading isolated Soundverse vocal…');
+          const audioRes = await fetch(`/api/soundverse/file?fileId=${encodeURIComponent(String(poll.vocalFileId))}`, { cache: 'no-store' });
+          if (!audioRes.ok) throw new Error('Could not download the isolated Soundverse vocal.');
+          const blob = await audioRes.blob();
+          if (precisionGuideUrl) URL.revokeObjectURL(precisionGuideUrl);
+          const url = URL.createObjectURL(blob);
+          setPrecisionGuideUrl(url);
+          onPrecisionGuide(blob);
+          setStatus('Precision guide vocal ready via Soundverse — melody-following vocal isolated and ready for Drob.');
+          return;
+        }
+
+        if (poll.stage && poll.taskId) {
+          stage = String(poll.stage);
+          taskId = String(poll.taskId);
+        }
       }
-
-      const contentType = response.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const data = await response.json();
-        const provider = data?.provider ? ` (${data.provider})` : '';
-        throw new Error(data?.status === 'queued' ? `Precision vocal render queued${provider}; background polling is the next connector step.` : `Precision vocal provider did not return audio yet${provider}.`);
-      }
-
-      const blob = await response.blob();
-      if (precisionGuideUrl) URL.revokeObjectURL(precisionGuideUrl);
-      const url = URL.createObjectURL(blob);
-      setPrecisionGuideUrl(url);
-      onPrecisionGuide(blob);
-      const provider = response.headers.get('x-precision-provider');
-      setStatus(`Precision guide vocal ready${provider ? ` via ${provider}` : ''} — dry, note-timed, and ready for Drob.`);
+      throw new Error('Soundverse generation timed out. Try again.');
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not generate the precision guide vocal.');
     } finally {
@@ -361,67 +347,31 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
         <strong>1. Record or upload your melody</strong>
         <small>Hum, sing, or whistle one clear lead melody. A dry recording with little background noise works best.</small>
         <div className="mixButtons">
-          {!recording ? (
-            <button className="primary" onClick={startRecording}>🎤 Record Melody</button>
-          ) : (
-            <button className="primary" onClick={stopRecording}>■ Stop Recording</button>
-          )}
-          <label className="secondary">
-            Upload Audio
-            <input
-              type="file"
-              accept="audio/*"
-              style={{ display: 'none' }}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) setBlob(file);
-              }}
-            />
-          </label>
+          {!recording ? <button className="primary" onClick={startRecording}>🎤 Record Melody</button> : <button className="primary" onClick={stopRecording}>■ Stop Recording</button>}
+          <label className="secondary">Upload Audio<input type="file" accept="audio/*" style={{ display: 'none' }} onChange={(event) => { const file = event.target.files?.[0]; if (file) setBlob(file); }} /></label>
         </div>
         {audioUrl && <audio controls src={audioUrl} />}
       </div>
 
-      {melodyBlob && (
-        <button className="primary" onClick={analyze} disabled={analyzing}>
-          {analyzing ? 'Analyzing Melody…' : '2. Analyze Melody'}
-        </button>
-      )}
+      {melodyBlob && <button className="primary" onClick={analyze} disabled={analyzing}>{analyzing ? 'Analyzing Melody…' : '2. Analyze Melody'}</button>}
 
       {analysis && (
         <div className="playerCard">
           <strong>Melody map</strong>
           <small>Range: {analysis.lowestNote} – {analysis.highestNote} · {analysis.notes.length} notes · {analysis.phrases.length} phrases</small>
-          {analysis.phrases.map((phrase) => (
-            <div className="statusBox" key={phrase.index}>
-              Phrase {phrase.index}: {phrase.notes.join(' ')} · about {phrase.suggestedSyllables} syllables
-            </div>
-          ))}
-          <button className="primary" onClick={fitLyrics} disabled={fitting}>
-            {fitting ? 'Fitting Lyrics…' : '3. Fit Lyrics to This Melody'}
-          </button>
+          {analysis.phrases.map((phrase) => <div className="statusBox" key={phrase.index}>Phrase {phrase.index}: {phrase.notes.join(' ')} · about {phrase.suggestedSyllables} syllables</div>)}
+          <button className="primary" onClick={fitLyrics} disabled={fitting}>{fitting ? 'Fitting Lyrics…' : '3. Fit Lyrics to This Melody'}</button>
         </div>
       )}
 
-      {fitScore !== null && (
-        <div className="statusBox">
-          Melody fit score: {fitScore}/100{fitNotes ? ` · ${fitNotes}` : ''}
-        </div>
-      )}
+      {fitScore !== null && <div className="statusBox">Melody fit score: {fitScore}/100{fitNotes ? ` · ${fitNotes}` : ''}</div>}
 
       {analysis && lyrics.trim() && (
         <div className="playerCard">
-          <strong>Precision Vocal Engine</strong>
-          <small>Render a dry guide singer from the exact detected notes and fitted lyrics. The app can use a self-hosted DiffSinger-compatible engine first, with an optional fallback provider.</small>
-          <button className="primary" onClick={generatePrecisionGuide} disabled={guideLoading}>
-            {guideLoading ? 'Rendering Precision Guide…' : '4. Generate Precision Guide Vocal'}
-          </button>
-          {precisionGuideUrl && (
-            <>
-              <small>Dry precision guide</small>
-              <audio controls src={precisionGuideUrl} />
-            </>
-          )}
+          <strong>Precision Vocal Engine — Soundverse</strong>
+          <small>AI-Songs converts your detected notes into MIDI, Soundverse v7 follows that melody with your fitted lyrics, then separates the vocal for Drob conversion.</small>
+          <button className="primary" onClick={generatePrecisionGuide} disabled={guideLoading}>{guideLoading ? 'Building Precision Vocal…' : '4. Generate Precision Guide Vocal'}</button>
+          {precisionGuideUrl && <><small>Isolated melody-following guide vocal</small><audio controls src={precisionGuideUrl} /></>}
         </div>
       )}
 

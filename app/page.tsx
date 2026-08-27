@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { unzipSync } from 'fflate';
 import DrobMixPlayer from './DrobMixPlayer';
+import MelodyWorkspace, { type MelodyAnalysis } from './MelodyWorkspace';
 import { getSongVersions, listSongs, saveVersion, type SavedSong, type SavedVersion } from './songStore';
 
 type StartMode = 'music' | 'lyrics' | 'melody';
@@ -42,6 +43,8 @@ export default function Home() {
   const [lyrics, setLyrics] = useState('');
   const [lyricsLoading, setLyricsLoading] = useState(false);
   const [lyricsStatus, setLyricsStatus] = useState('');
+  const [melodyBlob, setMelodyBlob] = useState<Blob | null>(null);
+  const [melodyAnalysis, setMelodyAnalysis] = useState<MelodyAnalysis | null>(null);
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
   const [musicLoading, setMusicLoading] = useState(false);
@@ -139,9 +142,12 @@ export default function Home() {
     }
 
     const lyricInstruction = lyrics.trim() ? `\n\nUse these lyrics as the song text:\n${lyrics}` : '';
+    const melodyInstruction = melodyAnalysis
+      ? `\n\nThe lead melody was analyzed as ${melodyAnalysis.lowestNote} to ${melodyAnalysis.highestNote} with ${melodyAnalysis.phrases.length} phrases. Keep vocal phrasing compatible with that melodic shape.`
+      : '';
     const productionPrompt = instrumental
-      ? `${prompt}\n\nGenerate an original instrumental composition with no vocals. Leave space for a future ${vocalRange} lead vocal.`
-      : `${prompt}\n\nGenerate an original song. Keep the lead vocal comfortably suited to a ${vocalRange} range.${lyricInstruction}`;
+      ? `${prompt}\n\nGenerate an original instrumental composition with no vocals. Leave space for a future ${vocalRange} lead vocal.${melodyInstruction}`
+      : `${prompt}\n\nGenerate an original song. Keep the lead vocal comfortably suited to a ${vocalRange} range.${lyricInstruction}${melodyInstruction}`;
 
     try {
       const res = await fetch('/api/elevenlabs/generate', {
@@ -247,7 +253,7 @@ export default function Home() {
   }
 
   async function saveCurrentVersion() {
-    if (!generatedBlob && !lyrics.trim()) return;
+    if (!generatedBlob && !lyrics.trim() && !melodyBlob) return;
     setSaveStatus('Saving song version…');
     try {
       const [backingBlob, guideVocalBlob, drobVocalBlob] = await Promise.all([
@@ -264,6 +270,8 @@ export default function Home() {
         durationMs,
         instrumental,
         lyrics: lyrics || undefined,
+        melodyBlob: melodyBlob || undefined,
+        melodyAnalysis: melodyAnalysis || undefined,
         generatedBlob: generatedBlob || undefined,
         backingBlob,
         guideVocalBlob,
@@ -284,6 +292,8 @@ export default function Home() {
     setSongTitle(song.title);
     setPrompt(version.prompt);
     setLyrics(version.lyrics || '');
+    setMelodyBlob(version.melodyBlob || null);
+    setMelodyAnalysis(version.melodyAnalysis || null);
     setMode(version.mode);
     setVocalRange(version.vocalRange);
     setDurationMs(version.durationMs);
@@ -305,6 +315,8 @@ export default function Home() {
     setSongTitle('Untitled Song');
     setPrompt('');
     setLyrics('');
+    setMelodyBlob(null);
+    setMelodyAnalysis(null);
     setGeneratedBlob(null);
     setAudioUrl('');
     setBackingUrl('');
@@ -324,12 +336,12 @@ export default function Home() {
           <div className="brand">AI SONGS</div>
           <p className="eyebrow">Song Library</p>
           <h1>Your songs & versions.</h1>
-          <p className="sub">Saved locally on this device so your audio, lyrics, and versions survive refreshes.</p>
+          <p className="sub">Saved locally on this device so your audio, lyrics, melodies, and versions survive refreshes.</p>
           <button className="primary" onClick={newSong}>＋ New Song</button>
         </section>
 
         <section className="panel">
-          {songs.length === 0 && <div className="statusBox">No saved songs yet. Create lyrics or music, then tap Save Song Version.</div>}
+          {songs.length === 0 && <div className="statusBox">No saved songs yet. Create lyrics, a melody, or music, then tap Save Song Version.</div>}
           {songs.map((song) => (
             <div className="playerCard" key={song.id}>
               <strong>{song.title}</strong>
@@ -410,6 +422,35 @@ export default function Home() {
           </div>
         )}
 
+        {mode === 'melody' && (
+          <div className="musicControls">
+            <MelodyWorkspace
+              prompt={prompt}
+              vocalRange={vocalRange}
+              lyrics={lyrics}
+              initialBlob={melodyBlob}
+              initialAnalysis={melodyAnalysis}
+              onLyricsFitted={(fittedLyrics) => {
+                setLyrics(fittedLyrics);
+                setLyricsStatus('Lyrics fitted to your melody.');
+              }}
+              onMelodyChanged={(blob, analysis) => {
+                setMelodyBlob(blob);
+                setMelodyAnalysis(analysis);
+              }}
+            />
+            {lyrics.trim() && (
+              <div className="playerCard">
+                <strong>Melody-fit lyrics</strong>
+                <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} style={{ minHeight: 300 }} />
+                <button className="primary" onClick={saveCurrentVersion}>💾 Save Melody Version</button>
+                {saveStatus && <small>{saveStatus}</small>}
+                <button className="secondary" onClick={() => setMode('music')}>Continue to Music →</button>
+              </div>
+            )}
+          </div>
+        )}
+
         {mode === 'music' && (
           <div className="musicControls">
             {lyrics.trim() && (
@@ -417,6 +458,9 @@ export default function Home() {
                 <summary>Lyrics attached to this song</summary>
                 <pre style={{ whiteSpace: 'pre-wrap' }}>{lyrics}</pre>
               </details>
+            )}
+            {melodyAnalysis && (
+              <div className="statusBox">Melody attached: {melodyAnalysis.lowestNote}–{melodyAnalysis.highestNote}, {melodyAnalysis.phrases.length} phrases.</div>
             )}
             <div>
               <div className="controlLabel">Generation length</div>
@@ -458,7 +502,6 @@ export default function Home() {
           </div>
         )}
 
-        {mode === 'melody' && <button className="primary" onClick={generateDirection} disabled={loading || !prompt.trim()}>{loading ? 'Creating…' : 'Create Melody Direction'}</button>}
         {result && <div className="result"><pre>{result}</pre></div>}
       </section>
 

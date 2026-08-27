@@ -177,10 +177,8 @@ export default function Home() {
       const conversionJob = await convertRes.json();
       if (!convertRes.ok || !conversionJob?.id) throw new Error(conversionJob?.error || 'Could not start Drob voice conversion.');
 
-      const conversion = await waitForConversion(conversionJob.id);
-      const converted = conversion.outputFileUrl || conversion.lossyOutputFileUrl || conversion.recombinedAudioFileUrl;
-      if (!converted) throw new Error('Kits finished the conversion but no output audio was returned.');
-      setDrobVocalUrl(converted);
+      await waitForConversion(conversionJob.id);
+      setDrobVocalUrl(`/api/kits/conversion-audio?id=${encodeURIComponent(String(conversionJob.id))}`);
       setDrobStatus('Drob voice is ready. Use the auto-aligned mix below.');
     } catch (error) {
       setDrobError(error instanceof Error ? error.message : 'Could not create the Drob vocal.');

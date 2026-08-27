@@ -79,9 +79,10 @@ export async function GET(req: Request) {
   if (!elevenLabsKey) return NextResponse.json({ error: 'ELEVENLABS_API_KEY is not configured.' }, { status: 503 });
 
   try {
-    // Legacy query name retained so the current mobile UI keeps working while
-    // the provider underneath has been switched from Soundverse to Mureka.
-    const taskId = new URL(req.url).searchParams.get('fileId');
+    const requestUrl = new URL(req.url);
+    // Legacy query name retained so existing saved/client flows keep working.
+    const taskId = requestUrl.searchParams.get('fileId');
+    const archiveRequested = requestUrl.searchParams.get('archive') === '1';
     if (!taskId) return NextResponse.json({ error: 'fileId is required.' }, { status: 400 });
 
     const song = await fetchMurekaSong(murekaKey, taskId);
@@ -101,7 +102,21 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: text || 'ElevenLabs stem separation failed.' }, { status: stemsRes.status });
     }
 
-    const archive = unzipSync(new Uint8Array(await stemsRes.arrayBuffer()));
+    const archiveBytes = new Uint8Array(await stemsRes.arrayBuffer());
+    if (archiveRequested) {
+      return new NextResponse(archiveBytes, {
+        status: 200,
+        headers: {
+          'Content-Type': 'application/zip',
+          'Content-Length': String(archiveBytes.byteLength),
+          'Cache-Control': 'no-store',
+          'X-Precision-Provider': 'mureka',
+        },
+      });
+    }
+
+    // Legacy behavior: return only the vocal stem.
+    const archive = unzipSync(archiveBytes);
     const entries = Object.entries(archive).filter(([name]) => /\.(mp3|wav|m4a)$/i.test(name));
     const vocalEntry = entries.find(([name]) => /vocal/i.test(name) && !/instrumental|accompaniment|backing|music/i.test(name));
     if (!vocalEntry) return NextResponse.json({ error: 'Could not identify the vocal stem returned by ElevenLabs.' }, { status: 502 });

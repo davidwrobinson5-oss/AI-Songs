@@ -101,7 +101,7 @@ patchFile('app/page.tsx', [
         <nav className="bottomNav">
           <span onClick={() => setScreen('create')}>🏠<small>Home</small></span>
           <span onClick={() => setScreen('songs')}>🎵<small>Songs</small></span>
-          <span className="navActive">🎤<small>Train Voice</small></span>
+          <span className="navActive">🎤<small>Voice</small></span>
           <span>🎚️<small>Mix</small></span>
           <span>📄<small>Sheets</small></span>
         </nav>
@@ -114,7 +114,7 @@ patchFile('app/page.tsx', [
   [
 `        <span>🎚️<small>Mix</small></span>
         <span>📄<small>Sheets</small></span>`,
-`        <span onClick={() => setScreen('train')}>🎤<small>Train Voice</small></span>
+`        <span onClick={() => setScreen('train')}>🎤<small>Voice</small></span>
         <span>🎚️<small>Mix</small></span>
         <span>📄<small>Sheets</small></span>`,
   ],
@@ -124,7 +124,8 @@ patchFile('app/page.tsx', [
   const path = 'app/page.tsx';
   let source = fs.readFileSync(path, 'utf8');
   source = source.replace(/\n\s*<span(?: className="navActive")? onClick=\{newSong\}>＋<small>Create<\/small><\/span>/g, '');
+  source = source.replace(/<small>Train Voice<\/small>/g, '<small>Voice</small>');
   fs.writeFileSync(path, source);
 }
 
-console.log('Applied aligned Mureka backing, Voice Lab, Sheets navigation, and removed duplicate Create nav icon.');
+console.log('Applied aligned Mureka backing, Voice Lab, Sheets navigation, Voice label, and removed duplicate Create nav icon.');

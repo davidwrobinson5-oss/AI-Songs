@@ -215,7 +215,8 @@ async function blobToMp3(blob: Blob) {
     }
     const finalChunk = encoder.flush();
     if (finalChunk.length) chunks.push(new Uint8Array(finalChunk));
-    return new Blob(chunks, { type: 'audio/mpeg' });
+    const blobParts: BlobPart[] = chunks.map((chunk) => chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength) as ArrayBuffer);
+    return new Blob(blobParts, { type: 'audio/mpeg' });
   } finally {
     await context.close().catch(() => undefined);
   }

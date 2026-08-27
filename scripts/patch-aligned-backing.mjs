@@ -101,7 +101,6 @@ patchFile('app/page.tsx', [
         <nav className="bottomNav">
           <span onClick={() => setScreen('create')}>🏠<small>Home</small></span>
           <span onClick={() => setScreen('songs')}>🎵<small>Songs</small></span>
-          <span onClick={newSong}>＋<small>Create</small></span>
           <span className="navActive">🎤<small>Train Voice</small></span>
           <span>🎚️<small>Mix</small></span>
           <span>📄<small>Sheets</small></span>
@@ -121,4 +120,11 @@ patchFile('app/page.tsx', [
   ],
 ]);
 
-console.log('Applied aligned Mureka backing, Voice Lab, and Sheets navigation patches.');
+{
+  const path = 'app/page.tsx';
+  let source = fs.readFileSync(path, 'utf8');
+  source = source.replace(/\n\s*<span(?: className="navActive")? onClick=\{newSong\}>＋<small>Create<\/small><\/span>/g, '');
+  fs.writeFileSync(path, source);
+}
+
+console.log('Applied aligned Mureka backing, Voice Lab, Sheets navigation, and removed duplicate Create nav icon.');

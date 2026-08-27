@@ -111,7 +111,7 @@ export async function POST(req: Request) {
     const midi = makeMidi(notes, Number(tempo) || 120);
     const encoded = midi.toString('base64url');
     const origin = new URL(req.url).origin;
-    const midiUrl = `${origin}/api/soundverse/midi-file?data=${encodeURIComponent(encoded)}`;
+    const midiUrl = `${origin}/api/soundverse/midi-file/ai-songs-melody.mid?data=${encodeURIComponent(encoded)}`;
     const toolId = await getToolId(apiKey, 'midi_to_song', 'v7');
 
     const response = await fetch(`${BASE}/v1/generations`, {

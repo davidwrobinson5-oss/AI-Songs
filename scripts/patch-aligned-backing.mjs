@@ -16,6 +16,10 @@ patchFile('app/MelodyWorkspace.tsx', [
     "import { useRef, useState } from 'react';\nimport { unzipSync } from 'fflate';",
   ],
   [
+    "const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));",
+    "const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));\n\nfunction audioMime(name: string) {\n  const lower = name.toLowerCase();\n  if (lower.endsWith('.wav')) return 'audio/wav';\n  if (lower.endsWith('.m4a')) return 'audio/mp4';\n  return 'audio/mpeg';\n}",
+  ],
+  [
     '  onPrecisionGuide: (blob: Blob) => void;',
     '  onPrecisionGuide: (vocalBlob: Blob, backingBlob?: Blob) => void;',
   ],

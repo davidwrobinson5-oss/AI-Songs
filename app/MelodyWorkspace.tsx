@@ -197,6 +197,30 @@ async function analyzeMelody(blob: Blob): Promise<MelodyAnalysis> {
   }
 }
 
+async function blobToMp3(blob: Blob) {
+  const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextCtor) throw new Error('This browser cannot prepare melody audio.');
+  const context = new AudioContextCtor();
+  try {
+    const decoded = await context.decodeAudioData((await blob.arrayBuffer()).slice(0));
+    const source = decoded.getChannelData(0);
+    const samples = new Int16Array(source.length);
+    for (let i = 0; i < source.length; i++) samples[i] = Math.max(-32768, Math.min(32767, Math.round(source[i] * 32767)));
+    const { Mp3Encoder } = await import('@breezystack/lamejs');
+    const encoder = new Mp3Encoder(1, decoded.sampleRate, 128);
+    const chunks: Uint8Array[] = [];
+    for (let offset = 0; offset < samples.length; offset += 1152) {
+      const encoded = encoder.encodeBuffer(samples.subarray(offset, Math.min(samples.length, offset + 1152)));
+      if (encoded.length) chunks.push(new Uint8Array(encoded));
+    }
+    const finalChunk = encoder.flush();
+    if (finalChunk.length) chunks.push(new Uint8Array(finalChunk));
+    return new Blob(chunks, { type: 'audio/mpeg' });
+  } finally {
+    await context.close().catch(() => undefined);
+  }
+}
+
 export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlob, initialAnalysis, initialPrecisionGuide, onLyricsFitted, onMelodyChanged, onPrecisionGuide }: Props) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -290,41 +314,43 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
   }
 
   async function generatePrecisionGuide() {
-    if (!analysis || !lyrics.trim()) return;
+    if (!analysis || !lyrics.trim() || !melodyBlob) return;
     setGuideLoading(true);
-    setStatus('Building exact MIDI from your melody…');
+    setStatus('Preparing your recorded melody for Mureka…');
     const requestId = typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
     try {
-      const startRes = await fetch('/api/precision-guide', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ lyrics, vocalRange, analysis, tempo: 120, requestId }),
-      });
+      const melodyMp3 = await blobToMp3(melodyBlob);
+      const form = new FormData();
+      form.append('melody', melodyMp3, 'ai-songs-melody.mp3');
+      form.append('lyrics', lyrics);
+      form.append('requestId', requestId);
+
+      const startRes = await fetch('/api/precision-guide', { method: 'POST', body: form });
       const start = await startRes.json();
-      if (!startRes.ok) throw new Error(start?.error || start?.message || 'Could not start Soundverse MIDI-to-Song.');
+      if (!startRes.ok) throw new Error(start?.error || start?.message || 'Could not start Mureka melody generation.');
 
       let stage = String(start.stage || 'song');
       let taskId = String(start.taskId || '');
-      if (!taskId) throw new Error('Soundverse did not return a task ID.');
+      if (!taskId) throw new Error('Mureka did not return a task ID.');
 
       for (let attempt = 0; attempt < 120; attempt++) {
-        setStatus(stage === 'song' ? 'Soundverse is singing your fitted lyrics to the MIDI melody…' : 'Soundverse is isolating the vocal from the generated song…');
+        setStatus('Mureka is singing your fitted lyrics to your recorded melody…');
         await sleep(3000);
         const pollRes = await fetch(`/api/precision-guide/status?stage=${encodeURIComponent(stage)}&taskId=${encodeURIComponent(taskId)}&requestId=${encodeURIComponent(requestId)}`, { cache: 'no-store' });
         const poll = await pollRes.json();
-        if (!pollRes.ok) throw new Error(poll?.error || 'Soundverse precision vocal generation failed.');
+        if (!pollRes.ok) throw new Error(poll?.error || 'Mureka precision vocal generation failed.');
 
         if (poll.stage === 'complete' && poll.vocalFileId) {
-          setStatus('Downloading isolated Soundverse vocal…');
+          setStatus('Isolating the Mureka vocal with ElevenLabs…');
           const audioRes = await fetch(`/api/soundverse/file?fileId=${encodeURIComponent(String(poll.vocalFileId))}`, { cache: 'no-store' });
-          if (!audioRes.ok) throw new Error('Could not download the isolated Soundverse vocal.');
+          if (!audioRes.ok) throw new Error('Could not isolate the Mureka vocal.');
           const blob = await audioRes.blob();
           if (precisionGuideUrl) URL.revokeObjectURL(precisionGuideUrl);
           const url = URL.createObjectURL(blob);
           setPrecisionGuideUrl(url);
           onPrecisionGuide(blob);
-          setStatus('Precision guide vocal ready via Soundverse — melody-following vocal isolated and ready for Drob.');
+          setStatus('Precision guide vocal ready via Mureka — isolated and ready for Drob.');
           return;
         }
 
@@ -333,7 +359,7 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
           taskId = String(poll.taskId);
         }
       }
-      throw new Error('Soundverse generation timed out. Try again.');
+      throw new Error('Mureka generation timed out. Try again.');
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not generate the precision guide vocal.');
     } finally {
@@ -368,8 +394,8 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
 
       {analysis && lyrics.trim() && (
         <div className="playerCard">
-          <strong>Precision Vocal Engine — Soundverse</strong>
-          <small>AI-Songs converts your detected notes into MIDI, Soundverse v7 follows that melody with your fitted lyrics, then separates the vocal for Drob conversion.</small>
+          <strong>Precision Vocal Engine — Mureka</strong>
+          <small>AI-Songs sends your recorded melody directly to Mureka with the fitted lyrics, then isolates the vocal for Drob conversion.</small>
           <button className="primary" onClick={generatePrecisionGuide} disabled={guideLoading}>{guideLoading ? 'Building Precision Vocal…' : '4. Generate Precision Guide Vocal'}</button>
           {precisionGuideUrl && <><small>Isolated melody-following guide vocal</small><audio controls src={precisionGuideUrl} /></>}
         </div>

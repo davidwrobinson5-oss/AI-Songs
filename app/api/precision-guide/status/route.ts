@@ -37,7 +37,17 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'Mureka generation succeeded without an audio choice.', detail: task }, { status: 502 });
     }
 
-    return NextResponse.json({ provider: 'mureka', stage: 'complete', taskId, status: 'completed' });
+    // Keep the existing MelodyWorkspace handoff shape while the provider is Mureka.
+    // The legacy file proxy interprets this value as the Mureka task ID and returns
+    // the isolated vocal after ElevenLabs stem separation.
+    return NextResponse.json({
+      provider: 'mureka',
+      stage: 'complete',
+      taskId,
+      status: 'completed',
+      vocalFileId: taskId,
+      instrumentalFileId: taskId,
+    });
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not check Mureka precision vocal status.' }, { status: 500 });

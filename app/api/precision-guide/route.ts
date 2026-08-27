@@ -102,11 +102,11 @@ export async function POST(req: Request) {
     const melodyId = upload?.id || upload?.file_id;
     if (!melodyId) return NextResponse.json({ error: 'Mureka did not return a melody file ID.' }, { status: 502 });
 
-    // Mureka documents melody_id as a standalone control. Do not combine it
-    // with gender/prompt/reference/vocal controls. Drob supplies the final voice.
+    // Melody control must be used by itself. Let Mureka choose the newest regular
+    // model that this API account is actually entitled to use.
     const payload = {
       lyrics: String(lyrics).slice(0, 5000),
-      model: 'mureka-9.5',
+      model: 'auto',
       melody_id: String(melodyId),
       n: 1,
       stream: false,
@@ -136,7 +136,7 @@ export async function POST(req: Request) {
       taskId: String(taskId),
       status: generation?.status || 'preparing',
       melodyId: String(melodyId),
-      model: generation?.model || 'mureka-9.5',
+      model: generation?.model || 'auto',
       traceId: generation?.trace_id || null,
     }, { status: 202 });
   } catch (error) {

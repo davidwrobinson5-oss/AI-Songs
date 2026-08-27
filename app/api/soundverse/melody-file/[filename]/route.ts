@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server';
+import { Mp3Encoder } from '@breezystack/lamejs';
 
 type CompactNote = [number, number, number];
 
-function synthesizeWav(notes: CompactNote[]) {
-  const sampleRate = 22050;
+function synthesizePcm(notes: CompactNote[]) {
+  const sampleRate = 44_100;
   const duration = Math.min(59, Math.max(5, ...notes.map(([, start, noteDuration]) => start + noteDuration + 0.25)));
   const samples = new Int16Array(Math.ceil(duration * sampleRate));
 
@@ -30,27 +31,23 @@ function synthesizeWav(notes: CompactNote[]) {
     }
   }
 
-  const pcmBuffer = Buffer.alloc(samples.length * 2);
-  for (let i = 0; i < samples.length; i++) {
-    pcmBuffer.writeInt16LE(samples[i], i * 2);
+  return { samples, sampleRate };
+}
+
+function encodeMp3(samples: Int16Array, sampleRate: number) {
+  const encoder = new Mp3Encoder(1, sampleRate, 128);
+  const chunks: Buffer[] = [];
+  const frameSize = 1152;
+
+  for (let offset = 0; offset < samples.length; offset += frameSize) {
+    const chunk = samples.subarray(offset, Math.min(samples.length, offset + frameSize));
+    const encoded = encoder.encodeBuffer(chunk);
+    if (encoded.length) chunks.push(Buffer.from(encoded));
   }
 
-  const header = Buffer.alloc(44);
-  header.write('RIFF', 0);
-  header.writeUInt32LE(36 + pcmBuffer.length, 4);
-  header.write('WAVE', 8);
-  header.write('fmt ', 12);
-  header.writeUInt32LE(16, 16);
-  header.writeUInt16LE(1, 20);
-  header.writeUInt16LE(1, 22);
-  header.writeUInt32LE(sampleRate, 24);
-  header.writeUInt32LE(sampleRate * 2, 28);
-  header.writeUInt16LE(2, 32);
-  header.writeUInt16LE(16, 34);
-  header.write('data', 36);
-  header.writeUInt32LE(pcmBuffer.length, 40);
-
-  return Buffer.concat([header, pcmBuffer]);
+  const finalChunk = encoder.flush();
+  if (finalChunk.length) chunks.push(Buffer.from(finalChunk));
+  return Buffer.concat(chunks);
 }
 
 export async function GET(req: Request) {
@@ -74,20 +71,26 @@ export async function GET(req: Request) {
       return NextResponse.json({ error: 'No valid melody notes.' }, { status: 400 });
     }
 
-    const wav = synthesizeWav(notes);
-    return new NextResponse(wav, {
+    const { samples, sampleRate } = synthesizePcm(notes);
+    const mp3 = encodeMp3(samples, sampleRate);
+
+    if (!mp3.length) {
+      return NextResponse.json({ error: 'MP3 encoding failed.' }, { status: 500 });
+    }
+
+    return new NextResponse(mp3, {
       status: 200,
       headers: {
-        'Content-Type': 'audio/wav',
-        'Content-Disposition': 'inline; filename="ai-songs-melody.wav"',
+        'Content-Type': 'audio/mpeg',
+        'Content-Disposition': 'inline; filename="ai-songs-melody.mp3"',
         'Cache-Control': 'public, max-age=600',
-        'Content-Length': String(wav.length),
+        'Content-Length': String(mp3.length),
       },
     });
   } catch (error) {
     console.error(error);
     return NextResponse.json(
-      { error: error instanceof Error ? error.message : 'Could not synthesize melody guide.' },
+      { error: error instanceof Error ? error.message : 'Could not encode melody guide.' },
       { status: 400 },
     );
   }

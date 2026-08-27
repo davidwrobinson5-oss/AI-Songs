@@ -44,6 +44,36 @@ function firstOnsetSeconds(buffer: AudioBuffer) {
   return 0;
 }
 
+function lastActiveSeconds(buffer: AudioBuffer) {
+  const channels = Array.from({ length: buffer.numberOfChannels }, (_, i) => buffer.getChannelData(i));
+  const sampleRate = buffer.sampleRate;
+  const windowSize = Math.max(256, Math.floor(sampleRate * 0.02));
+  let peakRms = 0;
+  const rmsValues: number[] = [];
+
+  for (let start = 0; start < buffer.length; start += windowSize) {
+    const end = Math.min(start + windowSize, buffer.length);
+    let sum = 0;
+    let count = 0;
+    for (let i = start; i < end; i++) {
+      let sample = 0;
+      for (const channel of channels) sample += channel[i] || 0;
+      sample /= channels.length || 1;
+      sum += sample * sample;
+      count++;
+    }
+    const rms = Math.sqrt(sum / Math.max(1, count));
+    rmsValues.push(rms);
+    peakRms = Math.max(peakRms, rms);
+  }
+
+  const threshold = Math.max(0.0035, peakRms * 0.06);
+  for (let i = rmsValues.length - 1; i >= 0; i--) {
+    if (rmsValues[i] >= threshold) return Math.min(buffer.duration, (i + 1) * windowSize / sampleRate);
+  }
+  return buffer.duration;
+}
+
 export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl }: Props) {
   const contextRef = useRef<AudioContext | null>(null);
   const sourcesRef = useRef<AudioBufferSourceNode[]>([]);
@@ -86,7 +116,13 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl 
 
       const guideOnset = firstOnsetSeconds(guide);
       const drobOnset = firstOnsetSeconds(drob);
-      const desiredOffset = guideOnset - drobOnset;
+      const guideEnd = lastActiveSeconds(guide);
+      const drobEnd = lastActiveSeconds(drob);
+      const guideActive = Math.max(0.25, guideEnd - guideOnset);
+      const drobActive = Math.max(0.25, drobEnd - drobOnset);
+      const rawRate = drobActive / guideActive;
+      const playbackRate = Math.min(1.04, Math.max(0.96, rawRate));
+      const desiredOffset = guideOnset - (drobOnset / playbackRate);
 
       const backingSource = context.createBufferSource();
       const vocalSource = context.createBufferSource();
@@ -95,6 +131,7 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl 
 
       backingSource.buffer = backing;
       vocalSource.buffer = drob;
+      vocalSource.playbackRate.value = playbackRate;
       backingGain.gain.value = 0.92;
       vocalGain.gain.value = 0.95;
 
@@ -106,11 +143,13 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl 
       if (desiredOffset >= 0) {
         vocalSource.start(startAt + desiredOffset);
       } else {
-        vocalSource.start(startAt, Math.min(-desiredOffset, drob.duration));
+        vocalSource.start(startAt, Math.min(-desiredOffset * playbackRate, drob.duration));
       }
 
       sourcesRef.current = [backingSource, vocalSource];
-      setStatus(`Auto-aligned Drob by ${Math.round(desiredOffset * 1000)} ms`);
+      const offsetMs = Math.round(desiredOffset * 1000);
+      const driftPct = Math.round((playbackRate - 1) * 10000) / 100;
+      setStatus(`Aligned Drob: ${offsetMs} ms offset, ${driftPct >= 0 ? '+' : ''}${driftPct}% timing correction`);
     } catch {
       setStatus('Could not auto-align these stems.');
     }

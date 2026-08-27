@@ -22,6 +22,7 @@ export type SavedVersion = {
   lyrics?: string;
   melodyBlob?: Blob;
   melodyAnalysis?: MelodyAnalysis;
+  precisionGuideBlob?: Blob;
   generatedBlob?: Blob;
   backingBlob?: Blob;
   guideVocalBlob?: Blob;
@@ -116,6 +117,7 @@ export async function saveVersion(input: SaveVersionInput) {
       lyrics: input.lyrics,
       melodyBlob: input.melodyBlob,
       melodyAnalysis: input.melodyAnalysis,
+      precisionGuideBlob: input.precisionGuideBlob,
       generatedBlob: input.generatedBlob,
       backingBlob: input.backingBlob,
       guideVocalBlob: input.guideVocalBlob,

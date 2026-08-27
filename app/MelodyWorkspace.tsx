@@ -37,8 +37,10 @@ type Props = {
   lyrics: string;
   initialBlob?: Blob | null;
   initialAnalysis?: MelodyAnalysis | null;
+  initialPrecisionGuide?: Blob | null;
   onLyricsFitted: (lyrics: string) => void;
   onMelodyChanged: (blob: Blob, analysis: MelodyAnalysis) => void;
+  onPrecisionGuide: (blob: Blob) => void;
 };
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -216,7 +218,7 @@ async function analyzeMelody(blob: Blob): Promise<MelodyAnalysis> {
   }
 }
 
-export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlob, initialAnalysis, onLyricsFitted, onMelodyChanged }: Props) {
+export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlob, initialAnalysis, initialPrecisionGuide, onLyricsFitted, onMelodyChanged, onPrecisionGuide }: Props) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -229,6 +231,8 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
   const [fitting, setFitting] = useState(false);
   const [fitScore, setFitScore] = useState<number | null>(null);
   const [fitNotes, setFitNotes] = useState('');
+  const [guideLoading, setGuideLoading] = useState(false);
+  const [precisionGuideUrl, setPrecisionGuideUrl] = useState(initialPrecisionGuide ? URL.createObjectURL(initialPrecisionGuide) : '');
 
   function setBlob(blob: Blob) {
     if (audioUrl) URL.revokeObjectURL(audioUrl);
@@ -308,6 +312,47 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
     }
   }
 
+  async function generatePrecisionGuide() {
+    if (!analysis || !lyrics.trim()) return;
+    setGuideLoading(true);
+    setStatus('Rendering a dry score-based guide vocal…');
+    try {
+      const response = await fetch('/api/precision-guide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lyrics, vocalRange, analysis, tempo: 120 }),
+      });
+
+      if (!response.ok) {
+        const raw = await response.text();
+        let message = raw || 'Precision guide vocal generation failed.';
+        try {
+          const parsed = JSON.parse(raw);
+          message = parsed.error || parsed.detail || message;
+          if (parsed.needsSetup) message += ' Add CANTAI_API_KEY in Vercel Environment Variables.';
+        } catch {}
+        throw new Error(message);
+      }
+
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        const data = await response.json();
+        throw new Error(data?.status === 'queued' ? 'Cantai queued the render; background polling is the next connector step.' : 'Cantai did not return audio yet.');
+      }
+
+      const blob = await response.blob();
+      if (precisionGuideUrl) URL.revokeObjectURL(precisionGuideUrl);
+      const url = URL.createObjectURL(blob);
+      setPrecisionGuideUrl(url);
+      onPrecisionGuide(blob);
+      setStatus('Precision guide vocal ready — dry, note-timed, and ready for Drob.');
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not generate the precision guide vocal.');
+    } finally {
+      setGuideLoading(false);
+    }
+  }
+
   return (
     <div className="musicControls">
       <div className="playerCard">
@@ -361,6 +406,23 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
           Melody fit score: {fitScore}/100{fitNotes ? ` · ${fitNotes}` : ''}
         </div>
       )}
+
+      {analysis && lyrics.trim() && (
+        <div className="playerCard">
+          <strong>Precision Vocal Engine</strong>
+          <small>Render a dry guide singer from the exact detected notes and fitted lyrics, before any reverb or backing track.</small>
+          <button className="primary" onClick={generatePrecisionGuide} disabled={guideLoading}>
+            {guideLoading ? 'Rendering Precision Guide…' : '4. Generate Precision Guide Vocal'}
+          </button>
+          {precisionGuideUrl && (
+            <>
+              <small>Dry precision guide</small>
+              <audio controls src={precisionGuideUrl} />
+            </>
+          )}
+        </div>
+      )}
+
       {status && <div className="statusBox">{status}</div>}
     </div>
   );

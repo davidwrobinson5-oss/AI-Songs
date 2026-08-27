@@ -17,7 +17,7 @@ export async function GET() {
   const tools = raw
     .filter((tool: any) => {
       const text = JSON.stringify(tool).toLowerCase();
-      return text.includes('melody_to_song') || text.includes('generate_singing') || text.includes('stem');
+      return text.includes('melody_to_song') || text.includes('midi_to_song') || text.includes('generate_singing') || text.includes('stem');
     })
     .map((tool: any) => ({
       id: tool.id || tool.tool_id || tool.toolId,

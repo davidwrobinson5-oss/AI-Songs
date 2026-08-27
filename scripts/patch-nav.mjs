@@ -3,20 +3,15 @@ import fs from 'node:fs';
 const path = 'app/page.tsx';
 let source = fs.readFileSync(path, 'utf8');
 
-source = source.replace(/<nav className="bottomNav">([\s\S]*?)<\/nav>/g, (_full, inner) => {
-  let nav = inner
-    .replace(/\s*<span(?: className="navActive")? onClick=\{newSong\}>＋<small>Create<\/small><\/span>/g, '')
-    .replace(/<small>Train Voice<\/small>/g, '<small>Voice</small>');
+const canonicalNav = `<nav className="bottomNav">
+          <span className={screen === 'create' ? 'navActive' : ''} onClick={() => setScreen('create')}>🏠<small>Home</small></span>
+          <span className={screen === 'songs' ? 'navActive' : ''} onClick={() => setScreen('songs')}>🎵<small>Songs</small></span>
+          <span className={screen === 'train' ? 'navActive' : ''} onClick={() => setScreen('train')}>🎤<small>Voice</small></span>
+          <span>🎚️<small>Mix</small></span>
+          <span>📄<small>Sheets</small></span>
+        </nav>`;
 
-  if (!/<small>Voice<\/small>/.test(nav)) {
-    nav = nav.replace(
-      /(\s*<span>🎚️<small>Mix<\/small><\/span>)/,
-      '\n          <span onClick={() => setScreen(\'train\')}>🎤<small>Voice</small></span>$1',
-    );
-  }
-
-  return `<nav className="bottomNav">${nav}</nav>`;
-});
+source = source.replace(/<nav className="bottomNav">[\s\S]*?<\/nav>/g, canonicalNav);
 
 fs.writeFileSync(path, source);
-console.log('Normalized bottom navigation across all screens.');
+console.log('Forced one canonical five-icon bottom navigation across all screens.');

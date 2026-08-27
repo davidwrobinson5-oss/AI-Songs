@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     }
 
     const form = new FormData();
-    form.append('soundFile', file, 'generated-song.mp3');
+    form.append('inputFile', file, 'generated-song.mp3');
 
     const response = await fetch(`${KITS_BASE}/vocal-separations`, {
       method: 'POST',

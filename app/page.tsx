@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { unzipSync } from 'fflate';
 import DrobMixPlayer from './DrobMixPlayer';
 
 type StartMode = 'music' | 'lyrics' | 'melody';
@@ -19,6 +20,13 @@ const durations = [
 ];
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function audioMime(name: string) {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.m4a')) return 'audio/mp4';
+  return 'audio/mpeg';
+}
 
 export default function Home() {
   const [mode, setMode] = useState<StartMode>('music');
@@ -112,18 +120,6 @@ export default function Home() {
     }
   }
 
-  async function waitForSeparation(id: number | string) {
-    for (let attempt = 0; attempt < 60; attempt++) {
-      const res = await fetch(`/api/kits/separation-status?id=${encodeURIComponent(String(id))}`, { cache: 'no-store' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Could not check vocal separation.');
-      if (data.status === 'success') return data;
-      if (data.status === 'error' || data.status === 'cancelled') throw new Error('Kits vocal separation failed.');
-      await sleep(2000);
-    }
-    throw new Error('Vocal separation timed out. Try again.');
-  }
-
   async function waitForConversion(id: number | string) {
     for (let attempt = 0; attempt < 60; attempt++) {
       const res = await fetch(`/api/kits/conversion-status?id=${encodeURIComponent(String(id))}`, { cache: 'no-store' });
@@ -149,28 +145,35 @@ export default function Home() {
         || models?.data?.find((m: { isUsable?: boolean }) => m.isUsable);
       if (!modelsRes.ok || !model?.id) throw new Error('No usable Kits custom voice was found.');
 
-      setDrobStatus('Separating the original singer…');
-      const form = new FormData();
-      form.append('file', generatedBlob, 'generated-song.mp3');
-      const separateRes = await fetch('/api/kits/separate', { method: 'POST', body: form });
-      const separationJob = await separateRes.json();
-      if (!separateRes.ok || !separationJob?.id) throw new Error(separationJob?.error || 'Could not start vocal separation.');
+      setDrobStatus('Creating clean vocal and instrumental stems in ElevenLabs…');
+      const stemForm = new FormData();
+      stemForm.append('file', generatedBlob, 'generated-song.mp3');
+      const stemsRes = await fetch('/api/elevenlabs/stems', { method: 'POST', body: stemForm });
+      if (!stemsRes.ok) {
+        const message = await stemsRes.text();
+        throw new Error(message || 'ElevenLabs stem separation failed.');
+      }
 
-      const separation = await waitForSeparation(separationJob.id);
-      const backing = separation.backingAudioFileUrl
-        || separation.stemFileUrls?.find((s: { instrument?: string }) => s.instrument === 'backing')?.url
-        || separation.lossyStemFileUrls?.find((s: { instrument?: string }) => s.instrument === 'backing')?.url;
-      const guideVocal = separation.vocalAudioFileUrl || separation.lossyVocalAudioFileUrl;
-      if (!backing || !guideVocal) throw new Error('Kits did not return both the backing and vocal stems.');
-      setBackingUrl(backing);
-      setGuideVocalUrl(guideVocal);
+      const archive = unzipSync(new Uint8Array(await stemsRes.arrayBuffer()));
+      const entries = Object.entries(archive).filter(([name]) => /\.(mp3|wav|m4a)$/i.test(name));
+      if (entries.length < 2) throw new Error('ElevenLabs did not return both vocal and instrumental stems.');
 
-      setDrobStatus('Converting the singer to Drob…');
-      const convertRes = await fetch('/api/kits/convert', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ modelId: model.id, separationId: separationJob.id, pitchShift: 0 }),
-      });
+      const vocalEntry = entries.find(([name]) => /vocal/i.test(name));
+      const backingEntry = entries.find(([name]) => /(instrumental|accompaniment|backing|music)/i.test(name) && !/vocal/i.test(name))
+        || entries.find(([name]) => name !== vocalEntry?.[0]);
+      if (!vocalEntry || !backingEntry) throw new Error('Could not identify the ElevenLabs vocal and instrumental stems.');
+
+      const guideVocalBlob = new Blob([vocalEntry[1]], { type: audioMime(vocalEntry[0]) });
+      const backingBlob = new Blob([backingEntry[1]], { type: audioMime(backingEntry[0]) });
+      setGuideVocalUrl(URL.createObjectURL(guideVocalBlob));
+      setBackingUrl(URL.createObjectURL(backingBlob));
+
+      setDrobStatus('Converting the clean guide vocal to Drob…');
+      const convertForm = new FormData();
+      convertForm.append('file', guideVocalBlob, vocalEntry[0].split('/').pop() || 'guide-vocal.mp3');
+      convertForm.append('modelId', String(model.id));
+      convertForm.append('pitchShift', '0');
+      const convertRes = await fetch('/api/kits/convert', { method: 'POST', body: convertForm });
       const conversionJob = await convertRes.json();
       if (!convertRes.ok || !conversionJob?.id) throw new Error(conversionJob?.error || 'Could not start Drob voice conversion.');
 
@@ -178,7 +181,7 @@ export default function Home() {
       const converted = conversion.outputFileUrl || conversion.lossyOutputFileUrl || conversion.recombinedAudioFileUrl;
       if (!converted) throw new Error('Kits finished the conversion but no output audio was returned.');
       setDrobVocalUrl(converted);
-      setDrobStatus('Drob voice is ready. Auto-alignment will correct timing when you play it.');
+      setDrobStatus('Drob voice is ready. Use the auto-aligned mix below.');
     } catch (error) {
       setDrobError(error instanceof Error ? error.message : 'Could not create the Drob vocal.');
       setDrobStatus('');
@@ -242,10 +245,10 @@ export default function Home() {
                 <audio controls src={audioUrl} />
                 {!instrumental && generatedBlob && (
                   <button className="secondary" onClick={useDrobVoice} disabled={drobLoading}>
-                    {drobLoading ? 'Building Drob Vocal…' : 'Use Drob Voice'}
+                    {drobLoading ? 'Building Clean Drob Vocal…' : 'Use Drob Voice — Clean Stem'}
                   </button>
                 )}
-                <small>{instrumental ? 'Instrumental version ready for lyrics and vocals.' : 'The generated singer is a guide. Use Drob Voice to replace that singer with your Kits voice.'}</small>
+                <small>{instrumental ? 'Instrumental version ready for lyrics and vocals.' : 'Drob now uses ElevenLabs’ dedicated vocal stem instead of a second separation pass through Kits.'}</small>
               </div>
             )}
 
@@ -257,7 +260,6 @@ export default function Home() {
             )}
 
             {musicError && <div className="errorBox">{musicError}</div>}
-
             <button className="secondary" onClick={generateDirection} disabled={loading || !prompt.trim()}>{loading ? 'Planning…' : 'Plan Song Before Generating'}</button>
           </div>
         )}

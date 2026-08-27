@@ -12,6 +12,7 @@ type Asset = {
 
 type FoundAsset = {
   asset: Asset;
+  generationId: string;
   outputMetadata?: unknown;
   outputText?: unknown;
 };
@@ -52,6 +53,7 @@ async function findAsset(apiKey: string, fileId: string): Promise<FoundAsset | n
     if (match) {
       return {
         asset: match,
+        generationId: String(id),
         outputMetadata: detail?.output?.metadata_json,
         outputText: detail?.output?.text,
       };
@@ -77,6 +79,9 @@ function collectHttpUrls(value: unknown, urls = new Set<string>(), depth = 0) {
     const trimmed = value.trim();
     if (/^https?:\/\//i.test(trimmed)) urls.add(trimmed);
 
+    const matches = trimmed.match(/https?:\/\/[^\s\"'<>\\]+/gi);
+    if (matches) for (const match of matches) urls.add(match);
+
     if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
       try {
         collectHttpUrls(JSON.parse(trimmed), urls, depth + 1);
@@ -99,6 +104,28 @@ function collectHttpUrls(value: unknown, urls = new Set<string>(), depth = 0) {
   }
 
   return urls;
+}
+
+async function collectStreamUrls(apiKey: string, generationId: string) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(`${BASE}/v1/generations/${encodeURIComponent(generationId)}/stream?after=0`, {
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        Accept: 'text/event-stream',
+      },
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+    if (!response.ok) return new Set<string>();
+    const text = await response.text();
+    return collectHttpUrls(text);
+  } catch {
+    return new Set<string>();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function proxyAudio(url: string, apiKey: string, mimeType?: string) {
@@ -170,6 +197,11 @@ export async function GET(req: Request) {
       found?.outputText,
     ]);
 
+    if (found?.generationId) {
+      const streamUrls = await collectStreamUrls(apiKey, found.generationId);
+      for (const url of streamUrls) candidates.add(url);
+    }
+
     for (const candidate of candidates) {
       const proxied = await proxyAudio(candidate, apiKey, asset?.mime_type);
       if (proxied) return proxied;
@@ -182,6 +214,7 @@ export async function GET(req: Request) {
         blobDownloadStatus: blobStatus,
         assetFound: Boolean(asset),
         candidateUrlCount: candidates.size,
+        streamChecked: Boolean(found?.generationId),
       },
       { status: 502 },
     );

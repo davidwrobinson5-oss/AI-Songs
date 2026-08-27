@@ -104,6 +104,7 @@ patchFile('app/page.tsx', [
           <span onClick={newSong}>＋<small>Create</small></span>
           <span className="navActive">🎤<small>Train Voice</small></span>
           <span>🎚️<small>Mix</small></span>
+          <span>📄<small>Sheets</small></span>
         </nav>
       </main>
     );
@@ -115,8 +116,9 @@ patchFile('app/page.tsx', [
 `        <span>🎚️<small>Mix</small></span>
         <span>📄<small>Sheets</small></span>`,
 `        <span onClick={() => setScreen('train')}>🎤<small>Train Voice</small></span>
-        <span>🎚️<small>Mix</small></span>`,
+        <span>🎚️<small>Mix</small></span>
+        <span>📄<small>Sheets</small></span>`,
   ],
 ]);
 
-console.log('Applied aligned Mureka backing and Voice Lab patches.');
+console.log('Applied aligned Mureka backing, Voice Lab, and Sheets navigation patches.');

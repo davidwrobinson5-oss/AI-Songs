@@ -10,6 +10,11 @@ function replaceOnce(from, to) {
 }
 
 replaceOnce(
+  "import DrobMixPlayer from './DrobMixPlayer';",
+  "import DrobMixPlayer from './DrobMixPlayer';\nimport { exportAudioBlob } from './audioExport';",
+);
+
+replaceOnce(
 `      const blob = await res.blob();
       setGeneratedBlob(blob);
       const url = URL.createObjectURL(blob);
@@ -77,20 +82,33 @@ replaceOnce(
     setTimeout(() => URL.revokeObjectURL(url), 1500);
   }
 
-  async function shareSavedVersion(song: SavedSong, version: SavedVersion) {
-    const blob = bestSavedAudio(version);
-    if (!blob) return;
-    const extension = blob.type.includes('wav') ? 'wav' : blob.type.includes('mp4') ? 'm4a' : 'mp3';
-    const file = new File([blob], \`${safeDownloadName(song.title)}-v\${version.versionNumber}.\${extension}\`, { type: blob.type || 'audio/mpeg' });
+  async function shareSavedVersion(song: SavedSong, version: SavedVersion, format: 'mp3' | 'wav') {
+    const sourceBlob = bestSavedAudio(version);
+    if (!sourceBlob) return;
     try {
+      const blob = await exportAudioBlob(sourceBlob, format);
+      const file = new File(
+        [blob],
+        \`${safeDownloadName(song.title)}-v\${version.versionNumber}.\${format}\`,
+        { type: format === 'wav' ? 'audio/wav' : 'audio/mpeg' },
+      );
       if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
-        await navigator.share({ title: song.title, text: \`${song.title} — Version \${version.versionNumber}\`, files: [file] });
-      } else {
-        downloadSavedVersion(song, version);
+        await navigator.share({
+          title: song.title,
+          text: \`${song.title} — Version \${version.versionNumber} (\${format.toUpperCase()})\`,
+          files: [file],
+        });
+        return;
       }
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = file.name;
+      anchor.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
-      downloadSavedVersion(song, version);
+      setSaveStatus(error instanceof Error ? \`Could not share audio: \${error.message}\` : 'Could not share audio.');
     }
   }
 
@@ -100,7 +118,7 @@ replaceOnce(
 replaceOnce(
 `          <p className="sub">Saved locally on this device so your audio, lyrics, melodies, and versions survive refreshes.</p>
           <button className="primary" onClick={newSong}>＋ New Song</button>`,
-`          <p className="sub">Every generated track is saved automatically in your music library on this device. Play it, edit the project, download the audio, or share it from your phone.</p>`,
+`          <p className="sub">Every generated track is saved automatically in your music library on this device. Play it, edit the project, download the audio, or share it as MP3 or WAV.</p>`,
 );
 
 replaceOnce(
@@ -117,11 +135,15 @@ replaceOnce(
                     <button className="secondary" onClick={() => playSavedVersion(version)} disabled={!bestSavedAudio(version)}>▶ Play</button>
                     <button className="secondary" onClick={() => loadSavedVersion(song, version)}>✏️ Edit</button>
                     <button className="secondary" onClick={() => downloadSavedVersion(song, version)} disabled={!bestSavedAudio(version)}>⬇ Download</button>
-                    <button className="secondary" onClick={() => shareSavedVersion(song, version)} disabled={!bestSavedAudio(version)}>↗ Share</button>
                   </div>
+                  <div className="mixButtons">
+                    <button className="secondary" onClick={() => shareSavedVersion(song, version, 'mp3')} disabled={!bestSavedAudio(version)}>↗ Share MP3</button>
+                    <button className="secondary" onClick={() => shareSavedVersion(song, version, 'wav')} disabled={!bestSavedAudio(version)}>↗ Share WAV</button>
+                  </div>
+                  <small>MP3 is smaller for text/email. WAV is full-quality uncompressed audio.</small>
                 </div>
               ))}`,
 );
 
 fs.writeFileSync(path, source);
-console.log('Enabled automatic Songs library storage with Play, Edit, Download, and Share actions.');
+console.log('Enabled automatic Songs library storage with MP3/WAV sharing.');

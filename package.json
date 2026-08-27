@@ -8,6 +8,7 @@
     "start": "next start"
   },
   "dependencies": {
+    "fflate": "latest",
     "next": "latest",
     "openai": "latest",
     "react": "latest",

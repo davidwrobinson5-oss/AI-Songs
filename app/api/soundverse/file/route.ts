@@ -7,9 +7,16 @@ type Asset = {
   blob_hash?: string;
   url?: string;
   mime_type?: string;
+  metadata_json?: unknown;
 };
 
-async function findAsset(apiKey: string, fileId: string): Promise<Asset | null> {
+type FoundAsset = {
+  asset: Asset;
+  outputMetadata?: unknown;
+  outputText?: unknown;
+};
+
+async function findAsset(apiKey: string, fileId: string): Promise<FoundAsset | null> {
   const listRes = await fetch(`${BASE}/v1/generations`, {
     headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
     cache: 'no-store',
@@ -42,7 +49,13 @@ async function findAsset(apiKey: string, fileId: string): Promise<Asset | null> 
         ? detail.assets
         : [];
     const match = assets.find((asset) => String(asset?.file_id || '') === fileId);
-    if (match) return match;
+    if (match) {
+      return {
+        asset: match,
+        outputMetadata: detail?.output?.metadata_json,
+        outputText: detail?.output?.text,
+      };
+    }
   }
 
   return null;
@@ -57,6 +70,37 @@ async function tryDownloadIdentifier(apiKey: string, identifier: string) {
   return { response, body };
 }
 
+function collectHttpUrls(value: unknown, urls = new Set<string>(), depth = 0) {
+  if (depth > 8 || value == null) return urls;
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (/^https?:\/\//i.test(trimmed)) urls.add(trimmed);
+
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        collectHttpUrls(JSON.parse(trimmed), urls, depth + 1);
+      } catch {
+        // Not JSON; ignore.
+      }
+    }
+    return urls;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) collectHttpUrls(item, urls, depth + 1);
+    return urls;
+  }
+
+  if (typeof value === 'object') {
+    for (const item of Object.values(value as Record<string, unknown>)) {
+      collectHttpUrls(item, urls, depth + 1);
+    }
+  }
+
+  return urls;
+}
+
 async function proxyAudio(url: string, apiKey: string, mimeType?: string) {
   const attempts = [
     { Authorization: `Bearer ${apiKey}` },
@@ -64,19 +108,23 @@ async function proxyAudio(url: string, apiKey: string, mimeType?: string) {
   ];
 
   for (const headers of attempts) {
-    const audioRes = await fetch(url, { headers, cache: 'no-store' });
-    if (!audioRes.ok) continue;
-    const contentType = audioRes.headers.get('content-type') || mimeType || 'audio/mpeg';
-    if (!contentType.startsWith('audio/') && !contentType.includes('octet-stream')) continue;
-    const bytes = await audioRes.arrayBuffer();
-    if (!bytes.byteLength) continue;
-    return new NextResponse(bytes, {
-      headers: {
-        'Content-Type': contentType.startsWith('audio/') ? contentType : (mimeType || 'audio/mpeg'),
-        'Cache-Control': 'no-store',
-        'Content-Length': String(bytes.byteLength),
-      },
-    });
+    try {
+      const audioRes = await fetch(url, { headers, cache: 'no-store', redirect: 'follow' });
+      if (!audioRes.ok) continue;
+      const contentType = audioRes.headers.get('content-type') || mimeType || 'audio/mpeg';
+      if (!contentType.startsWith('audio/') && !contentType.includes('octet-stream')) continue;
+      const bytes = await audioRes.arrayBuffer();
+      if (!bytes.byteLength) continue;
+      return new NextResponse(bytes, {
+        headers: {
+          'Content-Type': contentType.startsWith('audio/') ? contentType : (mimeType || 'audio/mpeg'),
+          'Cache-Control': 'no-store',
+          'Content-Length': String(bytes.byteLength),
+        },
+      });
+    } catch {
+      // Try the next candidate/auth mode.
+    }
   }
 
   return null;
@@ -96,18 +144,15 @@ export async function GET(req: Request) {
     const fileId = new URL(req.url).searchParams.get('fileId');
     if (!fileId) return NextResponse.json({ error: 'fileId is required.' }, { status: 400 });
 
-    // Preferred documented download endpoint using file_id.
     const fileAttempt = await tryDownloadIdentifier(apiKey, fileId);
     if (fileAttempt.response.ok) {
       const proxied = await proxySignedLink(fileAttempt.body, apiKey);
       if (proxied) return proxied;
     }
 
-    const asset = await findAsset(apiKey, fileId);
+    const found = await findAsset(apiKey, fileId);
+    const asset = found?.asset;
 
-    // Some completed Soundverse assets also expose a durable blob_hash. If the
-    // file_id lookup returns NOT_FOUND, try that identifier before falling back
-    // to the private asset locator.
     let blobStatus: number | null = null;
     if (asset?.blob_hash) {
       const blobAttempt = await tryDownloadIdentifier(apiKey, asset.blob_hash);
@@ -118,9 +163,15 @@ export async function GET(req: Request) {
       }
     }
 
-    // Last-resort server-side attempt against the private storage locator.
-    if (asset?.url) {
-      const proxied = await proxyAudio(String(asset.url), apiKey, asset.mime_type);
+    const candidates = collectHttpUrls([
+      asset?.url,
+      asset?.metadata_json,
+      found?.outputMetadata,
+      found?.outputText,
+    ]);
+
+    for (const candidate of candidates) {
+      const proxied = await proxyAudio(candidate, apiKey, asset?.mime_type);
       if (proxied) return proxied;
     }
 
@@ -130,8 +181,7 @@ export async function GET(req: Request) {
         fileDownloadStatus: fileAttempt.response.status,
         blobDownloadStatus: blobStatus,
         assetFound: Boolean(asset),
-        assetHasUrl: Boolean(asset?.url),
-        assetHasBlobHash: Boolean(asset?.blob_hash),
+        candidateUrlCount: candidates.size,
       },
       { status: 502 },
     );

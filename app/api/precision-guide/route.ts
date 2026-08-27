@@ -109,9 +109,6 @@ export async function POST(req: Request) {
     }
 
     const midi = makeMidi(notes, Number(tempo) || 120);
-    const encoded = midi.toString('base64url');
-    const origin = new URL(req.url).origin;
-    const midiUrl = `${origin}/api/soundverse/midi-file/ai-songs-melody.mid?data=${encodeURIComponent(encoded)}`;
     const toolId = await getToolId(apiKey, 'midi_to_song', 'v7');
 
     const response = await fetch(`${BASE}/v1/generations`, {
@@ -120,13 +117,13 @@ export async function POST(req: Request) {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        'Idempotency-Key': `ai-songs-midi-${safeRequestId(requestId)}`,
+        'Idempotency-Key': `ai-songs-midi-inline-${safeRequestId(requestId)}`,
       },
       body: JSON.stringify({
         tool_id: toolId,
         license: 1,
         payload_json: JSON.stringify({
-          midi: { url: midiUrl },
+          midi: { data_b64: midi.toString('base64') },
           lyrics: String(lyrics).slice(0, 3000),
           versions: 1,
         }),

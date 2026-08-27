@@ -1,0 +1,34 @@
+import { NextResponse } from 'next/server';
+
+const BASE = 'https://apiv2.soundverse.ai';
+
+export async function GET() {
+  const apiKey = process.env.SOUNDVERSE_API_KEY?.trim();
+  if (!apiKey) return NextResponse.json({ error: 'SOUNDVERSE_API_KEY is not configured.' }, { status: 503 });
+
+  try {
+    const response = await fetch(`${BASE}/v1/generations`, {
+      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+      cache: 'no-store',
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return NextResponse.json({ error: data?.message || data?.error || 'Could not load Soundverse generations.' }, { status: response.status });
+    }
+
+    const raw = Array.isArray(data) ? data : Array.isArray(data?.generations) ? data.generations : Array.isArray(data?.items) ? data.items : [];
+    const recent = raw.slice(0, 10).map((item: any) => ({
+      id: item?.id || item?.task_id || item?.job_id,
+      status: item?.status,
+      tool_id: item?.tool_id,
+      operation: item?.operation,
+      model: item?.model,
+      error: item?.error || item?.error_message || item?.message || item?.detail || item?.output?.error || item?.output?.message || null,
+      created_at: item?.created_at || item?.createdAt || null,
+    }));
+
+    return NextResponse.json({ recent });
+  } catch (error) {
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not inspect Soundverse generations.' }, { status: 500 });
+  }
+}

@@ -39,6 +39,9 @@ export default function Home() {
   const [mode, setMode] = useState<StartMode>('music');
   const [vocalRange, setVocalRange] = useState('Baritone');
   const [prompt, setPrompt] = useState('');
+  const [lyrics, setLyrics] = useState('');
+  const [lyricsLoading, setLyricsLoading] = useState(false);
+  const [lyricsStatus, setLyricsStatus] = useState('');
   const [result, setResult] = useState('');
   const [loading, setLoading] = useState(false);
   const [musicLoading, setMusicLoading] = useState(false);
@@ -94,6 +97,27 @@ export default function Home() {
     }
   }
 
+  async function runLyrics(action: 'generate' | 'rewrite') {
+    if (action === 'rewrite' && !lyrics.trim()) return;
+    setLyricsLoading(true);
+    setLyricsStatus(action === 'generate' ? 'Writing full lyrics…' : 'Improving lyrics…');
+    try {
+      const res = await fetch('/api/lyrics', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, vocalRange, lyrics, action }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error || 'Lyrics generation failed.');
+      setLyrics(data.text || '');
+      setLyricsStatus(action === 'generate' ? 'Full lyrics ready.' : 'Lyrics improved.');
+    } catch (error) {
+      setLyricsStatus(error instanceof Error ? error.message : 'Lyrics generation failed.');
+    } finally {
+      setLyricsLoading(false);
+    }
+  }
+
   async function generateMusic() {
     if (!prompt.trim()) return;
     setMusicLoading(true);
@@ -114,9 +138,10 @@ export default function Home() {
       setAudioUrl('');
     }
 
+    const lyricInstruction = lyrics.trim() ? `\n\nUse these lyrics as the song text:\n${lyrics}` : '';
     const productionPrompt = instrumental
       ? `${prompt}\n\nGenerate an original instrumental composition with no vocals. Leave space for a future ${vocalRange} lead vocal.`
-      : `${prompt}\n\nGenerate an original song. Keep the lead vocal comfortably suited to a ${vocalRange} range.`;
+      : `${prompt}\n\nGenerate an original song. Keep the lead vocal comfortably suited to a ${vocalRange} range.${lyricInstruction}`;
 
     try {
       const res = await fetch('/api/elevenlabs/generate', {
@@ -222,7 +247,7 @@ export default function Home() {
   }
 
   async function saveCurrentVersion() {
-    if (!generatedBlob) return;
+    if (!generatedBlob && !lyrics.trim()) return;
     setSaveStatus('Saving song version…');
     try {
       const [backingBlob, guideVocalBlob, drobVocalBlob] = await Promise.all([
@@ -238,7 +263,8 @@ export default function Home() {
         vocalRange,
         durationMs,
         instrumental,
-        generatedBlob,
+        lyrics: lyrics || undefined,
+        generatedBlob: generatedBlob || undefined,
         backingBlob,
         guideVocalBlob,
         drobVocalBlob,
@@ -257,6 +283,7 @@ export default function Home() {
     setCurrentVersionNumber(version.versionNumber);
     setSongTitle(song.title);
     setPrompt(version.prompt);
+    setLyrics(version.lyrics || '');
     setMode(version.mode);
     setVocalRange(version.vocalRange);
     setDurationMs(version.durationMs);
@@ -277,6 +304,7 @@ export default function Home() {
     setCurrentVersionNumber(undefined);
     setSongTitle('Untitled Song');
     setPrompt('');
+    setLyrics('');
     setGeneratedBlob(null);
     setAudioUrl('');
     setBackingUrl('');
@@ -285,6 +313,7 @@ export default function Home() {
     setMasterBlob(null);
     setSaveStatus('');
     setDrobStatus('');
+    setLyricsStatus('');
     setScreen('create');
   }
 
@@ -295,12 +324,12 @@ export default function Home() {
           <div className="brand">AI SONGS</div>
           <p className="eyebrow">Song Library</p>
           <h1>Your songs & versions.</h1>
-          <p className="sub">Saved locally on this device so your audio and versions survive refreshes.</p>
+          <p className="sub">Saved locally on this device so your audio, lyrics, and versions survive refreshes.</p>
           <button className="primary" onClick={newSong}>＋ New Song</button>
         </section>
 
         <section className="panel">
-          {songs.length === 0 && <div className="statusBox">No saved songs yet. Create a song, then tap Save Song Version.</div>}
+          {songs.length === 0 && <div className="statusBox">No saved songs yet. Create lyrics or music, then tap Save Song Version.</div>}
           {songs.map((song) => (
             <div className="playerCard" key={song.id}>
               <strong>{song.title}</strong>
@@ -360,8 +389,35 @@ export default function Home() {
         <h2>Describe the song</h2>
         <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Example: uplifting Christian hip-hop with warm piano, deep bass, crisp drums, hopeful energy, 92 BPM..." />
 
+        {mode === 'lyrics' && (
+          <div className="musicControls">
+            <button className="primary" onClick={() => runLyrics('generate')} disabled={lyricsLoading || !prompt.trim()}>
+              {lyricsLoading ? 'Writing Lyrics…' : 'Generate Full Lyrics'}
+            </button>
+            <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} placeholder="Your full lyrics will appear here. You can edit every word." style={{ minHeight: 360 }} />
+            <button className="secondary" onClick={() => runLyrics('rewrite')} disabled={lyricsLoading || !lyrics.trim()}>
+              Improve / Rework Lyrics
+            </button>
+            {lyricsStatus && <div className="statusBox">{lyricsStatus}</div>}
+            {lyrics.trim() && (
+              <div className="playerCard">
+                <button className="primary" onClick={saveCurrentVersion}>💾 Save Lyrics Version</button>
+                {saveStatus && <small>{saveStatus}</small>}
+                <small>Each save creates a new version, so earlier lyric drafts stay available.</small>
+              </div>
+            )}
+            <button className="secondary" onClick={() => setMode('music')} disabled={!lyrics.trim()}>Continue to Music →</button>
+          </div>
+        )}
+
         {mode === 'music' && (
           <div className="musicControls">
+            {lyrics.trim() && (
+              <details>
+                <summary>Lyrics attached to this song</summary>
+                <pre style={{ whiteSpace: 'pre-wrap' }}>{lyrics}</pre>
+              </details>
+            )}
             <div>
               <div className="controlLabel">Generation length</div>
               <div className="chips">{durations.map((d) => <button key={d.value} className={durationMs === d.value ? 'chip activeChip' : 'chip'} onClick={() => setDurationMs(d.value)}>{d.label}</button>)}</div>
@@ -402,7 +458,7 @@ export default function Home() {
           </div>
         )}
 
-        {mode !== 'music' && <button className="primary" onClick={generateDirection} disabled={loading || !prompt.trim()}>{loading ? 'Creating…' : 'Create Song Direction'}</button>}
+        {mode === 'melody' && <button className="primary" onClick={generateDirection} disabled={loading || !prompt.trim()}>{loading ? 'Creating…' : 'Create Melody Direction'}</button>}
         {result && <div className="result"><pre>{result}</pre></div>}
       </section>
 

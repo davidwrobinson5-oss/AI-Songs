@@ -1,6 +1,7 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useState } from 'react';
+import DrobMixPlayer from './DrobMixPlayer';
 
 type StartMode = 'music' | 'lyrics' | 'melody';
 
@@ -35,10 +36,8 @@ export default function Home() {
   const [drobStatus, setDrobStatus] = useState('');
   const [drobError, setDrobError] = useState('');
   const [drobVocalUrl, setDrobVocalUrl] = useState('');
+  const [guideVocalUrl, setGuideVocalUrl] = useState('');
   const [backingUrl, setBackingUrl] = useState('');
-
-  const backingRef = useRef<HTMLAudioElement>(null);
-  const vocalRef = useRef<HTMLAudioElement>(null);
 
   async function generateDirection() {
     setLoading(true);
@@ -66,6 +65,7 @@ export default function Home() {
     setDrobStatus('');
     setDrobError('');
     setDrobVocalUrl('');
+    setGuideVocalUrl('');
     setBackingUrl('');
     setGeneratedBlob(null);
 
@@ -160,8 +160,10 @@ export default function Home() {
       const backing = separation.backingAudioFileUrl
         || separation.stemFileUrls?.find((s: { instrument?: string }) => s.instrument === 'backing')?.url
         || separation.lossyStemFileUrls?.find((s: { instrument?: string }) => s.instrument === 'backing')?.url;
-      if (!backing) throw new Error('Kits separated the vocal but did not return the backing track.');
+      const guideVocal = separation.vocalAudioFileUrl || separation.lossyVocalAudioFileUrl;
+      if (!backing || !guideVocal) throw new Error('Kits did not return both the backing and vocal stems.');
       setBackingUrl(backing);
+      setGuideVocalUrl(guideVocal);
 
       setDrobStatus('Converting the singer to Drob…');
       const convertRes = await fetch('/api/kits/convert', {
@@ -176,29 +178,13 @@ export default function Home() {
       const converted = conversion.outputFileUrl || conversion.lossyOutputFileUrl || conversion.recombinedAudioFileUrl;
       if (!converted) throw new Error('Kits finished the conversion but no output audio was returned.');
       setDrobVocalUrl(converted);
-      setDrobStatus('Drob voice is ready.');
+      setDrobStatus('Drob voice is ready. Auto-alignment will correct timing when you play it.');
     } catch (error) {
       setDrobError(error instanceof Error ? error.message : 'Could not create the Drob vocal.');
       setDrobStatus('');
     } finally {
       setDrobLoading(false);
     }
-  }
-
-  async function playDrobMix() {
-    const backing = backingRef.current;
-    const vocal = vocalRef.current;
-    if (!backing || !vocal) return;
-    backing.pause();
-    vocal.pause();
-    backing.currentTime = 0;
-    vocal.currentTime = 0;
-    await Promise.all([backing.play(), vocal.play()]);
-  }
-
-  function stopDrobMix() {
-    backingRef.current?.pause();
-    vocalRef.current?.pause();
   }
 
   return (
@@ -266,24 +252,8 @@ export default function Home() {
             {drobStatus && <div className="statusBox">{drobStatus}</div>}
             {drobError && <div className="errorBox">{drobError}</div>}
 
-            {drobVocalUrl && backingUrl && (
-              <div className="playerCard">
-                <strong>Drob vocal preview</strong>
-                <div className="mixButtons">
-                  <button className="primary" onClick={playDrobMix}>▶ Play Drob + Music</button>
-                  <button className="secondary" onClick={stopDrobMix}>■ Stop</button>
-                </div>
-                <audio ref={backingRef} src={backingUrl} preload="auto" />
-                <audio ref={vocalRef} src={drobVocalUrl} preload="auto" />
-                <details>
-                  <summary>Solo tracks</summary>
-                  <small>Backing track</small>
-                  <audio controls src={backingUrl} />
-                  <small>Drob vocal</small>
-                  <audio controls src={drobVocalUrl} />
-                </details>
-                <small>This is the preview mix. The next production step is rendering the two stems into one downloadable master.</small>
-              </div>
+            {drobVocalUrl && backingUrl && guideVocalUrl && (
+              <DrobMixPlayer backingUrl={backingUrl} guideVocalUrl={guideVocalUrl} drobVocalUrl={drobVocalUrl} />
             )}
 
             {musicError && <div className="errorBox">{musicError}</div>}

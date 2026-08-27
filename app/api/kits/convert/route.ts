@@ -9,20 +9,46 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { modelId, audioUrl, pitchShift = 0 } = await req.json();
-    if (!modelId || !audioUrl) {
-      return NextResponse.json({ error: 'modelId and audioUrl are required.' }, { status: 400 });
+    const { modelId, separationId, pitchShift = 0 } = await req.json();
+    if (!modelId || !separationId) {
+      return NextResponse.json({ error: 'modelId and separationId are required.' }, { status: 400 });
     }
 
+    const separationResponse = await fetch(`${KITS_BASE}/vocal-separations/${separationId}`, {
+      headers: { Authorization: `Bearer ${apiKey}` },
+      cache: 'no-store',
+    });
+
+    const separation = await separationResponse.json().catch(() => ({}));
+    if (!separationResponse.ok) {
+      return NextResponse.json(separation, { status: separationResponse.status });
+    }
+
+    if (separation.status !== 'success') {
+      return NextResponse.json({ error: 'Vocal separation is not complete yet.', status: separation.status }, { status: 409 });
+    }
+
+    const vocalUrl = separation.vocalAudioFileUrl || separation.lossyVocalAudioFileUrl;
+    if (!vocalUrl) {
+      return NextResponse.json({ error: 'Kits did not return a vocal stem.' }, { status: 502 });
+    }
+
+    const vocalResponse = await fetch(vocalUrl, { cache: 'no-store' });
+    if (!vocalResponse.ok) {
+      return NextResponse.json({ error: 'Could not retrieve the separated vocal stem.' }, { status: 502 });
+    }
+
+    const vocalBlob = await vocalResponse.blob();
     const form = new FormData();
     form.append('voiceModelId', String(modelId));
-    form.append('audioUrl', String(audioUrl));
+    form.append('soundFile', vocalBlob, 'vocal-stem.mp3');
     form.append('pitchShift', String(pitchShift));
 
     const response = await fetch(`${KITS_BASE}/voice-conversions`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}` },
       body: form,
+      cache: 'no-store',
     });
 
     const data = await response.json().catch(() => ({}));

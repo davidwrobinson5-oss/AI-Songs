@@ -77,7 +77,7 @@ replaceOnce(
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = \`${safeDownloadName(song.title)}-v\${version.versionNumber}.\${extension}\`;
+    anchor.download = \`\${safeDownloadName(song.title)}-v\${version.versionNumber}.\${extension}\`;
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1500);
   }
@@ -89,13 +89,13 @@ replaceOnce(
       const blob = await exportAudioBlob(sourceBlob, format);
       const file = new File(
         [blob],
-        \`${safeDownloadName(song.title)}-v\${version.versionNumber}.\${format}\`,
+        \`\${safeDownloadName(song.title)}-v\${version.versionNumber}.\${format}\`,
         { type: format === 'wav' ? 'audio/wav' : 'audio/mpeg' },
       );
       if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
         await navigator.share({
           title: song.title,
-          text: \`${song.title} — Version \${version.versionNumber} (\${format.toUpperCase()})\`,
+          text: \`\${song.title} — Version \${version.versionNumber} (\${format.toUpperCase()})\`,
           files: [file],
         });
         return;

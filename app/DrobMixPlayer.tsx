@@ -6,6 +6,7 @@ type Props = {
   backingUrl: string;
   guideVocalUrl: string;
   drobVocalUrl: string;
+  onMasterRendered?: (blob: Blob) => void;
 };
 
 type Alignment = {
@@ -20,7 +21,6 @@ function firstOnsetSeconds(buffer: AudioBuffer) {
   const windowSize = Math.max(256, Math.floor(sampleRate * 0.02));
   let peakRms = 0;
   const rmsValues: number[] = [];
-
   for (let start = 0; start < buffer.length; start += windowSize) {
     const end = Math.min(start + windowSize, buffer.length);
     let sum = 0;
@@ -36,16 +36,13 @@ function firstOnsetSeconds(buffer: AudioBuffer) {
     rmsValues.push(rms);
     peakRms = Math.max(peakRms, rms);
   }
-
   const threshold = Math.max(0.0035, peakRms * 0.08);
   let consecutive = 0;
   for (let i = 0; i < rmsValues.length; i++) {
     if (rmsValues[i] >= threshold) {
       consecutive++;
       if (consecutive >= 3) return Math.max(0, (i - 2) * windowSize / sampleRate);
-    } else {
-      consecutive = 0;
-    }
+    } else consecutive = 0;
   }
   return 0;
 }
@@ -56,7 +53,6 @@ function lastActiveSeconds(buffer: AudioBuffer) {
   const windowSize = Math.max(256, Math.floor(sampleRate * 0.02));
   let peakRms = 0;
   const rmsValues: number[] = [];
-
   for (let start = 0; start < buffer.length; start += windowSize) {
     const end = Math.min(start + windowSize, buffer.length);
     let sum = 0;
@@ -72,7 +68,6 @@ function lastActiveSeconds(buffer: AudioBuffer) {
     rmsValues.push(rms);
     peakRms = Math.max(peakRms, rms);
   }
-
   const threshold = Math.max(0.0035, peakRms * 0.06);
   for (let i = rmsValues.length - 1; i >= 0; i--) {
     if (rmsValues[i] >= threshold) return Math.min(buffer.duration, (i + 1) * windowSize / sampleRate);
@@ -106,7 +101,6 @@ function audioBufferToWav(buffer: AudioBuffer) {
   const dataLength = buffer.length * blockAlign;
   const arrayBuffer = new ArrayBuffer(44 + dataLength);
   const view = new DataView(arrayBuffer);
-
   writeString(view, 0, 'RIFF');
   view.setUint32(4, 36 + dataLength, true);
   writeString(view, 8, 'WAVE');
@@ -120,7 +114,6 @@ function audioBufferToWav(buffer: AudioBuffer) {
   view.setUint16(34, 16, true);
   writeString(view, 36, 'data');
   view.setUint32(40, dataLength, true);
-
   const channelData = Array.from({ length: channels }, (_, i) => buffer.getChannelData(Math.min(i, buffer.numberOfChannels - 1)));
   let offset = 44;
   for (let i = 0; i < buffer.length; i++) {
@@ -130,11 +123,10 @@ function audioBufferToWav(buffer: AudioBuffer) {
       offset += 2;
     }
   }
-
   return new Blob([arrayBuffer], { type: 'audio/wav' });
 }
 
-export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl }: Props) {
+export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl, onMasterRendered }: Props) {
   const contextRef = useRef<AudioContext | null>(null);
   const sourcesRef = useRef<AudioBufferSourceNode[]>([]);
   const [status, setStatus] = useState('');
@@ -152,65 +144,43 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl 
   async function loadAudio() {
     const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
     if (!AudioContextCtor) throw new Error('This browser does not support precise audio playback.');
-
     const context = contextRef.current || new AudioContextCtor();
     contextRef.current = context;
     if (context.state === 'suspended') await context.resume();
-
     const [backingBytes, guideBytes, drobBytes] = await Promise.all([
-      fetch(backingUrl).then((r) => {
-        if (!r.ok) throw new Error('Could not load backing track.');
-        return r.arrayBuffer();
-      }),
-      fetch(guideVocalUrl).then((r) => {
-        if (!r.ok) throw new Error('Could not load guide vocal.');
-        return r.arrayBuffer();
-      }),
-      fetch(drobVocalUrl).then((r) => {
-        if (!r.ok) throw new Error('Could not load Drob vocal.');
-        return r.arrayBuffer();
-      }),
+      fetch(backingUrl).then((r) => { if (!r.ok) throw new Error('Could not load backing track.'); return r.arrayBuffer(); }),
+      fetch(guideVocalUrl).then((r) => { if (!r.ok) throw new Error('Could not load guide vocal.'); return r.arrayBuffer(); }),
+      fetch(drobVocalUrl).then((r) => { if (!r.ok) throw new Error('Could not load Drob vocal.'); return r.arrayBuffer(); }),
     ]);
-
     const [backing, guide, drob] = await Promise.all([
       context.decodeAudioData(backingBytes.slice(0)),
       context.decodeAudioData(guideBytes.slice(0)),
       context.decodeAudioData(drobBytes.slice(0)),
     ]);
-
     return { context, backing, guide, drob };
   }
 
   async function playAligned() {
     stop();
     setStatus('Analyzing vocal timing…');
-
     try {
       const { context, backing, guide, drob } = await loadAudio();
       const { playbackRate, desiredOffset, drobSourceOffset } = getAlignment(guide, drob);
-
       const backingSource = context.createBufferSource();
       const vocalSource = context.createBufferSource();
       const backingGain = context.createGain();
       const vocalGain = context.createGain();
-
       backingSource.buffer = backing;
       vocalSource.buffer = drob;
       vocalSource.playbackRate.value = playbackRate;
       backingGain.gain.value = 0.92;
       vocalGain.gain.value = 0.95;
-
       backingSource.connect(backingGain).connect(context.destination);
       vocalSource.connect(vocalGain).connect(context.destination);
-
       const startAt = context.currentTime + 0.15;
       backingSource.start(startAt);
-      if (desiredOffset >= 0) {
-        vocalSource.start(startAt + desiredOffset);
-      } else {
-        vocalSource.start(startAt, drobSourceOffset);
-      }
-
+      if (desiredOffset >= 0) vocalSource.start(startAt + desiredOffset);
+      else vocalSource.start(startAt, drobSourceOffset);
       sourcesRef.current = [backingSource, vocalSource];
       const offsetMs = Math.round(desiredOffset * 1000);
       const driftPct = Math.round((playbackRate - 1) * 10000) / 100;
@@ -227,7 +197,6 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl 
       URL.revokeObjectURL(masterUrl);
       setMasterUrl('');
     }
-
     try {
       const { backing, guide, drob } = await loadAudio();
       const { playbackRate, desiredOffset, drobSourceOffset } = getAlignment(guide, drob);
@@ -236,13 +205,11 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl 
       const vocalPlayableDuration = Math.max(0, drob.duration - drobSourceOffset) / playbackRate;
       const totalDuration = Math.max(backing.duration, vocalStart + vocalPlayableDuration) + 0.1;
       const offline = new OfflineAudioContext(2, Math.ceil(totalDuration * sampleRate), sampleRate);
-
       const backingSource = offline.createBufferSource();
       const vocalSource = offline.createBufferSource();
       const backingGain = offline.createGain();
       const vocalGain = offline.createGain();
       const compressor = offline.createDynamicsCompressor();
-
       backingSource.buffer = backing;
       vocalSource.buffer = drob;
       vocalSource.playbackRate.value = playbackRate;
@@ -253,23 +220,17 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl 
       compressor.ratio.value = 2;
       compressor.attack.value = 0.005;
       compressor.release.value = 0.12;
-
       backingSource.connect(backingGain).connect(compressor);
       vocalSource.connect(vocalGain).connect(compressor);
       compressor.connect(offline.destination);
-
       backingSource.start(0);
-      if (desiredOffset >= 0) {
-        vocalSource.start(desiredOffset);
-      } else {
-        vocalSource.start(0, drobSourceOffset);
-      }
-
+      if (desiredOffset >= 0) vocalSource.start(desiredOffset);
+      else vocalSource.start(0, drobSourceOffset);
       const rendered = await offline.startRendering();
       const wav = audioBufferToWav(rendered);
+      onMasterRendered?.(wav);
       const url = URL.createObjectURL(wav);
       setMasterUrl(url);
-
       const offsetMs = Math.round(desiredOffset * 1000);
       const driftPct = Math.round((playbackRate - 1) * 10000) / 100;
       setStatus(`Master rendered: ${offsetMs} ms offset, ${driftPct >= 0 ? '+' : ''}${driftPct}% timing correction`);
@@ -288,11 +249,7 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl 
         <button className="secondary" onClick={stop}>■ Stop</button>
       </div>
       {status && <small>{status}</small>}
-
-      <button className="primary" onClick={renderMaster} disabled={rendering}>
-        {rendering ? 'Rendering Drob Master…' : 'Render Drob Master'}
-      </button>
-
+      <button className="primary" onClick={renderMaster} disabled={rendering}>{rendering ? 'Rendering Drob Master…' : 'Render Drob Master'}</button>
       {masterUrl && (
         <div className="playerCard">
           <strong>Rendered Drob Master</strong>
@@ -301,15 +258,11 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl 
           <small>This WAV contains the aligned backing track and Drob vocal as one finished file.</small>
         </div>
       )}
-
       <details>
         <summary>Solo tracks</summary>
-        <small>Backing track</small>
-        <audio controls src={backingUrl} />
-        <small>Original guide vocal</small>
-        <audio controls src={guideVocalUrl} />
-        <small>Drob vocal</small>
-        <audio controls src={drobVocalUrl} />
+        <small>Backing track</small><audio controls src={backingUrl} />
+        <small>Original guide vocal</small><audio controls src={guideVocalUrl} />
+        <small>Drob vocal</small><audio controls src={drobVocalUrl} />
       </details>
     </div>
   );

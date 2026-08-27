@@ -46,6 +46,64 @@ replaceOnce(
 );
 
 replaceOnce(
+`  function newSong() {`,
+`  function bestSavedAudio(version: SavedVersion) {
+    return version.masterBlob || version.generatedBlob || version.backingBlob;
+  }
+
+  function safeDownloadName(value: string) {
+    return value.replace(/[^a-z0-9-_ ]+/gi, '').trim().replace(/\\s+/g, '-') || 'ai-song';
+  }
+
+  function playSavedVersion(version: SavedVersion) {
+    const blob = bestSavedAudio(version);
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onended = () => URL.revokeObjectURL(url);
+    audio.onerror = () => URL.revokeObjectURL(url);
+    void audio.play();
+  }
+
+  function downloadSavedVersion(song: SavedSong, version: SavedVersion) {
+    const blob = bestSavedAudio(version);
+    if (!blob) return;
+    const extension = blob.type.includes('wav') ? 'wav' : blob.type.includes('mp4') ? 'm4a' : 'mp3';
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = \`${safeDownloadName(song.title)}-v\${version.versionNumber}.\${extension}\`;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  async function shareSavedVersion(song: SavedSong, version: SavedVersion) {
+    const blob = bestSavedAudio(version);
+    if (!blob) return;
+    const extension = blob.type.includes('wav') ? 'wav' : blob.type.includes('mp4') ? 'm4a' : 'mp3';
+    const file = new File([blob], \`${safeDownloadName(song.title)}-v\${version.versionNumber}.\${extension}\`, { type: blob.type || 'audio/mpeg' });
+    try {
+      if (navigator.share && (!navigator.canShare || navigator.canShare({ files: [file] }))) {
+        await navigator.share({ title: song.title, text: \`${song.title} — Version \${version.versionNumber}\`, files: [file] });
+      } else {
+        downloadSavedVersion(song, version);
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return;
+      downloadSavedVersion(song, version);
+    }
+  }
+
+  function newSong() {`,
+);
+
+replaceOnce(
+`          <p className="sub">Saved locally on this device so your audio, lyrics, melodies, and versions survive refreshes.</p>
+          <button className="primary" onClick={newSong}>＋ New Song</button>`,
+`          <p className="sub">Every generated track is saved automatically in your music library on this device. Play it, edit the project, download the audio, or share it from your phone.</p>`,
+);
+
+replaceOnce(
 `              {(versionsBySong[song.id] || []).map((version) => (
                 <button className="secondary" key={version.id} onClick={() => loadSavedVersion(song, version)}>
                   Open Version {version.versionNumber} · {new Date(version.createdAt).toLocaleString()}
@@ -55,20 +113,15 @@ replaceOnce(
                 <div className="playerCard" key={version.id}>
                   <strong>Version {version.versionNumber}</strong>
                   <small>{new Date(version.createdAt).toLocaleString()}</small>
-                  {(version.masterBlob || version.generatedBlob || version.backingBlob) && (
-                    <audio controls src={blobUrl(version.masterBlob || version.generatedBlob || version.backingBlob)} />
-                  )}
-                  <button className="secondary" onClick={() => loadSavedVersion(song, version)}>
-                    Open Version {version.versionNumber}
-                  </button>
+                  <div className="mixButtons">
+                    <button className="secondary" onClick={() => playSavedVersion(version)} disabled={!bestSavedAudio(version)}>▶ Play</button>
+                    <button className="secondary" onClick={() => loadSavedVersion(song, version)}>✏️ Edit</button>
+                    <button className="secondary" onClick={() => downloadSavedVersion(song, version)} disabled={!bestSavedAudio(version)}>⬇ Download</button>
+                    <button className="secondary" onClick={() => shareSavedVersion(song, version)} disabled={!bestSavedAudio(version)}>↗ Share</button>
+                  </div>
                 </div>
               ))}`,
 );
 
-replaceOnce(
-`          <p className="sub">Saved locally on this device so your audio, lyrics, melodies, and versions survive refreshes.</p>`,
-`          <p className="sub">Every generated track is saved automatically in your music library on this device. Open any version to keep editing vocals, mix, lyrics, or sheets.</p>`,
-);
-
 fs.writeFileSync(path, source);
-console.log('Enabled automatic Songs library storage for every generated track.');
+console.log('Enabled automatic Songs library storage with Play, Edit, Download, and Share actions.');

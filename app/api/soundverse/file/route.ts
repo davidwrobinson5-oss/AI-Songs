@@ -1,225 +1,123 @@
 import { NextResponse } from 'next/server';
+import { unzipSync } from 'fflate';
 
-const BASE = 'https://apiv2.soundverse.ai';
+const MUREKA_BASE = 'https://api.mureka.ai';
+const ELEVENLABS_BASE = 'https://api.elevenlabs.io';
 
-type Asset = {
-  file_id?: string;
-  blob_hash?: string;
-  url?: string;
-  mime_type?: string;
-  metadata_json?: unknown;
-};
-
-type FoundAsset = {
-  asset: Asset;
-  generationId: string;
-  outputMetadata?: unknown;
-  outputText?: unknown;
-};
-
-async function findAsset(apiKey: string, fileId: string): Promise<FoundAsset | null> {
-  const listRes = await fetch(`${BASE}/v1/generations`, {
-    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
-    cache: 'no-store',
-  });
-  const list = await listRes.json().catch(() => ({}));
-  if (!listRes.ok) return null;
-
-  const items = Array.isArray(list)
-    ? list
-    : Array.isArray(list?.generations)
-      ? list.generations
-      : Array.isArray(list?.items)
-        ? list.items
-        : [];
-
-  for (const item of items.slice(0, 20)) {
-    const id = item?.id || item?.task_id || item?.job_id;
-    if (!id || String(item?.status || '').toLowerCase() !== 'completed') continue;
-
-    const detailRes = await fetch(`${BASE}/v1/generations/${encodeURIComponent(String(id))}`, {
-      headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
-      cache: 'no-store',
-    });
-    const detail = await detailRes.json().catch(() => ({}));
-    if (!detailRes.ok) continue;
-
-    const assets: Asset[] = Array.isArray(detail?.output?.assets)
-      ? detail.output.assets
-      : Array.isArray(detail?.assets)
-        ? detail.assets
-        : [];
-    const match = assets.find((asset) => String(asset?.file_id || '') === fileId);
-    if (match) {
-      return {
-        asset: match,
-        generationId: String(id),
-        outputMetadata: detail?.output?.metadata_json,
-        outputText: detail?.output?.text,
-      };
-    }
-  }
-
-  return null;
-}
-
-async function tryDownloadIdentifier(apiKey: string, identifier: string) {
-  const response = await fetch(`${BASE}/v1/files/${encodeURIComponent(identifier)}/download`, {
-    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
-    cache: 'no-store',
-  });
-  const body = await response.json().catch(() => ({}));
-  return { response, body };
-}
-
-function collectHttpUrls(value: unknown, urls = new Set<string>(), depth = 0) {
+function collectUrls(value: unknown, urls: string[] = [], depth = 0) {
   if (depth > 8 || value == null) return urls;
 
   if (typeof value === 'string') {
     const trimmed = value.trim();
-    if (/^https?:\/\//i.test(trimmed)) urls.add(trimmed);
-
-    const matches = trimmed.match(/https?:\/\/[^\s\"'<>\\]+/gi);
-    if (matches) for (const match of matches) urls.add(match);
-
-    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-      try {
-        collectHttpUrls(JSON.parse(trimmed), urls, depth + 1);
-      } catch {
-        // Not JSON; ignore.
-      }
-    }
+    if (/^https?:\/\//i.test(trimmed) && !urls.includes(trimmed)) urls.push(trimmed);
     return urls;
   }
 
   if (Array.isArray(value)) {
-    for (const item of value) collectHttpUrls(item, urls, depth + 1);
+    for (const item of value) collectUrls(item, urls, depth + 1);
     return urls;
   }
 
   if (typeof value === 'object') {
-    for (const item of Object.values(value as Record<string, unknown>)) {
-      collectHttpUrls(item, urls, depth + 1);
+    const record = value as Record<string, unknown>;
+    const priorityKeys = ['wav_url', 'audio_url', 'mp3_url', 'song_url', 'url', 'stream_url'];
+    for (const key of priorityKeys) {
+      if (key in record) collectUrls(record[key], urls, depth + 1);
+    }
+    for (const [key, item] of Object.entries(record)) {
+      if (!priorityKeys.includes(key)) collectUrls(item, urls, depth + 1);
     }
   }
 
   return urls;
 }
 
-async function collectStreamUrls(apiKey: string, generationId: string) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 8000);
-  try {
-    const response = await fetch(`${BASE}/v1/generations/${encodeURIComponent(generationId)}/stream?after=0`, {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        Accept: 'text/event-stream',
-      },
-      cache: 'no-store',
-      signal: controller.signal,
-    });
-    if (!response.ok) return new Set<string>();
-    const text = await response.text();
-    return collectHttpUrls(text);
-  } catch {
-    return new Set<string>();
-  } finally {
-    clearTimeout(timer);
-  }
-}
+async function fetchMurekaSong(apiKey: string, taskId: string) {
+  const taskRes = await fetch(`${MUREKA_BASE}/v1/song/query/${encodeURIComponent(taskId)}`, {
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  const task = await taskRes.json().catch(() => ({}));
+  if (!taskRes.ok) throw new Error(task?.error?.message || task?.message || `Mureka returned ${taskRes.status}.`);
+  if (String(task?.status || '').toLowerCase() !== 'succeeded') throw new Error(`Mureka song is ${task?.status || 'not ready'}.`);
 
-async function proxyAudio(url: string, apiKey: string, mimeType?: string) {
-  const attempts = [
-    { Authorization: `Bearer ${apiKey}` },
-    {},
-  ];
+  const choices = Array.isArray(task?.choices) ? task.choices : [];
+  const candidates = collectUrls(choices);
+  if (!candidates.length) throw new Error('Mureka did not expose a generated-song audio URL.');
 
-  for (const headers of attempts) {
+  for (const url of candidates) {
     try {
-      const audioRes = await fetch(url, { headers, cache: 'no-store', redirect: 'follow' });
+      const audioRes = await fetch(url, { cache: 'no-store', redirect: 'follow' });
       if (!audioRes.ok) continue;
-      const contentType = audioRes.headers.get('content-type') || mimeType || 'audio/mpeg';
+      const contentType = audioRes.headers.get('content-type') || '';
       if (!contentType.startsWith('audio/') && !contentType.includes('octet-stream')) continue;
       const bytes = await audioRes.arrayBuffer();
       if (!bytes.byteLength) continue;
-      return new NextResponse(bytes, {
-        headers: {
-          'Content-Type': contentType.startsWith('audio/') ? contentType : (mimeType || 'audio/mpeg'),
-          'Cache-Control': 'no-store',
-          'Content-Length': String(bytes.byteLength),
-        },
-      });
+      return {
+        blob: new Blob([bytes], { type: contentType.startsWith('audio/') ? contentType : 'audio/mpeg' }),
+        contentType: contentType.startsWith('audio/') ? contentType : 'audio/mpeg',
+      };
     } catch {
-      // Try the next candidate/auth mode.
+      // Try the next Mureka URL candidate.
     }
   }
 
-  return null;
+  throw new Error('Could not download the completed Mureka song.');
 }
 
-async function proxySignedLink(link: any, apiKey: string, mimeType?: string) {
-  const signedUrl = link?.download_url || link?.signed_url || link?.url;
-  if (!signedUrl) return null;
-  return proxyAudio(String(signedUrl), apiKey, mimeType);
+function audioMime(name: string) {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.wav')) return 'audio/wav';
+  if (lower.endsWith('.m4a')) return 'audio/mp4';
+  return 'audio/mpeg';
 }
 
 export async function GET(req: Request) {
-  const apiKey = process.env.SOUNDVERSE_API_KEY?.trim();
-  if (!apiKey) return NextResponse.json({ error: 'SOUNDVERSE_API_KEY is not configured.' }, { status: 503 });
+  const murekaKey = process.env.MUREKA_API_KEY?.trim();
+  const elevenLabsKey = process.env.ELEVENLABS_API_KEY?.trim();
+  if (!murekaKey) return NextResponse.json({ error: 'MUREKA_API_KEY is not configured.' }, { status: 503 });
+  if (!elevenLabsKey) return NextResponse.json({ error: 'ELEVENLABS_API_KEY is not configured.' }, { status: 503 });
 
   try {
-    const fileId = new URL(req.url).searchParams.get('fileId');
-    if (!fileId) return NextResponse.json({ error: 'fileId is required.' }, { status: 400 });
+    // Legacy query name retained so the current mobile UI keeps working while
+    // the provider underneath has been switched from Soundverse to Mureka.
+    const taskId = new URL(req.url).searchParams.get('fileId');
+    if (!taskId) return NextResponse.json({ error: 'fileId is required.' }, { status: 400 });
 
-    const fileAttempt = await tryDownloadIdentifier(apiKey, fileId);
-    if (fileAttempt.response.ok) {
-      const proxied = await proxySignedLink(fileAttempt.body, apiKey);
-      if (proxied) return proxied;
+    const song = await fetchMurekaSong(murekaKey, taskId);
+
+    const stemForm = new FormData();
+    stemForm.append('file', song.blob, song.contentType.includes('wav') ? 'mureka-song.wav' : 'mureka-song.mp3');
+    stemForm.append('stem_variation_id', 'two_stems_v1');
+
+    const stemsRes = await fetch(`${ELEVENLABS_BASE}/v1/music/stem-separation?output_format=mp3_44100_192`, {
+      method: 'POST',
+      headers: { 'xi-api-key': elevenLabsKey },
+      body: stemForm,
+      cache: 'no-store',
+    });
+    if (!stemsRes.ok) {
+      const text = await stemsRes.text();
+      return NextResponse.json({ error: text || 'ElevenLabs stem separation failed.' }, { status: stemsRes.status });
     }
 
-    const found = await findAsset(apiKey, fileId);
-    const asset = found?.asset;
+    const archive = unzipSync(new Uint8Array(await stemsRes.arrayBuffer()));
+    const entries = Object.entries(archive).filter(([name]) => /\.(mp3|wav|m4a)$/i.test(name));
+    const vocalEntry = entries.find(([name]) => /vocal/i.test(name) && !/instrumental|accompaniment|backing|music/i.test(name));
+    if (!vocalEntry) return NextResponse.json({ error: 'Could not identify the vocal stem returned by ElevenLabs.' }, { status: 502 });
 
-    let blobStatus: number | null = null;
-    if (asset?.blob_hash) {
-      const blobAttempt = await tryDownloadIdentifier(apiKey, asset.blob_hash);
-      blobStatus = blobAttempt.response.status;
-      if (blobAttempt.response.ok) {
-        const proxied = await proxySignedLink(blobAttempt.body, apiKey, asset.mime_type);
-        if (proxied) return proxied;
-      }
-    }
-
-    const candidates = collectHttpUrls([
-      asset?.url,
-      asset?.metadata_json,
-      found?.outputMetadata,
-      found?.outputText,
-    ]);
-
-    if (found?.generationId) {
-      const streamUrls = await collectStreamUrls(apiKey, found.generationId);
-      for (const url of streamUrls) candidates.add(url);
-    }
-
-    for (const candidate of candidates) {
-      const proxied = await proxyAudio(candidate, apiKey, asset?.mime_type);
-      if (proxied) return proxied;
-    }
-
-    return NextResponse.json(
-      {
-        error: 'Could not download Soundverse audio.',
-        fileDownloadStatus: fileAttempt.response.status,
-        blobDownloadStatus: blobStatus,
-        assetFound: Boolean(asset),
-        candidateUrlCount: candidates.size,
-        streamChecked: Boolean(found?.generationId),
+    const bytes = vocalEntry[1];
+    return new NextResponse(bytes, {
+      status: 200,
+      headers: {
+        'Content-Type': audioMime(vocalEntry[0]),
+        'Content-Length': String(bytes.byteLength),
+        'Cache-Control': 'no-store',
+        'X-Precision-Provider': 'mureka',
       },
-      { status: 502 },
-    );
+    });
   } catch (error) {
     console.error(error);
-    return NextResponse.json({ error: 'Could not proxy Soundverse file.' }, { status: 500 });
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Could not build the Mureka precision vocal.' }, { status: 500 });
   }
 }

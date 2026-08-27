@@ -55,7 +55,7 @@ export async function POST(req: Request) {
     ]);
     const encoded = Buffer.from(JSON.stringify(compactNotes), 'utf8').toString('base64url');
     const origin = new URL(req.url).origin;
-    const melodyUrl = `${origin}/api/soundverse/melody-file/ai-songs-melody.wav?notes=${encodeURIComponent(encoded)}`;
+    const melodyUrl = `${origin}/api/soundverse/melody-file/ai-songs-melody.mp3?notes=${encodeURIComponent(encoded)}`;
     const toolId = await getToolId(apiKey, 'melody_to_song', 'v7');
 
     const response = await fetch(`${BASE}/v1/generations`, {

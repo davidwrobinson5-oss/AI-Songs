@@ -74,7 +74,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { lyrics, vocalRange, analysis, tempo = 120 } = await req.json();
+    const { lyrics, analysis, tempo = 120 } = await req.json();
     const notes: MelodyNote[] = Array.isArray(analysis?.notes)
       ? analysis.notes.filter((note: MelodyNote) => Number.isFinite(note?.midi) && Number.isFinite(note?.start) && Number.isFinite(note?.duration))
       : [];
@@ -102,16 +102,15 @@ export async function POST(req: Request) {
     const melodyId = upload?.id || upload?.file_id;
     if (!melodyId) return NextResponse.json({ error: 'Mureka did not return a melody file ID.' }, { status: 502 });
 
-    const range = String(vocalRange || '').toLowerCase();
-    const gender = /alto|soprano/.test(range) ? 'female' : /bass|baritone|tenor/.test(range) ? 'male' : undefined;
-    const payload: Record<string, unknown> = {
+    // Mureka documents melody_id as a standalone control. Do not combine it
+    // with gender/prompt/reference/vocal controls. Drob supplies the final voice.
+    const payload = {
       lyrics: String(lyrics).slice(0, 5000),
-      model: 'auto',
+      model: 'mureka-9.5',
       melody_id: String(melodyId),
       n: 1,
       stream: false,
     };
-    if (gender) payload.gender = gender;
 
     const generationRes = await fetch(`${BASE}/v1/song/generate`, {
       method: 'POST',
@@ -137,6 +136,8 @@ export async function POST(req: Request) {
       taskId: String(taskId),
       status: generation?.status || 'preparing',
       melodyId: String(melodyId),
+      model: generation?.model || 'mureka-9.5',
+      traceId: generation?.trace_id || null,
     }, { status: 202 });
   } catch (error) {
     console.error(error);

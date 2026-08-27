@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server';
 
 const BASE = 'https://apiv2.soundverse.ai';
-const PPQ = 480;
 
 type MelodyNote = {
   midi?: number;
@@ -14,65 +13,6 @@ type Tool = {
   operation?: string;
   model?: string;
 };
-
-function vlq(value: number) {
-  let v = Math.max(0, Math.floor(value));
-  const bytes = [v & 0x7f];
-  while ((v >>= 7) > 0) bytes.unshift((v & 0x7f) | 0x80);
-  return bytes;
-}
-
-function u32(value: number) {
-  return [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
-}
-
-function makeMidi(notes: MelodyNote[], tempo: number) {
-  const bpm = Math.min(240, Math.max(40, Math.round(tempo || 120)));
-  const ticksPerSecond = (PPQ * bpm) / 60;
-  const micros = Math.round(60_000_000 / bpm);
-  const events: Array<{ tick: number; order: number; bytes: number[] }> = [
-    {
-      tick: 0,
-      order: 0,
-      bytes: [0xff, 0x51, 0x03, (micros >>> 16) & 0xff, (micros >>> 8) & 0xff, micros & 0xff],
-    },
-  ];
-
-  let lastTick = 0;
-  for (const note of notes) {
-    if (!Number.isFinite(note.midi) || !Number.isFinite(note.start) || !Number.isFinite(note.duration)) continue;
-    const midi = Math.min(127, Math.max(0, Math.round(note.midi as number)));
-    const startSeconds = Math.min(59.5, Math.max(0, note.start));
-    const endSeconds = Math.min(59.9, Math.max(startSeconds + 0.06, startSeconds + note.duration));
-    const startTick = Math.round(startSeconds * ticksPerSecond);
-    const endTick = Math.max(startTick + 1, Math.round(endSeconds * ticksPerSecond));
-    events.push({ tick: startTick, order: 2, bytes: [0x90, midi, 92] });
-    events.push({ tick: endTick, order: 1, bytes: [0x80, midi, 0] });
-    lastTick = Math.max(lastTick, endTick);
-  }
-
-  events.sort((a, b) => a.tick - b.tick || a.order - b.order);
-  const track: number[] = [];
-  let previousTick = 0;
-  for (const event of events) {
-    track.push(...vlq(event.tick - previousTick), ...event.bytes);
-    previousTick = event.tick;
-  }
-
-  const minimumEndTick = Math.round(5 * ticksPerSecond);
-  const endTick = Math.max(lastTick, minimumEndTick);
-  track.push(...vlq(endTick - previousTick), 0xff, 0x2f, 0x00);
-
-  const header = [
-    0x4d, 0x54, 0x68, 0x64,
-    0x00, 0x00, 0x00, 0x06,
-    0x00, 0x00,
-    0x00, 0x01,
-    (PPQ >>> 8) & 0xff, PPQ & 0xff,
-  ];
-  const chunk = [0x4d, 0x54, 0x72, 0x6b, ...u32(track.length), ...track];
-  return Buffer.from([...header, ...chunk]);
-}
 
 async function getToolId(apiKey: string, operation: string, model: string) {
   const response = await fetch(`${BASE}/v1/tools`, {
@@ -99,7 +39,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { lyrics, analysis, tempo = 120, requestId } = await req.json();
+    const { lyrics, analysis, requestId } = await req.json();
     const notes: MelodyNote[] = Array.isArray(analysis?.notes)
       ? analysis.notes.filter((note: MelodyNote) => Number.isFinite(note?.midi) && Number.isFinite(note?.start) && Number.isFinite(note?.duration))
       : [];
@@ -108,8 +48,15 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Fitted lyrics and analyzed melody notes are required.' }, { status: 400 });
     }
 
-    const midi = makeMidi(notes, Number(tempo) || 120);
-    const toolId = await getToolId(apiKey, 'midi_to_song', 'v7');
+    const compactNotes = notes.map((note) => [
+      Math.round(Number(note.midi)),
+      Math.round(Number(note.start) * 1000) / 1000,
+      Math.round(Number(note.duration) * 1000) / 1000,
+    ]);
+    const encoded = Buffer.from(JSON.stringify(compactNotes), 'utf8').toString('base64url');
+    const origin = new URL(req.url).origin;
+    const melodyUrl = `${origin}/api/soundverse/melody-file/ai-songs-melody.mp3?notes=${encodeURIComponent(encoded)}`;
+    const toolId = await getToolId(apiKey, 'melody_to_song', 'v7');
 
     const response = await fetch(`${BASE}/v1/generations`, {
       method: 'POST',
@@ -117,13 +64,13 @@ export async function POST(req: Request) {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
         Accept: 'application/json',
-        'Idempotency-Key': `ai-songs-midi-inline-${safeRequestId(requestId)}`,
+        'Idempotency-Key': `ai-songs-melody-${safeRequestId(requestId)}`,
       },
       body: JSON.stringify({
         tool_id: toolId,
         license: 1,
         payload_json: JSON.stringify({
-          midi: { data_b64: midi.toString('base64') },
+          melody: { url: melodyUrl },
           lyrics: String(lyrics).slice(0, 3000),
           versions: 1,
         }),
@@ -134,7 +81,7 @@ export async function POST(req: Request) {
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       return NextResponse.json(
-        { error: data?.message || data?.error || 'Soundverse MIDI-to-Song could not start.', detail: data },
+        { error: data?.message || data?.error || 'Soundverse Melody-to-Song could not start.', detail: data },
         { status: response.status },
       );
     }

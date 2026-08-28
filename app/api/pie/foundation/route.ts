@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { isSupabaseServerConfigured } from '../../../lib/pie/supabase';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -14,12 +15,17 @@ const modules = {
 } as const;
 
 export async function GET() {
+  const supabaseConfigured = isSupabaseServerConfigured();
   return NextResponse.json({
     product: 'Pie',
-    foundationVersion: 1,
+    foundationVersion: 2,
     modules,
-    databaseConfigured: Boolean(process.env.DATABASE_URL),
-    storageConfigured: Boolean(process.env.PIE_STORAGE_PROVIDER),
+    databaseConfigured: supabaseConfigured || Boolean(process.env.DATABASE_URL),
+    storageConfigured: supabaseConfigured || Boolean(process.env.PIE_STORAGE_PROVIDER),
+    supabase: {
+      urlConfigured: Boolean(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL),
+      serverKeyConfigured: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY),
+    },
     providers: {
       email: Boolean(process.env.RESEND_API_KEY),
       smsVoice: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),

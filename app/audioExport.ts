@@ -58,10 +58,11 @@ async function decodeAudio(blob: Blob) {
   }
 }
 
-async function audioBufferToMp3(buffer: AudioBuffer) {
+async function audioBufferToMp3(buffer: AudioBuffer, bitrate = 192) {
   const channels = Math.min(2, Math.max(1, buffer.numberOfChannels));
   const sampleRate = buffer.sampleRate;
-  const encoder = new lame.Mp3Encoder(channels, sampleRate, 192);
+  const safeBitrate = Math.max(64, Math.min(320, Math.round(bitrate)));
+  const encoder = new lame.Mp3Encoder(channels, sampleRate, safeBitrate);
   const left = floatToInt16(buffer.getChannelData(0));
   const right = channels === 2 ? floatToInt16(buffer.getChannelData(Math.min(1, buffer.numberOfChannels - 1))) : undefined;
   const blockSize = 1152;
@@ -80,9 +81,15 @@ async function audioBufferToMp3(buffer: AudioBuffer) {
   return new Blob(chunks, { type: 'audio/mpeg' });
 }
 
-export async function exportAudioBlob(blob: Blob, format: 'mp3' | 'wav') {
-  if (format === 'wav' && /wav/i.test(blob.type)) return blob;
-  if (format === 'mp3' && /(mpeg|mp3)/i.test(blob.type)) return blob;
+export async function exportAudioBlob(
+  blob: Blob,
+  format: 'mp3' | 'wav',
+  options: { bitrate?: number; force?: boolean } = {},
+) {
+  if (!options.force) {
+    if (format === 'wav' && /wav/i.test(blob.type)) return blob;
+    if (format === 'mp3' && /(mpeg|mp3)/i.test(blob.type)) return blob;
+  }
   const decoded = await decodeAudio(blob);
-  return format === 'wav' ? audioBufferToWav(decoded) : audioBufferToMp3(decoded);
+  return format === 'wav' ? audioBufferToWav(decoded) : audioBufferToMp3(decoded, options.bitrate || 192);
 }

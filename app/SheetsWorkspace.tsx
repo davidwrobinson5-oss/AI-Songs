@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import type { MelodyAnalysis } from './MelodyWorkspace';
+import { exportAudioBlob } from './audioExport';
 
 type SheetType = 'full' | 'chords' | 'lead' | 'drums' | 'bass' | 'guitar' | 'keys';
 type JobMap = Partial<Record<'full'|'chords'|'separation'|'lead'|'drums'|'bass'|'guitar'|'keys', string>>;
@@ -26,8 +27,15 @@ export default function SheetsWorkspace({songTitle,lyrics,melodyAnalysis,prompt=
   const sourceUrl=masterUrl||musicUrl;
   const hasMusic=Boolean(sourceUrl), hasVocal=Boolean(vocalUrl||melodyAnalysis), hasLyrics=Boolean(lyrics.trim());
 
+  async function compactForTranscription(blob:Blob){
+    setStatus('Preparing a temporary transcription copy…');
+    const compact=await exportAudioBlob(blob,'mp3',{bitrate:80,force:true});
+    if(compact.size>4_000_000) throw new Error('This song is too long for the current direct transcription upload.');
+    return compact;
+  }
+
   async function startFile(mode:string, blob:Blob){
-    const fd=new FormData(); fd.append('mode',mode); fd.append('title',songTitle||'Untitled Song'); fd.append('file',blob,'song-audio');
+    const fd=new FormData(); fd.append('mode',mode); fd.append('title',songTitle||'Untitled Song'); fd.append('file',blob,'song-analysis.mp3');
     const r=await fetch('/api/sheets/transcribe',{method:'POST',body:fd}); const d=await r.json(); if(!r.ok) throw new Error(d.error||'Could not start transcription.'); return String(d.jobId);
   }
   async function startStem(stem:string,separationJobId:string){
@@ -37,11 +45,14 @@ export default function SheetsWorkspace({songTitle,lyrics,melodyAnalysis,prompt=
 
   async function generate(){
     if(!hasMusic&&!vocalUrl){setStatus('Create or load a finished song first.');return}
-    setBusy(true); setStatus('Uploading finished song for transcription…'); setJobs({}); setStatuses({}); setChords([]); setStemStarted(false);
+    setBusy(true); setStatus('Preparing finished song for transcription…'); setJobs({}); setStatuses({}); setChords([]); setStemStarted(false);
     try{
-      const musicBlob=sourceUrl?await fetch(sourceUrl).then(r=>r.blob()):null;
-      const vocalBlob=vocalUrl?await fetch(vocalUrl).then(r=>r.blob()):null;
+      const musicSource=sourceUrl?await fetch(sourceUrl).then(r=>{if(!r.ok)throw new Error('Could not read the finished song.');return r.blob()}):null;
+      const vocalSource=vocalUrl?await fetch(vocalUrl).then(r=>{if(!r.ok)throw new Error('Could not read the lead vocal.');return r.blob()}):null;
+      const musicBlob=musicSource?await compactForTranscription(musicSource):null;
+      const vocalBlob=vocalSource?await compactForTranscription(vocalSource):null;
       const next:JobMap={};
+      setStatus('Uploading securely and starting notation analysis…');
       if(musicBlob){
         const [full,chord,separation]=await Promise.all([startFile('full',musicBlob),startFile('chords',musicBlob),startFile('separate',musicBlob)]);
         next.full=full; next.chords=chord; next.separation=separation;
@@ -60,12 +71,19 @@ export default function SheetsWorkspace({songTitle,lyrics,melodyAnalysis,prompt=
         const d=await r.json(); if(!r.ok) throw new Error(d.error||'Status check failed.'); if(dead)return;
         setStatuses(d.statuses||{}); if(Array.isArray(d.chords))setChords(d.chords);
         if(d.statuses?.separation==='COMPLETED'&&!stemStarted&&jobs.separation){
-          setStemStarted(true); setStatus('Instrument stems found. Creating drum, bass, guitar, and keys notation…');
-          const [drums,bass,guitar,keys]=await Promise.all(['drums','bass','guitar','piano'].map(s=>startStem(s,jobs.separation!)));
-          if(!dead)setJobs(prev=>({...prev,drums,bass,guitar,keys}));
+          setStemStarted(true); setStatus('Instrument stems found. Creating lead, drum, bass, guitar, and keys notation…');
+          const stemNames=jobs.lead?['drums','bass','guitar','piano']:['vocals','drums','bass','guitar','piano'];
+          const stemJobs=await Promise.all(stemNames.map(s=>startStem(s,jobs.separation!)));
+          if(!dead){
+            const addition:JobMap={};
+            let offset=0;
+            if(!jobs.lead){addition.lead=stemJobs[0];offset=1}
+            addition.drums=stemJobs[offset]; addition.bass=stemJobs[offset+1]; addition.guitar=stemJobs[offset+2]; addition.keys=stemJobs[offset+3];
+            setJobs(prev=>({...prev,...addition}));
+          }
         } else {
           const wanted=['full','lead','drums','bass','guitar','keys'].filter(k=>jobs[k as keyof JobMap]);
-          if(wanted.length&&wanted.every(k=>d.statuses?.[k]==='COMPLETED')) setStatus('Sheet music is ready to download.');
+          if(wanted.length>=6&&wanted.every(k=>d.statuses?.[k]==='COMPLETED')&&d.statuses?.chords==='COMPLETED') setStatus('Sheet music is ready to download.');
         }
       }catch(e){if(!dead)setStatus(e instanceof Error?e.message:'Status check failed.')}
     };
@@ -79,8 +97,9 @@ export default function SheetsWorkspace({songTitle,lyrics,melodyAnalysis,prompt=
   return <section className="panel sheetsWorkspace exportSheetsWorkspace">
     <div className="sheetSourceCard noPrint">
       <p className="eyebrow">Source song</p><h2>{songTitle||'Untitled Song'}</h2>
-      <div className="assetStatusGrid"><div className={hasMusic?'assetReady':'assetMissing'}>✓<small>Music / Master</small></div><div className={hasVocal?'assetReady':'assetMissing'}>✓<small>Lead Vocal</small></div><div className={hasLyrics?'assetReady':'assetMissing'}>✓<small>Lyrics</small></div></div>
-      <button className="primary" onClick={generate} disabled={busy}>{busy?'Starting…':'🎼 Generate Sheet Music From Song'}</button>
+      <p className="sub">AI Songs transcribes the finished audio itself. The temporary analysis copy does not change your saved song or master.</p>
+      <div className="assetStatusGrid"><div className={hasMusic?'assetReady':'assetMissing'}>{hasMusic?'✓':'—'}<small>Music / Master</small></div><div className={hasVocal?'assetReady':'assetMissing'}>{hasVocal?'✓':'—'}<small>Lead Vocal</small></div><div className={hasLyrics?'assetReady':'assetMissing'}>{hasLyrics?'✓':'—'}<small>Lyrics</small></div></div>
+      <button className="primary" onClick={generate} disabled={busy}>{busy?'Preparing…':'🎼 Generate Sheet Music From Song'}</button>
       {status&&<div className="statusBox">{status}</div>}
     </div>
     <div className="sheetExportGrid noPrint">{SHEETS.map(([k,icon,label])=><button key={k} className={sheet===k?'sheetExportCard activeSheetExportCard':'sheetExportCard'} onClick={()=>setSheet(k)}><span className="sheetExportIcon">{icon}</span><span><strong>{label}</strong><small>{statuses[k]|| (k==='chords'&&chords.length?'COMPLETED':'Not generated yet')}</small></span><b>›</b></button>)}</div>

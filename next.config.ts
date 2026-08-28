@@ -30,16 +30,14 @@ const securityHeaders = [
   { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
   { key: 'X-Permitted-Cross-Domain-Policies', value: 'none' },
   { key: 'X-DNS-Prefetch-Control', value: 'off' },
+  { key: 'X-Robots-Tag', value: 'noindex, nofollow, noarchive, nosnippet' },
   ...(isDev ? [] : [{ key: 'Strict-Transport-Security', value: 'max-age=63072000; includeSubDomains; preload' }]),
 ];
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   headers: async () => [
-    {
-      source: '/:path*',
-      headers: securityHeaders,
-    },
+    { source: '/:path*', headers: securityHeaders },
     {
       source: '/api/:path*',
       headers: [

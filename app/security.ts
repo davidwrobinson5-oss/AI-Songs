@@ -2,34 +2,38 @@ import { isIP } from 'node:net';
 import { NextResponse } from 'next/server';
 
 const AUDIO_TYPES = new Set([
-  'audio/mpeg',
-  'audio/mp3',
-  'audio/wav',
-  'audio/x-wav',
-  'audio/mp4',
-  'audio/m4a',
-  'audio/aac',
-  'audio/ogg',
-  'audio/webm',
-  'application/octet-stream',
+  'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/mp4', 'audio/m4a', 'audio/aac', 'audio/ogg', 'audio/webm', 'application/octet-stream',
 ]);
 
 type RateRecord = { count: number; resetAt: number };
 const globalStore = globalThis as typeof globalThis & { __aiSongsRateLimit?: Map<string, RateRecord> };
 const rateStore = globalStore.__aiSongsRateLimit || new Map<string, RateRecord>();
 globalStore.__aiSongsRateLimit = rateStore;
+const MAX_RATE_KEYS = 10_000;
 
 function clientIp(req: Request) {
-  return (
-    req.headers.get('x-vercel-forwarded-for') ||
-    req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    req.headers.get('x-real-ip') ||
-    'unknown'
-  );
+  return req.headers.get('x-vercel-forwarded-for') || req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || req.headers.get('x-real-ip') || 'unknown';
+}
+
+function pruneRateStore(now: number) {
+  if (rateStore.size < MAX_RATE_KEYS) return;
+  for (const [key, record] of rateStore) {
+    if (record.resetAt <= now) rateStore.delete(key);
+  }
+  if (rateStore.size >= MAX_RATE_KEYS) {
+    const removeCount = Math.ceil(MAX_RATE_KEYS * 0.1);
+    let removed = 0;
+    for (const key of rateStore.keys()) {
+      rateStore.delete(key);
+      removed += 1;
+      if (removed >= removeCount) break;
+    }
+  }
 }
 
 export function rateLimit(req: Request, bucket: string, limit: number, windowMs = 60_000) {
   const now = Date.now();
+  pruneRateStore(now);
   const key = `${bucket}:${clientIp(req)}`;
   const current = rateStore.get(key);
   if (!current || current.resetAt <= now) {
@@ -38,10 +42,7 @@ export function rateLimit(req: Request, bucket: string, limit: number, windowMs 
   }
   if (current.count >= limit) {
     const retryAfter = Math.max(1, Math.ceil((current.resetAt - now) / 1000));
-    return NextResponse.json(
-      { error: 'Too many requests. Please try again shortly.' },
-      { status: 429, headers: { 'Retry-After': String(retryAfter), 'Cache-Control': 'no-store' } },
-    );
+    return NextResponse.json({ error: 'Too many requests. Please try again shortly.' }, { status: 429, headers: { 'Retry-After': String(retryAfter), 'Cache-Control': 'no-store' } });
   }
   current.count += 1;
   return null;
@@ -100,11 +101,7 @@ function isPrivateIpv4(hostname: string) {
 export function safeHttpsUrl(value: unknown) {
   const raw = textField(value, 2048);
   let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new Error('INVALID_URL');
-  }
+  try { url = new URL(raw); } catch { throw new Error('INVALID_URL'); }
   if (url.protocol !== 'https:' || url.username || url.password) throw new Error('INVALID_URL');
   const hostname = url.hostname.toLowerCase();
   if (!hostname || hostname === 'localhost' || hostname.endsWith('.local') || hostname.endsWith('.internal')) throw new Error('INVALID_URL');
@@ -116,13 +113,9 @@ export function safeHttpsUrl(value: unknown) {
 
 export function safeClientError(error: unknown, fallback = 'Request could not be completed.') {
   if (!(error instanceof Error)) return fallback;
-  if (error.message === 'REQUEST_TOO_LARGE' || error.message === 'TEXT_TOO_LONG' || error.message === 'INVALID_AUDIO_SIZE') {
-    return 'The request is larger than allowed.';
-  }
+  if (error.message === 'REQUEST_TOO_LARGE' || error.message === 'TEXT_TOO_LONG' || error.message === 'INVALID_AUDIO_SIZE') return 'The request is larger than allowed.';
   if (error.message === 'INVALID_AUDIO_TYPE') return 'Unsupported audio file type.';
-  if (['INVALID_ID', 'INVALID_NUMBER', 'INVALID_JSON_OBJECT', 'INVALID_URL'].includes(error.message)) {
-    return 'Invalid request data.';
-  }
+  if (['INVALID_ID', 'INVALID_NUMBER', 'INVALID_JSON_OBJECT', 'INVALID_URL'].includes(error.message)) return 'Invalid request data.';
   return fallback;
 }
 
@@ -146,9 +139,6 @@ export async function readResponseBytesLimited(response: Response, maxBytes: num
   }
   const output = new Uint8Array(total);
   let offset = 0;
-  for (const chunk of chunks) {
-    output.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
+  for (const chunk of chunks) { output.set(chunk, offset); offset += chunk.byteLength; }
   return output;
 }

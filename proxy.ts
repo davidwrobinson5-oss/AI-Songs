@@ -20,8 +20,8 @@ function isLoginRoute(pathname: string) {
   return pathname === '/login' || pathname.startsWith('/login/') || pathname === '/api/auth/login';
 }
 
-function isPublicContact(pathname: string) {
-  return pathname === '/api/contact';
+function isPublicAccessRequest(pathname: string) {
+  return pathname === '/api/access-request';
 }
 
 function clerkConfigured() {
@@ -47,7 +47,7 @@ async function legacyProxy(req: NextRequest) {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicContact(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname)) return NextResponse.next();
 
   if (!authConfigured()) {
     if (isLoginRoute(pathname)) return NextResponse.next();
@@ -74,7 +74,7 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicContact(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname)) return NextResponse.next();
 
   const clerkAuth = await auth();
   const legacyValid = await legacySessionValid(req);
@@ -92,6 +92,11 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   if (pathname.startsWith('/api/')) { response.headers.set('Cache-Control', 'no-store'); response.headers.set('X-Robots-Tag', 'noindex, nofollow'); response.headers.set('Access-Control-Allow-Origin', 'null'); }
   return response;
 }, {
+  authorizedParties: [
+    'https://ai-songs-drobinhood1.vercel.app',
+    'https://ai-songs-bice.vercel.app',
+    'https://ai-songs-git-main-drobinhood1.vercel.app',
+  ],
   contentSecurityPolicy: { strict: true, directives: { 'media-src': ["'self'", 'blob:', 'data:'], 'connect-src': ['blob:'], 'manifest-src': ["'self'"], 'object-src': ["'none'"], 'frame-ancestors': ["'none'"] } },
 });
 

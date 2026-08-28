@@ -17,10 +17,10 @@ export default function AccessRequestForm() {
     setStatus('');
 
     try {
-      const response = await fetch('/api/contact', {
+      const response = await fetch('/api/access-request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ kind: 'access', name, email, message, website: '' }),
+        body: JSON.stringify({ name, email, message, website: '' }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || 'Request could not be sent.');

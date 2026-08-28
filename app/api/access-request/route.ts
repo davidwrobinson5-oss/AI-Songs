@@ -10,34 +10,38 @@ function cleanEmail(value: unknown) {
 }
 
 export async function POST(req: Request) {
-  const limited = rateLimit(req, 'support-request', 6, 15 * 60_000);
+  const limited = rateLimit(req, 'access-request', 3, 15 * 60_000);
   if (limited) return limited;
 
   try {
-    const body = await readJsonObject(req, 24_000);
+    const body = await readJsonObject(req, 16_000);
+
+    // Honeypot for basic bot filtering. Legitimate clients leave this blank.
+    const website = textField(body.website, 200);
+    if (website) return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });
+
     const email = cleanEmail(body.email);
     const name = textField(body.name, 80);
-    const subject = textField(body.subject, 120);
-    const message = textField(body.message, 2500);
-    if (!subject || !message) throw new Error('MISSING_SUPPORT_FIELDS');
+    const message = textField(body.message, 1200);
 
     const apiKey = process.env.RESEND_API_KEY?.trim();
     const supportEmail = process.env.AI_SONGS_SUPPORT_EMAIL?.trim();
     const fromEmail = process.env.AI_SONGS_FROM_EMAIL?.trim() || 'AI Songs <onboarding@resend.dev>';
 
     if (!apiKey || !supportEmail) {
-      console.error('AI Songs support email is not configured');
-      return NextResponse.json({ error: 'Support email is not configured yet.' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+      console.error('AI Songs access email is not configured');
+      return NextResponse.json({ error: 'Access requests are not configured yet.' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
     }
 
     const text = [
-      'An authenticated AI Songs user submitted a support request.',
+      'A new user requested access to AI Songs.',
       '',
       `Name: ${name || 'Not provided'}`,
       `Email: ${email}`,
-      `Subject: ${subject}`,
       '',
-      message,
+      message || 'No additional message.',
+      '',
+      'Open Clerk Dashboard to review/invite this user.',
     ].join('\n');
 
     const response = await fetch('https://api.resend.com/emails', {
@@ -47,7 +51,7 @@ export async function POST(req: Request) {
         from: fromEmail,
         to: [supportEmail],
         reply_to: email,
-        subject: `AI Songs support request: ${subject}`,
+        subject: 'New AI Songs access request',
         text,
       }),
       cache: 'no-store',
@@ -55,8 +59,8 @@ export async function POST(req: Request) {
 
     if (!response.ok) {
       const detail = (await response.text().catch(() => '')).slice(0, 600);
-      console.error('Resend support notification failed', response.status, detail);
-      return NextResponse.json({ error: 'Your support request could not be delivered right now.' }, { status: 502, headers: { 'Cache-Control': 'no-store' } });
+      console.error('Resend access notification failed', response.status, detail);
+      return NextResponse.json({ error: 'Your request could not be delivered right now.' }, { status: 502, headers: { 'Cache-Control': 'no-store' } });
     }
 
     return NextResponse.json({ ok: true }, { headers: { 'Cache-Control': 'no-store' } });

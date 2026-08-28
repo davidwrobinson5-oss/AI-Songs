@@ -15,16 +15,10 @@ export default function LoginPage() {
         <div className={styles.logo}>🎶</div>
         <p className={styles.eyebrow}>PRIVATE STUDIO</p>
         <h1>AI Songs</h1>
-        <p className={styles.sub}>Choose your preferred secure sign-in method. Passkey uses your phone's fingerprint or face unlock, SMS sends a one-time code, and password remains available as a fallback.</p>
-        <div className={styles.authChoiceList}>
-          <div>👆 Fingerprint / Face ID</div>
-          <div>📱 Text me a code</div>
-          <div>🔐 Password</div>
-        </div>
+        <p className={styles.sub}>Sign in securely with your passkey, phone code, or password.</p>
         <div className={styles.clerkWrap}>
           <SignIn
-            path="/login"
-            routing="path"
+            routing="hash"
             fallbackRedirectUrl="/"
             signUpUrl="/login"
             appearance={{
@@ -36,7 +30,7 @@ export default function LoginPage() {
             }}
           />
         </div>
-        <p className={styles.lockNote}>Biometric data stays on your device. The app receives only a cryptographic passkey result, never your fingerprint or face scan.</p>
+        <p className={styles.lockNote}>Passkeys can use your phone's fingerprint, face unlock, or device PIN. Biometric data stays on your device.</p>
       </section>
     </main>
   );

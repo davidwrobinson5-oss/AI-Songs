@@ -1,32 +1,13 @@
-'use client';
-
-import { FormEvent, useState } from 'react';
+import { SignIn } from '@clerk/nextjs';
+import LegacyLoginForm from './LegacyLoginForm';
 import styles from './login.module.css';
 
-export default function LoginPage() {
-  const [password, setPassword] = useState('');
-  const [status, setStatus] = useState('');
-  const [busy, setBusy] = useState(false);
+function clerkConfigured() {
+  return Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
+}
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true);
-    setStatus('');
-    try {
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password }),
-      });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(data?.error || 'Could not sign in.');
-      window.location.href = '/';
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Could not sign in.');
-    } finally {
-      setBusy(false);
-    }
-  }
+export default function LoginPage() {
+  if (!clerkConfigured()) return <LegacyLoginForm />;
 
   return (
     <main className={styles.shell}>
@@ -34,27 +15,28 @@ export default function LoginPage() {
         <div className={styles.logo}>🎶</div>
         <p className={styles.eyebrow}>PRIVATE STUDIO</p>
         <h1>AI Songs</h1>
-        <p className={styles.sub}>Enter your studio password to access music generation, your voice tools, mixes, songs, and sheets.</p>
-        <form onSubmit={submit} className={styles.form}>
-          <label>
-            Studio password
-            <input
-              type="password"
-              autoComplete="current-password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              minLength={12}
-              maxLength={256}
-              required
-              autoFocus
-            />
-          </label>
-          <button type="submit" disabled={busy || password.length < 12}>
-            {busy ? 'Signing in…' : 'Unlock Studio'}
-          </button>
-          {status && <div className={styles.status}>{status}</div>}
-        </form>
-        <p className={styles.lockNote}>Protected studio access · signed secure session · paid AI endpoints stay locked until authentication succeeds.</p>
+        <p className={styles.sub}>Choose your preferred secure sign-in method. Passkey uses your phone's fingerprint or face unlock, SMS sends a one-time code, and password remains available as a fallback.</p>
+        <div className={styles.authChoiceList}>
+          <div>👆 Fingerprint / Face ID</div>
+          <div>📱 Text me a code</div>
+          <div>🔐 Password</div>
+        </div>
+        <div className={styles.clerkWrap}>
+          <SignIn
+            path="/login"
+            routing="path"
+            fallbackRedirectUrl="/"
+            signUpUrl="/login"
+            appearance={{
+              elements: {
+                rootBox: { width: '100%' },
+                cardBox: { width: '100%', boxShadow: 'none' },
+                card: { width: '100%', boxShadow: 'none', background: 'transparent', padding: 0 },
+              },
+            }}
+          />
+        </div>
+        <p className={styles.lockNote}>Biometric data stays on your device. The app receives only a cryptographic passkey result, never your fingerprint or face scan.</p>
       </section>
     </main>
   );

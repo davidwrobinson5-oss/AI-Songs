@@ -1,173 +1,96 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { MelodyAnalysis } from './MelodyWorkspace';
 
 type SheetType = 'full' | 'chords' | 'lead' | 'drums' | 'bass' | 'guitar' | 'keys';
+type JobMap = Partial<Record<'full'|'chords'|'separation'|'lead'|'drums'|'bass'|'guitar'|'keys', string>>;
+type StatusMap = Record<string, string>;
 
-type Props = {
-  songTitle: string;
-  lyrics: string;
-  melodyAnalysis?: MelodyAnalysis | null;
-  prompt?: string;
-  musicUrl?: string;
-  vocalUrl?: string;
-  masterUrl?: string;
-};
+type Props = { songTitle:string; lyrics:string; melodyAnalysis?:MelodyAnalysis|null; prompt?:string; musicUrl?:string; vocalUrl?:string; masterUrl?:string; };
 
-type LyricSection = {
-  name: string;
-  lines: string[];
-};
+const SHEETS = [
+  ['full','🎼','Full Score'],['chords','🎹','Chords + Lyrics'],['lead','🎤','Lead + Lyrics'],['drums','🥁','Drums'],['bass','🎸','Bass'],['guitar','🎸','Guitar'],['keys','🎹','Keys']
+] as const;
 
-const SHEETS: Array<{ key: SheetType; icon: string; label: string; description: string }> = [
-  { key: 'full', icon: '🎼', label: 'Full Score', description: 'Complete song score with all detected parts.' },
-  { key: 'chords', icon: '🎹', label: 'Chords + Lyrics', description: 'Chord symbols aligned with the song lyrics.' },
-  { key: 'lead', icon: '🎤', label: 'Lead + Lyrics', description: 'Lead vocal melody with lyrics underneath.' },
-  { key: 'drums', icon: '🥁', label: 'Drums', description: 'Drum notation for the performed groove and fills.' },
-  { key: 'bass', icon: '🎸', label: 'Bass', description: 'Bass line notation from the finished music.' },
-  { key: 'guitar', icon: '🎸', label: 'Guitar', description: 'Guitar part notation / tablature when detected.' },
-  { key: 'keys', icon: '🎹', label: 'Keys', description: 'Piano / keyboard notation from the finished music.' },
-];
+function fmt(v:number){const m=Math.floor(v/60);const s=Math.max(0,v-m*60);return `${m}:${s.toFixed(1).padStart(4,'0')}`}
 
-function parseSections(lyrics: string): LyricSection[] {
-  const raw = lyrics.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  if (!raw.length) return [{ name: 'Song', lines: ['No lyric text is saved with this song yet.'] }];
-  const sections: LyricSection[] = [];
-  let current: LyricSection = { name: 'Song', lines: [] };
-  for (const line of raw) {
-    const match = line.match(/^\[?\s*(intro|verse(?:\s+\d+)?|pre[- ]?chorus|chorus|hook|bridge|breakdown|outro|tag|refrain)\s*\]?\s*:?$/i);
-    if (match) {
-      if (current.lines.length) sections.push(current);
-      current = { name: match[1].replace(/\b\w/g, (m) => m.toUpperCase()), lines: [] };
-    } else current.lines.push(line);
+export default function SheetsWorkspace({songTitle,lyrics,melodyAnalysis,prompt='',musicUrl='',vocalUrl='',masterUrl=''}:Props){
+  const [sheet,setSheet]=useState<SheetType>('full');
+  const [jobs,setJobs]=useState<JobMap>({});
+  const [statuses,setStatuses]=useState<StatusMap>({});
+  const [chords,setChords]=useState<Array<[number,number,string]>>([]);
+  const [status,setStatus]=useState('');
+  const [busy,setBusy]=useState(false);
+  const [stemStarted,setStemStarted]=useState(false);
+  const sourceUrl=masterUrl||musicUrl;
+  const hasMusic=Boolean(sourceUrl), hasVocal=Boolean(vocalUrl||melodyAnalysis), hasLyrics=Boolean(lyrics.trim());
+
+  async function startFile(mode:string, blob:Blob){
+    const fd=new FormData(); fd.append('mode',mode); fd.append('title',songTitle||'Untitled Song'); fd.append('file',blob,'song-audio');
+    const r=await fetch('/api/sheets/transcribe',{method:'POST',body:fd}); const d=await r.json(); if(!r.ok) throw new Error(d.error||'Could not start transcription.'); return String(d.jobId);
   }
-  if (current.lines.length || !sections.length) sections.push(current);
-  return sections;
-}
-
-function formatSeconds(value: number) {
-  const mins = Math.floor(value / 60);
-  const secs = Math.max(0, value - mins * 60);
-  return `${mins}:${secs.toFixed(1).padStart(4, '0')}`;
-}
-
-export default function SheetsWorkspace({ songTitle, lyrics, melodyAnalysis, prompt = '', musicUrl = '', vocalUrl = '', masterUrl = '' }: Props) {
-  const [sheet, setSheet] = useState<SheetType>('full');
-  const [status, setStatus] = useState('');
-  const [generated, setGenerated] = useState(false);
-  const sections = useMemo(() => parseSections(lyrics), [lyrics]);
-  const lyricLines = useMemo(() => sections.flatMap((section) => section.lines), [sections]);
-  const phraseRows = useMemo(() => {
-    if (!melodyAnalysis?.phrases?.length) return [];
-    return melodyAnalysis.phrases.map((phrase, index) => ({ phrase, lyric: lyricLines[index] || '' }));
-  }, [melodyAnalysis, lyricLines]);
-
-  const hasMusic = Boolean(masterUrl || musicUrl);
-  const hasVocal = Boolean(vocalUrl || melodyAnalysis);
-  const hasLyrics = Boolean(lyrics.trim());
-  const readyAssets = [hasMusic, hasVocal, hasLyrics].filter(Boolean).length;
-
-  function generatePackage() {
-    if (!hasMusic && !hasVocal) {
-      setStatus('Create or load a song with music or vocals first.');
-      return;
-    }
-    setGenerated(true);
-    if (melodyAnalysis?.phrases?.length) {
-      setStatus('Lead-vocal notation is ready from the saved song data. Full-band parts will use the transcription engine once it is connected.');
-    } else {
-      setStatus('Song assets are ready. Full notation requires the automatic transcription engine to analyze the finished audio.');
-    }
+  async function startStem(stem:string,separationJobId:string){
+    const r=await fetch('/api/sheets/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'stem',stem,separationJobId})});
+    const d=await r.json(); if(!r.ok) throw new Error(d.error||'Could not transcribe stem.'); return String(d.jobId);
   }
 
-  function printCurrentSheet() {
-    if (!generated) generatePackage();
-    requestAnimationFrame(() => window.print());
+  async function generate(){
+    if(!hasMusic&&!vocalUrl){setStatus('Create or load a finished song first.');return}
+    setBusy(true); setStatus('Uploading finished song for transcription…'); setJobs({}); setStatuses({}); setChords([]); setStemStarted(false);
+    try{
+      const musicBlob=sourceUrl?await fetch(sourceUrl).then(r=>r.blob()):null;
+      const vocalBlob=vocalUrl?await fetch(vocalUrl).then(r=>r.blob()):null;
+      const next:JobMap={};
+      if(musicBlob){
+        const [full,chord,separation]=await Promise.all([startFile('full',musicBlob),startFile('chords',musicBlob),startFile('separate',musicBlob)]);
+        next.full=full; next.chords=chord; next.separation=separation;
+      }
+      if(vocalBlob) next.lead=await startFile('lead',vocalBlob);
+      setJobs(next); setStatus('Analyzing music, detecting chords, and separating instruments…');
+    }catch(e){setStatus(e instanceof Error?e.message:'Could not start transcription.')}finally{setBusy(false)}
   }
 
-  const selected = SHEETS.find((item) => item.key === sheet) || SHEETS[0];
-  const needsFullTranscription = sheet !== 'lead';
+  useEffect(()=>{
+    const ids=Object.values(jobs).filter(Boolean); if(!ids.length) return;
+    let dead=false;
+    const poll=async()=>{
+      try{
+        const r=await fetch('/api/sheets/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs})});
+        const d=await r.json(); if(!r.ok) throw new Error(d.error||'Status check failed.'); if(dead)return;
+        setStatuses(d.statuses||{}); if(Array.isArray(d.chords))setChords(d.chords);
+        if(d.statuses?.separation==='COMPLETED'&&!stemStarted&&jobs.separation){
+          setStemStarted(true); setStatus('Instrument stems found. Creating drum, bass, guitar, and keys notation…');
+          const [drums,bass,guitar,keys]=await Promise.all(['drums','bass','guitar','piano'].map(s=>startStem(s,jobs.separation!)));
+          if(!dead)setJobs(prev=>({...prev,drums,bass,guitar,keys}));
+        } else {
+          const wanted=['full','lead','drums','bass','guitar','keys'].filter(k=>jobs[k as keyof JobMap]);
+          if(wanted.length&&wanted.every(k=>d.statuses?.[k]==='COMPLETED')) setStatus('Sheet music is ready to download.');
+        }
+      }catch(e){if(!dead)setStatus(e instanceof Error?e.message:'Status check failed.')}
+    };
+    poll(); const t=setInterval(poll,4000); return()=>{dead=true;clearInterval(t)};
+  },[jobs,stemStarted]);
 
-  return (
-    <section className="panel sheetsWorkspace exportSheetsWorkspace">
-      <div className="sheetSourceCard noPrint">
-        <div>
-          <p className="eyebrow">Source song</p>
-          <h2>{songTitle || 'Untitled Song'}</h2>
-          <p className="sub">Sheets are generated from the song you already created. Nothing here changes the music, lyrics, vocal, or arrangement.</p>
-        </div>
-        <div className="assetStatusGrid">
-          <div className={hasMusic ? 'assetReady' : 'assetMissing'}><span>{hasMusic ? '✓' : '—'}</span><small>Music / Master</small></div>
-          <div className={hasVocal ? 'assetReady' : 'assetMissing'}><span>{hasVocal ? '✓' : '—'}</span><small>Lead Vocal</small></div>
-          <div className={hasLyrics ? 'assetReady' : 'assetMissing'}><span>{hasLyrics ? '✓' : '—'}</span><small>Lyrics</small></div>
-        </div>
-        <div className="statusBox">{readyAssets}/3 song sources available for sheet generation.</div>
-        <button className="primary" onClick={generatePackage}>🎼 Generate Sheet Music From Song</button>
-        {status && <div className="statusBox">{status}</div>}
-      </div>
+  const selectedJob=sheet==='chords'?undefined:jobs[sheet];
+  const selectedReady=selectedJob&&statuses[sheet]==='COMPLETED';
+  const leadRows=useMemo(()=>melodyAnalysis?.phrases?.map((p,i)=>({p,lyric:lyrics.split(/\r?\n/).filter(Boolean)[i]||''}))||[],[melodyAnalysis,lyrics]);
 
-      <div className="sheetExportGrid noPrint">
-        {SHEETS.map((item) => (
-          <button key={item.key} className={sheet === item.key ? 'sheetExportCard activeSheetExportCard' : 'sheetExportCard'} onClick={() => setSheet(item.key)}>
-            <span className="sheetExportIcon">{item.icon}</span>
-            <span><strong>{item.label}</strong><small>{item.description}</small></span>
-            <b>›</b>
-          </button>
-        ))}
-      </div>
-
-      <div className="sheetActions noPrint">
-        <button className="primary" onClick={printCurrentSheet} disabled={!hasMusic && !hasVocal}>⬇ Download / Save PDF</button>
-      </div>
-
-      <article className="sheetPaper" id="sheet-paper">
-        <header className="sheetHeader">
-          <div>
-            <p className="sheetBrand">AI SONGS</p>
-            <h1>{songTitle || 'Untitled Song'}</h1>
-            <h2>{selected.label}</h2>
-          </div>
-          <div className="sheetVersion">Generated From Finished Song</div>
-        </header>
-
-        {prompt && <p className="sheetPrompt">Original song brief: {prompt}</p>}
-
-        {!generated ? (
-          <div className="sheetEmptyState">Tap <b>Generate Sheet Music From Song</b> to prepare the downloadable notation package from the current music and vocal.</div>
-        ) : sheet === 'lead' && phraseRows.length ? (
-          <>
-            <div className="sheetLegend"><b>Detected lead range:</b> {melodyAnalysis?.lowestNote} - {melodyAnalysis?.highestNote} · <b>Duration:</b> {formatSeconds(melodyAnalysis?.duration || 0)}</div>
-            {phraseRows.map(({ phrase, lyric }, index) => (
-              <section className="sheetSection" key={phrase.index}>
-                <h3>Phrase {index + 1} · {formatSeconds(phrase.start)} - {formatSeconds(phrase.end)}</h3>
-                <div className="noteRun">{phrase.notes.join('  ·  ') || '—'}</div>
-                <p className="lyricLine">{lyric || 'Instrumental / vocalization'}</p>
-              </section>
-            ))}
-          </>
-        ) : sheet === 'lead' ? (
-          <div className="sheetEmptyState">The saved vocal needs automatic note transcription before a lead-vocal score can be downloaded.</div>
-        ) : needsFullTranscription ? (
-          <div className="sheetEmptyState">
-            <h3>{selected.label}</h3>
-            <p>This part will be generated by analyzing the finished music itself — not by asking you to type chords or instrument notes.</p>
-            <p>The transcription engine will detect the performed notes, rhythm, chords, tempo, meter, and instrument parts, then provide downloadable PDF / MusicXML / MIDI output.</p>
-          </div>
-        ) : null}
-
-        {generated && sheet === 'chords' && hasLyrics && (
-          <section className="sheetSection sheetLyricsReference">
-            <h3>Saved Lyrics</h3>
-            {sections.map((section, index) => (
-              <div key={`${section.name}-${index}`}>
-                <h4>{section.name}</h4>
-                {section.lines.map((line, i) => <p className="lyricLine" key={i}>{line}</p>)}
-              </div>
-            ))}
-          </section>
-        )}
-      </article>
-    </section>
-  );
+  return <section className="panel sheetsWorkspace exportSheetsWorkspace">
+    <div className="sheetSourceCard noPrint">
+      <p className="eyebrow">Source song</p><h2>{songTitle||'Untitled Song'}</h2>
+      <div className="assetStatusGrid"><div className={hasMusic?'assetReady':'assetMissing'}>✓<small>Music / Master</small></div><div className={hasVocal?'assetReady':'assetMissing'}>✓<small>Lead Vocal</small></div><div className={hasLyrics?'assetReady':'assetMissing'}>✓<small>Lyrics</small></div></div>
+      <button className="primary" onClick={generate} disabled={busy}>{busy?'Starting…':'🎼 Generate Sheet Music From Song'}</button>
+      {status&&<div className="statusBox">{status}</div>}
+    </div>
+    <div className="sheetExportGrid noPrint">{SHEETS.map(([k,icon,label])=><button key={k} className={sheet===k?'sheetExportCard activeSheetExportCard':'sheetExportCard'} onClick={()=>setSheet(k)}><span className="sheetExportIcon">{icon}</span><span><strong>{label}</strong><small>{statuses[k]|| (k==='chords'&&chords.length?'COMPLETED':'Not generated yet')}</small></span><b>›</b></button>)}</div>
+    <div className="sheetActions noPrint">
+      {sheet==='chords'&&chords.length?<button className="primary" onClick={()=>window.print()}>⬇ Save Chords + Lyrics PDF</button>:selectedReady?<><a className="primary" href={`/api/sheets/download/${selectedJob}/pdf`}>PDF</a><a className="primary" href={`/api/sheets/download/${selectedJob}/xml`}>MusicXML</a><a className="primary" href={`/api/sheets/download/${selectedJob}/midi_quant`}>MIDI</a></>:<button className="primary" disabled>Downloads appear when ready</button>}
+    </div>
+    <article className="sheetPaper">
+      <header className="sheetHeader"><div><p className="sheetBrand">AI SONGS</p><h1>{songTitle||'Untitled Song'}</h1><h2>{SHEETS.find(x=>x[0]===sheet)?.[2]}</h2></div><div className="sheetVersion">Transcribed From Finished Song</div></header>
+      {prompt&&<p className="sheetPrompt">Original song brief: {prompt}</p>}
+      {sheet==='chords'&&chords.length?<section className="sheetSection"><h3>Detected Chords</h3>{chords.map((c,i)=><p key={i}><b>{fmt(c[0])}</b> — {c[2]}</p>)}{hasLyrics&&<><h3>Lyrics</h3>{lyrics.split(/\r?\n/).filter(Boolean).map((l,i)=><p className="lyricLine" key={i}>{l}</p>)}</>}</section>:sheet==='lead'&&leadRows.length&&!selectedReady?<>{leadRows.map(({p,lyric},i)=><section className="sheetSection" key={p.index}><h3>Phrase {i+1} · {fmt(p.start)} - {fmt(p.end)}</h3><div className="noteRun">{p.notes.join(' · ')}</div><p className="lyricLine">{lyric}</p></section>)}</>:<div className="sheetEmptyState">{selectedReady?'Your transcribed notation is ready. Use PDF, MusicXML, or MIDI above.':'Generate the sheet package and this page will track the real transcription from the finished audio.'}</div>}
+    </article>
+  </section>
 }

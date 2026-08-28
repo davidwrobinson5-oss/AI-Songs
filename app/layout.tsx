@@ -3,12 +3,13 @@ import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import PasskeySetupBanner from './PasskeySetupBanner';
 import AccountControl from './AccountControl';
+import AudioPolicy from './AudioPolicy';
 
 export const metadata: Metadata = {
   title: 'AI Songs',
   description: 'Mobile-first AI songwriting studio',
   manifest: '/manifest.webmanifest',
-  themeColor: '#0b0b12',
+  themeColor: '#070914',
 };
 
 function clerkConfigured() {
@@ -18,7 +19,10 @@ function clerkConfigured() {
 function Document({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <AudioPolicy />
+        {children}
+      </body>
     </html>
   );
 }

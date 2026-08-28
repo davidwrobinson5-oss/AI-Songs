@@ -74,16 +74,35 @@ export default function AccountControl() {
   return (
     <>
       <div ref={wrapRef} style={{ position: 'fixed', top: 'max(12px, env(safe-area-inset-top))', right: '14px', zIndex: 10000 }}>
-        <button type="button" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((value) => !value)} style={{ display: 'flex', alignItems: 'center', gap: '8px', minHeight: '40px', padding: '7px 11px 7px 8px', borderRadius: '999px', border: '1px solid rgba(167,139,250,.28)', background: 'rgba(18,18,30,.92)', color: '#f5f3ff', boxShadow: '0 10px 28px rgba(0,0,0,.28)', backdropFilter: 'blur(12px)', fontWeight: 750, fontSize: '13px' }}>
-          <span aria-hidden="true" style={{ width: '27px', height: '27px', borderRadius: '50%', display: 'grid', placeItems: 'center', background: '#7c3aed', fontSize: '14px' }}>
-            {isSignedIn ? (user?.firstName?.[0] || email?.[0] || '👤').toUpperCase() : '🔐'}
-          </span>
-          <span style={{ maxWidth: '92px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-          <span aria-hidden="true" style={{ opacity: .7, fontSize: '10px' }}>▼</span>
+        <button
+          type="button"
+          aria-label="Open account options"
+          aria-haspopup="menu"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          style={{
+            width: '46px',
+            height: '46px',
+            padding: 0,
+            borderRadius: '50%',
+            border: open ? '2px solid rgba(255,255,255,.9)' : '1px solid rgba(255,255,255,.28)',
+            background: 'linear-gradient(145deg,#ff3d81 0%,#8b5cff 58%,#45dfff 115%)',
+            color: '#fff',
+            boxShadow: open ? '0 0 0 4px rgba(139,92,255,.16),0 12px 32px rgba(0,0,0,.38)' : '0 12px 28px rgba(0,0,0,.32)',
+            backdropFilter: 'blur(14px)',
+            fontWeight: 950,
+            fontSize: '17px',
+            letterSpacing: '-.06em',
+            display: 'grid',
+            placeItems: 'center',
+            cursor: 'pointer',
+          }}
+        >
+          <span aria-hidden="true" style={{ transform: 'translateX(-1px)' }}>dR</span>
         </button>
 
         {open && (
-          <div role="menu" style={{ position: 'absolute', top: '48px', right: 0, width: '220px', padding: '10px', borderRadius: '16px', border: '1px solid rgba(167,139,250,.25)', background: '#151522', color: '#f5f3ff', boxShadow: '0 22px 55px rgba(0,0,0,.45)' }}>
+          <div role="menu" style={{ position: 'absolute', top: '54px', right: 0, width: '220px', padding: '10px', borderRadius: '16px', border: '1px solid rgba(167,139,250,.25)', background: '#151522', color: '#f5f3ff', boxShadow: '0 22px 55px rgba(0,0,0,.45)' }}>
             {isSignedIn && (
               <div style={{ padding: '7px 9px 11px', borderBottom: '1px solid #2c2c3e', marginBottom: '7px' }}>
                 <div style={{ fontSize: '12px', color: '#9695a8' }}>Signed in as</div>

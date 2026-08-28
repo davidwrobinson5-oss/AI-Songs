@@ -1,6 +1,7 @@
 'use client';
 
 import { FormEvent, useState } from 'react';
+import styles from './login.module.css';
 
 export default function LoginPage() {
   const [password, setPassword] = useState('');
@@ -28,13 +29,13 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="loginShell">
-      <section className="loginCard">
-        <div className="loginLogo">🎶</div>
-        <p className="eyebrow">PRIVATE STUDIO</p>
+    <main className={styles.shell}>
+      <section className={styles.card}>
+        <div className={styles.logo}>🎶</div>
+        <p className={styles.eyebrow}>PRIVATE STUDIO</p>
         <h1>AI Songs</h1>
-        <p className="sub">Enter your studio password to access music generation, your voice tools, mixes, songs, and sheets.</p>
-        <form onSubmit={submit} className="loginForm">
+        <p className={styles.sub}>Enter your studio password to access music generation, your voice tools, mixes, songs, and sheets.</p>
+        <form onSubmit={submit} className={styles.form}>
           <label>
             Studio password
             <input
@@ -43,15 +44,17 @@ export default function LoginPage() {
               value={password}
               onChange={(event) => setPassword(event.target.value)}
               minLength={12}
+              maxLength={256}
               required
               autoFocus
             />
           </label>
-          <button className="primary" type="submit" disabled={busy || password.length < 12}>
+          <button type="submit" disabled={busy || password.length < 12}>
             {busy ? 'Signing in…' : 'Unlock Studio'}
           </button>
-          {status && <div className="statusBox">{status}</div>}
+          {status && <div className={styles.status}>{status}</div>}
         </form>
+        <p className={styles.lockNote}>Protected studio access · signed secure session · paid AI endpoints stay locked until authentication succeeds.</p>
       </section>
     </main>
   );

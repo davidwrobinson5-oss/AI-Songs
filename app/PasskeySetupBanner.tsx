@@ -3,6 +3,30 @@
 import { useState } from 'react';
 import { useUser } from '@clerk/nextjs';
 
+function passkeyErrorMessage(error: unknown) {
+  const value = error as {
+    name?: string;
+    message?: string;
+    errors?: Array<{ code?: string; message?: string; longMessage?: string }>;
+  };
+
+  const clerkError = value?.errors?.[0];
+  const code = clerkError?.code || value?.name || '';
+  const detail = clerkError?.longMessage || clerkError?.message || value?.message || '';
+
+  if (code === 'NotAllowedError' || /cancel|timed? out|not allowed/i.test(detail)) {
+    return 'Android did not complete the passkey prompt. Make sure screen lock/passkeys are enabled, then try once in Chrome if Brave cancels it.';
+  }
+  if (/domain|origin|relying party|rp id/i.test(`${code} ${detail}`)) {
+    return 'This passkey was rejected for the current domain. We need to move Clerk to the final custom production domain before enrolling it.';
+  }
+  if (/not supported|unsupported|publickeycredential/i.test(`${code} ${detail}`)) {
+    return 'This browser/device is not exposing WebAuthn passkeys. Try Chrome on this phone or enable your Android passkey provider.';
+  }
+
+  return detail ? `Passkey setup failed: ${detail}` : 'Passkey setup could not finish. Try again.';
+}
+
 export default function PasskeySetupBanner() {
   const { isLoaded, isSignedIn, user } = useUser();
   const [busy, setBusy] = useState(false);
@@ -15,12 +39,16 @@ export default function PasskeySetupBanner() {
     setBusy(true);
     setStatus('');
     try {
+      if (typeof window === 'undefined' || !('PublicKeyCredential' in window)) {
+        setStatus('This browser is not exposing WebAuthn passkeys. Try Chrome on this phone.');
+        return;
+      }
       await user.createPasskey();
       setStatus('Passkey ready. You can use fingerprint, face unlock, or device PIN next time.');
       setTimeout(() => setHidden(true), 1800);
     } catch (error) {
       console.error('Passkey setup failed', error);
-      setStatus('Passkey setup was cancelled or could not finish. Try again.');
+      setStatus(passkeyErrorMessage(error));
     } finally {
       setBusy(false);
     }
@@ -70,7 +98,7 @@ export default function PasskeySetupBanner() {
           >
             {busy ? 'Setting up…' : 'Set Up Passkey'}
           </button>
-          {status && <div style={{ marginTop: '9px', fontSize: '13px', color: '#c4b5fd' }}>{status}</div>}
+          {status && <div style={{ marginTop: '9px', fontSize: '13px', lineHeight: 1.4, color: '#c4b5fd' }}>{status}</div>}
         </div>
         <button
           type="button"

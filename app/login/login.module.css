@@ -1,12 +1,11 @@
-.shell{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 50% 0%,#1d2140 0,#0b0b12 48%)}
-.card{width:min(100%,430px);background:#151621;border:1px solid #2d3147;border-radius:26px;padding:26px;box-shadow:0 24px 70px rgba(0,0,0,.42)}
-.logo{width:62px;height:62px;border-radius:20px;display:grid;place-items:center;font-size:30px;background:#0f1018;border:1px solid #333956;margin-bottom:18px}
-.eyebrow{margin:0 0 8px;color:#a8b2ff;font-size:12px;letter-spacing:.2em;font-weight:900}
-.card h1{font-size:36px;line-height:1;margin:0 0 14px}
-.sub{color:#b9bfca;line-height:1.55;margin:0 0 18px}
-.authChoiceList{display:grid;gap:8px;margin:0 0 18px}
-.authChoiceList div{padding:12px 14px;border:1px solid #30354c;background:#10111a;border-radius:14px;color:#e7eaff;font-weight:800}
-.clerkWrap{width:100%;padding:4px 0}
+.shell{min-height:100vh;display:grid;place-items:center;padding:18px;background:radial-gradient(circle at 50% 0%,#1a1d37 0,#0a0a11 46%)}
+.card{width:min(100%,410px);background:#12131d;border:1px solid #292d42;border-radius:24px;padding:22px;box-shadow:0 22px 65px rgba(0,0,0,.42)}
+.brandRow{display:flex;align-items:center;gap:14px;margin-bottom:16px}
+.logo{width:54px;height:54px;border-radius:17px;display:grid;place-items:center;font-size:27px;background:#0d0e16;border:1px solid #303550;flex:0 0 auto}
+.eyebrow{margin:0 0 5px;color:#a8b2ff;font-size:11px;letter-spacing:.2em;font-weight:900}
+.card h1{font-size:32px;line-height:1;margin:0}
+.sub{color:#aeb4c0;line-height:1.45;margin:0 0 16px;font-size:15px}
+.clerkWrap{width:100%;padding:0}
 .form{display:grid;gap:12px}
 .form label{display:grid;gap:8px;color:#dfe3f0;font-size:13px;font-weight:700}
 .form input{width:100%;border-radius:15px;border:1px solid #34384b;background:#0f1018;color:#fff;padding:14px;outline:none}
@@ -14,4 +13,7 @@
 .form button{width:100%;margin:2px 0 0;border:0;border-radius:16px;padding:14px 16px;font-weight:900;background:#f4f6ff;color:#0b0b12}
 .form button:disabled{opacity:.55}
 .status{padding:12px;border-radius:14px;border:1px solid #5a2c39;background:#211118;color:#ffccd6;line-height:1.4}
-.lockNote{margin:18px 0 0;padding-top:16px;border-top:1px solid #2b2e3e;color:#8f97aa;font-size:12px;line-height:1.45}
+.bottomRow{display:flex;justify-content:center;gap:6px;align-items:center;margin-top:14px;color:#77798e;font-size:12px}
+.bottomRow a{color:#b8a7ff;text-decoration:none;font-weight:800}
+.lockNote{margin:14px 0 0;padding-top:14px;border-top:1px solid #25283a;color:#7f8598;font-size:11px;line-height:1.4;text-align:center}
+@media (max-width:520px){.shell{padding:14px}.card{padding:20px;border-radius:22px}.card h1{font-size:30px}.brandRow{margin-bottom:14px}}

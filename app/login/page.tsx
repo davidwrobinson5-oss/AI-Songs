@@ -12,16 +12,20 @@ export default async function LoginPage({
   searchParams: Promise<{ legacy?: string }>;
 }) {
   const params = await searchParams;
-
   if (!clerkConfigured() || params.legacy === '1') return <LegacyLoginForm />;
 
   return (
     <main className={styles.shell}>
       <section className={styles.card}>
-        <div className={styles.logo}>🎶</div>
-        <p className={styles.eyebrow}>PRIVATE STUDIO</p>
-        <h1>AI Songs</h1>
-        <p className={styles.sub}>Passkey, text code, or password.</p>
+        <div className={styles.brandRow}>
+          <div className={styles.logo}>🎶</div>
+          <div>
+            <p className={styles.eyebrow}>PRIVATE STUDIO</p>
+            <h1>AI Songs</h1>
+          </div>
+        </div>
+
+        <p className={styles.sub}>Sign in with passkey, text code, or password.</p>
 
         <div className={styles.clerkWrap} style={{ colorScheme: 'dark' }}>
           <SignIn
@@ -32,74 +36,52 @@ export default async function LoginPage({
               variables: {
                 colorPrimary: '#8b5cf6',
                 colorPrimaryForeground: '#ffffff',
-                colorForeground: '#f4f4ff',
-                colorMutedForeground: '#a9a9bd',
-                colorBackground: '#151522',
-                colorInput: '#0d0d17',
+                colorForeground: '#f5f3ff',
+                colorMutedForeground: '#9b9ab0',
+                colorBackground: '#11111b',
+                colorInput: '#0c0c14',
                 colorInputForeground: '#ffffff',
-                colorMuted: '#1c1c2b',
-                colorBorder: '#343449',
+                colorMuted: '#171723',
+                colorBorder: '#2f3043',
                 colorRing: '#a78bfa',
                 colorShadow: '#000000',
                 borderRadius: '0.9rem',
-                spacing: '0.85rem',
+                spacing: '0.75rem',
               },
               elements: {
                 rootBox: { width: '100%' },
                 cardBox: { width: '100%', boxShadow: 'none' },
-                card: {
-                  width: '100%',
-                  boxShadow: 'none',
-                  background: 'transparent',
-                  padding: 0,
-                },
+                card: { width: '100%', boxShadow: 'none', background: 'transparent', padding: 0 },
                 header: { display: 'none' },
                 socialButtonsBlockButton: { display: 'none' },
                 dividerRow: { display: 'none' },
-                formFieldLabel: { color: '#d8d8e8', fontWeight: 600 },
+                formFieldLabel: { color: '#d6d5e4', fontWeight: 700, fontSize: '0.9rem' },
                 formFieldInput: {
-                  minHeight: '52px',
-                  background: '#0d0d17',
-                  border: '1px solid #343449',
+                  minHeight: '50px',
+                  background: '#0c0c14',
+                  border: '1px solid #2f3043',
                   color: '#ffffff',
                   boxShadow: 'none',
                 },
                 formButtonPrimary: {
-                  minHeight: '52px',
+                  minHeight: '50px',
                   background: '#7c3aed',
                   color: '#ffffff',
                   boxShadow: 'none',
-                  fontWeight: 700,
+                  fontWeight: 800,
                 },
-                footer: {
-                  background: 'transparent',
-                  color: '#a9a9bd',
-                },
+                footer: { background: 'transparent', color: '#8f8da4' },
+                footerAction: { display: 'none' },
               },
             }}
           />
         </div>
 
-        <p
-          style={{
-            margin: '16px 0 0',
-            textAlign: 'center',
-            color: '#8f90a8',
-            fontSize: '0.9rem',
-          }}
-        >
-          Having trouble?{' '}
-          <a
-            href="/login?legacy=1"
-            style={{ color: '#b8a7ff', textDecoration: 'none', fontWeight: 700 }}
-          >
-            Use Studio Password
-          </a>
-        </p>
-
-        <p className={styles.lockNote}>
-          Passkeys can use your phone&apos;s fingerprint, face unlock, or device PIN. Biometric data stays on your device.
-        </p>
+        <div className={styles.bottomRow}>
+          <span>Having trouble?</span>
+          <a href="/login?legacy=1">Use Studio Password</a>
+        </div>
+        <p className={styles.lockNote}>Passkeys use your phone&apos;s fingerprint, face unlock, or device PIN.</p>
       </section>
     </main>
   );

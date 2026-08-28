@@ -1,6 +1,7 @@
 import './globals.css';
 import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
+import PasskeySetupBanner from './PasskeySetupBanner';
 
 export const metadata: Metadata = {
   title: 'AI Songs',
@@ -31,7 +32,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       signUpUrl="/login"
       afterSignOutUrl="/login"
     >
-      <Document>{children}</Document>
+      <Document>
+        {children}
+        <PasskeySetupBanner />
+      </Document>
     </ClerkProvider>
   );
 }

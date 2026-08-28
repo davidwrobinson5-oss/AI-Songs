@@ -17,15 +17,19 @@ const togglePlayback = `  function stopSavedVersionPlayback() {\n    const audio
 
 source = source.slice(0, playStart) + togglePlayback + source.slice(downloadStart);
 
-source = source.replace(
-  'aria-label={`Play ${song.title}`} onClick={() => latest && playSavedVersion(latest)}',
-  "aria-label={`${playingSongId === song.id ? 'Stop' : 'Play'} ${song.title}`} onClick={() => latest && toggleSavedVersion(song.id, latest)}",
-);
-source = source.replace('<span>♫</span>', "<span>{playingSongId === song.id ? '■' : '▶'}</span>");
-source = source.replace(
-  `<button role="menuitem" onClick={() => { setSongMenuId(null); playSavedVersion(latest); }} disabled={!bestSavedAudio(latest)}>▶ Play</button>`,
-  `<button role="menuitem" onClick={() => { setSongMenuId(null); toggleSavedVersion(song.id, latest); }} disabled={!bestSavedAudio(latest)}>{playingSongId === song.id ? '■ Stop' : '▶ Play'}</button>`,
-);
+const oldCoverButton = `<button className={\`songCoverButton songCoverTone\${songIndex % 4}\`} aria-label={\`Play \${song.title}\`} onClick={() => latest && playSavedVersion(latest)} disabled={!latest || !bestSavedAudio(latest)}>\n                    <span>♫</span>\n                  </button>`;
+const newCoverButton = `<button className={\`songCoverButton songCoverTone\${songIndex % 4}\`} aria-label={\`\${playingSongId === song.id ? 'Stop' : 'Play'} \${song.title}\`} onClick={() => latest && toggleSavedVersion(song.id, latest)} disabled={!latest || !bestSavedAudio(latest)}>\n                    <span>{playingSongId === song.id ? '■' : '▶'}</span>\n                  </button>`;
+if (!source.includes(newCoverButton)) {
+  if (!source.includes(oldCoverButton)) throw new Error('Compact song cover play button not found.');
+  source = source.replace(oldCoverButton, newCoverButton);
+}
+
+const oldMenuButton = `<button role="menuitem" onClick={() => { setSongMenuId(null); playSavedVersion(latest); }} disabled={!bestSavedAudio(latest)}>▶ Play</button>`;
+const newMenuButton = `<button role="menuitem" onClick={() => { setSongMenuId(null); toggleSavedVersion(song.id, latest); }} disabled={!bestSavedAudio(latest)}>{playingSongId === song.id ? '■ Stop' : '▶ Play'}</button>`;
+if (!source.includes(newMenuButton)) {
+  if (!source.includes(oldMenuButton)) throw new Error('Compact Songs action-menu Play button not found.');
+  source = source.replace(oldMenuButton, newMenuButton);
+}
 
 if (source.includes('playSavedVersion(latest)')) {
   throw new Error('A compact Songs play action was not converted to the Play/Stop toggle.');

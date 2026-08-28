@@ -1,6 +1,7 @@
 import type { NextConfig } from 'next';
 
 const isDev = process.env.NODE_ENV !== 'production';
+const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
 
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -20,7 +21,7 @@ const contentSecurityPolicy = [
 ].join('; ');
 
 const securityHeaders = [
-  { key: 'Content-Security-Policy', value: contentSecurityPolicy },
+  ...(!clerkConfigured ? [{ key: 'Content-Security-Policy', value: contentSecurityPolicy }] : []),
   { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
   { key: 'X-Content-Type-Options', value: 'nosniff' },
   { key: 'X-Frame-Options', value: 'DENY' },

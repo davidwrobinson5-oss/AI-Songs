@@ -27,14 +27,17 @@ replaceOnce(
         <section className="hero noPrint">
           <div className="brand">AI SONGS</div>
           <p className="eyebrow">Sheets</p>
-          <h1>Put the song on paper.</h1>
-          <p className="sub">Create rehearsal-ready chord, lead, drum, bass, guitar, keys, and full-band sheets from the current song.</p>
+          <h1>Export the song to sheet music.</h1>
+          <p className="sub">Use the finished music, vocal, lyrics, and melody already created in this song to generate downloadable notation.</p>
         </section>
         <SheetsWorkspace
           songTitle={songTitle}
           lyrics={lyrics}
           melodyAnalysis={melodyAnalysis}
           prompt={prompt}
+          musicUrl={backingUrl || audioUrl}
+          vocalUrl={drobVocalUrl || guideVocalUrl}
+          masterUrl={masterBlob ? URL.createObjectURL(masterBlob) : ''}
         />
         <nav className="bottomNav noPrint">
           <span onClick={() => setScreen('create')}>🏠<small>Home</small></span>
@@ -51,4 +54,4 @@ replaceOnce(
 );
 
 fs.writeFileSync(path, source);
-console.log('Wired the Sheets workspace into AI Songs.');
+console.log('Wired the Sheets export workspace into finished song audio.');

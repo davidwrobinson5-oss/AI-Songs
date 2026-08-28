@@ -7,18 +7,18 @@ function nav(active) {
   const cls = (name) => name === active ? ' className="navActive"' : '';
   return `<nav className="bottomNav noPrint">
           <span${cls('create')} onClick={() => setScreen('create')}>🎶<small>Music</small></span>
-          <span${cls('songs')} onClick={() => setScreen('songs')}>🎵<small>Songs</small></span>
           <span${cls('train')} onClick={() => setScreen('train')}>🎤<small>Voice</small></span>
+          <span${cls('songs')} onClick={() => setScreen('songs')}>🎵<small>Songs</small></span>
           <span${cls('mix')} onClick={() => setScreen('mix')}>🎚️<small>Mix</small></span>
           <span${cls('sheets')} onClick={() => setScreen('sheets')}>📄<small>Sheets</small></span>
         </nav>`;
 }
 
 source = source.replace(/<nav className="bottomNav(?: noPrint)?">[\s\S]*?<\/nav>/g, (full) => {
-  if (full.includes('<small>Songs</small>') && /className="navActive"[^>]*>🎵|>🎵<small>Songs/.test(full) && full.indexOf('className="navActive"') < full.indexOf('🎤')) return nav('songs');
-  if (full.includes('🎤<small>Voice</small>') && /className="navActive"[^>]*>🎤/.test(full)) return nav('train');
-  if (full.includes('🎚️<small>Mix</small>') && /className="navActive"[^>]*>🎚️/.test(full)) return nav('mix');
-  if (full.includes('📄<small>Sheets</small>') && /className="navActive"[^>]*>📄/.test(full)) return nav('sheets');
+  if (/className="navActive"[^>]*>🎵/.test(full)) return nav('songs');
+  if (/className="navActive"[^>]*>🎤/.test(full)) return nav('train');
+  if (/className="navActive"[^>]*>🎚️/.test(full)) return nav('mix');
+  if (/className="navActive"[^>]*>📄/.test(full)) return nav('sheets');
   return nav('create');
 });
 
@@ -38,4 +38,4 @@ if (navMatches.length) {
 }
 
 fs.writeFileSync(path, source);
-console.log('Forced the same five-icon nav with Music tab label and active Mix and Sheets navigation.');
+console.log('Forced navigation order: Music, Voice, Songs, Mix, Sheets.');

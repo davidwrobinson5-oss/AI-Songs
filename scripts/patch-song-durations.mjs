@@ -23,4 +23,21 @@ if (!source.includes("{ label: '3 min', value: 180000 }")) {
 }
 
 fs.writeFileSync(path, source);
-console.log('Added 3:00 and 3:30 song duration options.');
+
+const cssPath = 'app/globals.css';
+let css = fs.readFileSync(cssPath, 'utf8');
+const marker = '/* AI SONGS MOBILE SONG ART FIX */';
+if (!css.includes(marker)) {
+  css += `
+${marker}
+.songLibraryCard{padding-left:92px!important;min-height:92px!important}
+.songLibraryCard:before{left:12px!important;top:12px!important;width:54px!important;height:54px!important;padding:6px!important;border-radius:15px!important;font-size:18px!important;box-sizing:content-box!important}
+@media(max-width:430px){
+  .songLibraryCard{padding-left:88px!important;padding-right:12px!important;min-height:88px!important}
+  .songLibraryCard:before{left:11px!important;top:11px!important;width:52px!important;height:52px!important;padding:6px!important;border-radius:14px!important;font-size:17px!important}
+}
+`;
+  fs.writeFileSync(cssPath, css);
+}
+
+console.log('Added 3:00 and 3:30 song duration options and fixed mobile song artwork sizing.');

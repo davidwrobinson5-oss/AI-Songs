@@ -25,7 +25,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   if (!clerkConfigured()) return <Document>{children}</Document>;
 
   return (
-    <ClerkProvider signInUrl="/login" signUpUrl="/login" afterSignOutUrl="/login">
+    <ClerkProvider
+      dynamic
+      signInUrl="/login"
+      signUpUrl="/login"
+      afterSignOutUrl="/login"
+    >
       <Document>{children}</Document>
     </ClerkProvider>
   );

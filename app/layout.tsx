@@ -2,6 +2,7 @@ import './globals.css';
 import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import PasskeySetupBanner from './PasskeySetupBanner';
+import AccountControl from './AccountControl';
 
 export const metadata: Metadata = {
   title: 'AI Songs',
@@ -35,6 +36,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <Document>
         {children}
         <PasskeySetupBanner />
+        <AccountControl />
       </Document>
     </ClerkProvider>
   );

@@ -6,7 +6,7 @@ let source = fs.readFileSync(path, 'utf8');
 function nav(active) {
   const cls = (name) => name === active ? ' className="navActive"' : '';
   return `<nav className="bottomNav noPrint">
-          <span${cls('create')} onClick={() => setScreen('create')}>🏠<small>Home</small></span>
+          <span${cls('create')} onClick={() => setScreen('create')}>🎶<small>Home</small></span>
           <span${cls('songs')} onClick={() => setScreen('songs')}>🎵<small>Songs</small></span>
           <span${cls('train')} onClick={() => setScreen('train')}>🎤<small>Voice</small></span>
           <span${cls('mix')} onClick={() => setScreen('mix')}>🎚️<small>Mix</small></span>
@@ -38,4 +38,4 @@ if (navMatches.length) {
 }
 
 fs.writeFileSync(path, source);
-console.log('Forced the same five-icon nav with active Mix and Sheets navigation.');
+console.log('Forced the same five-icon nav with music Home icon and active Mix and Sheets navigation.');

@@ -130,48 +130,62 @@ async function legacyProxy(req: NextRequest) {
   return response;
 }
 
-const clerkProxy = clerkMiddleware(async (auth, req) => {
-  const pathname = req.nextUrl.pathname;
-  if (isPublicAsset(pathname)) return NextResponse.next();
+const clerkProxy = clerkMiddleware(
+  async (auth, req) => {
+    const pathname = req.nextUrl.pathname;
+    if (isPublicAsset(pathname)) return NextResponse.next();
 
-  const apiEnvelope = enforceApiEnvelope(req);
-  if (apiEnvelope) return apiEnvelope;
+    const apiEnvelope = enforceApiEnvelope(req);
+    if (apiEnvelope) return apiEnvelope;
 
-  const clerkAuth = await auth();
-  const legacyValid = await legacySessionValid(req);
-  const authenticated = clerkAuth.isAuthenticated || legacyValid;
+    const clerkAuth = await auth();
+    const legacyValid = await legacySessionValid(req);
+    const authenticated = clerkAuth.isAuthenticated || legacyValid;
 
-  if (isLoginRoute(pathname)) {
-    if (authenticated && pathname === '/login') {
-      const home = req.nextUrl.clone();
-      home.pathname = '/';
-      home.search = '';
-      return NextResponse.redirect(home);
+    if (isLoginRoute(pathname)) {
+      if (authenticated && pathname === '/login') {
+        const home = req.nextUrl.clone();
+        home.pathname = '/';
+        home.search = '';
+        return NextResponse.redirect(home);
+      }
+      return NextResponse.next();
     }
-    return NextResponse.next();
-  }
 
-  if (!authenticated) {
+    if (!authenticated) {
+      if (pathname.startsWith('/api/')) {
+        return NextResponse.json(
+          { error: 'Authentication required.' },
+          { status: 401, headers: { 'Cache-Control': 'no-store' } },
+        );
+      }
+      const login = req.nextUrl.clone();
+      login.pathname = '/login';
+      login.search = '';
+      return NextResponse.redirect(login);
+    }
+
+    const response = NextResponse.next();
     if (pathname.startsWith('/api/')) {
-      return NextResponse.json(
-        { error: 'Authentication required.' },
-        { status: 401, headers: { 'Cache-Control': 'no-store' } },
-      );
+      response.headers.set('Cache-Control', 'no-store');
+      response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+      response.headers.set('Access-Control-Allow-Origin', 'null');
     }
-    const login = req.nextUrl.clone();
-    login.pathname = '/login';
-    login.search = '';
-    return NextResponse.redirect(login);
-  }
-
-  const response = NextResponse.next();
-  if (pathname.startsWith('/api/')) {
-    response.headers.set('Cache-Control', 'no-store');
-    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
-    response.headers.set('Access-Control-Allow-Origin', 'null');
-  }
-  return response;
-});
+    return response;
+  },
+  {
+    contentSecurityPolicy: {
+      strict: true,
+      directives: {
+        'media-src': ["'self'", 'blob:', 'data:'],
+        'connect-src': ['blob:'],
+        'manifest-src': ["'self'"],
+        'object-src': ["'none'"],
+        'frame-ancestors': ["'none'"],
+      },
+    },
+  },
+);
 
 export function proxy(req: NextRequest, event: NextFetchEvent) {
   if (!clerkConfigured()) return legacyProxy(req);

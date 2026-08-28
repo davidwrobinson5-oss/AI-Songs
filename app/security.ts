@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import { NextResponse } from 'next/server';
 
 const AUDIO_TYPES = new Set([
@@ -89,13 +90,37 @@ export function validateAudioFile(file: Blob, maxBytes: number) {
   if (!AUDIO_TYPES.has(type)) throw new Error('INVALID_AUDIO_TYPE');
 }
 
+function isPrivateIpv4(hostname: string) {
+  const parts = hostname.split('.').map(Number);
+  if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
+  const [a, b] = parts;
+  return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
+export function safeHttpsUrl(value: unknown) {
+  const raw = textField(value, 2048);
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error('INVALID_URL');
+  }
+  if (url.protocol !== 'https:' || url.username || url.password) throw new Error('INVALID_URL');
+  const hostname = url.hostname.toLowerCase();
+  if (!hostname || hostname === 'localhost' || hostname.endsWith('.local') || hostname.endsWith('.internal')) throw new Error('INVALID_URL');
+  const ipVersion = isIP(hostname);
+  if (ipVersion === 4 && isPrivateIpv4(hostname)) throw new Error('INVALID_URL');
+  if (ipVersion === 6 && (hostname === '::1' || hostname.startsWith('fe80:') || hostname.startsWith('fc') || hostname.startsWith('fd'))) throw new Error('INVALID_URL');
+  return url.toString();
+}
+
 export function safeClientError(error: unknown, fallback = 'Request could not be completed.') {
   if (!(error instanceof Error)) return fallback;
   if (error.message === 'REQUEST_TOO_LARGE' || error.message === 'TEXT_TOO_LONG' || error.message === 'INVALID_AUDIO_SIZE') {
     return 'The request is larger than allowed.';
   }
   if (error.message === 'INVALID_AUDIO_TYPE') return 'Unsupported audio file type.';
-  if (error.message === 'INVALID_ID' || error.message === 'INVALID_NUMBER' || error.message === 'INVALID_JSON_OBJECT') {
+  if (['INVALID_ID', 'INVALID_NUMBER', 'INVALID_JSON_OBJECT', 'INVALID_URL'].includes(error.message)) {
     return 'Invalid request data.';
   }
   return fallback;

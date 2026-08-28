@@ -1,0 +1,14 @@
+.shell{min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 50% 0%,#1d2140 0,#0b0b12 48%)}
+.card{width:min(100%,430px);background:#151621;border:1px solid #2d3147;border-radius:26px;padding:26px;box-shadow:0 24px 70px rgba(0,0,0,.42)}
+.logo{width:62px;height:62px;border-radius:20px;display:grid;place-items:center;font-size:30px;background:#0f1018;border:1px solid #333956;margin-bottom:18px}
+.eyebrow{margin:0 0 8px;color:#a8b2ff;font-size:12px;letter-spacing:.2em;font-weight:900}
+.card h1{font-size:36px;line-height:1;margin:0 0 14px}
+.sub{color:#b9bfca;line-height:1.55;margin:0 0 22px}
+.form{display:grid;gap:12px}
+.form label{display:grid;gap:8px;color:#dfe3f0;font-size:13px;font-weight:700}
+.form input{width:100%;border-radius:15px;border:1px solid #34384b;background:#0f1018;color:#fff;padding:14px;outline:none}
+.form input:focus{border-color:#7c87ff;box-shadow:0 0 0 3px rgba(124,135,255,.14)}
+.form button{width:100%;margin:2px 0 0;border:0;border-radius:16px;padding:14px 16px;font-weight:900;background:#f4f6ff;color:#0b0b12}
+.form button:disabled{opacity:.55}
+.status{padding:12px;border-radius:14px;border:1px solid #5a2c39;background:#211118;color:#ffccd6;line-height:1.4}
+.lockNote{margin:18px 0 0;padding-top:16px;border-top:1px solid #2b2e3e;color:#8f97aa;font-size:12px;line-height:1.45}

@@ -4,8 +4,34 @@
 .logo{width:54px;height:54px;border-radius:17px;display:grid;place-items:center;font-size:27px;background:#0d0e16;border:1px solid #303550;flex:0 0 auto}
 .eyebrow{margin:0 0 5px;color:#a8b2ff;font-size:11px;letter-spacing:.2em;font-weight:900}
 .card h1{font-size:32px;line-height:1;margin:0}
-.sub{color:#aeb4c0;line-height:1.45;margin:0 0 16px;font-size:15px}
+.sub{color:#aeb4c0;line-height:1.45;margin:0 0 18px;font-size:15px}
 .clerkWrap{width:100%;padding:0}
+.methodList{display:grid;gap:10px}
+.methodButton{width:100%;min-height:68px;display:grid;grid-template-columns:40px 1fr 22px;align-items:center;gap:10px;padding:12px 14px;border-radius:16px;border:1px solid #34364b;background:#0d0e17;color:#fff;text-align:left;box-shadow:none}
+.methodButton:active{transform:scale(.995)}
+.methodButton:disabled{opacity:.55}
+.methodIcon{width:36px;height:36px;display:grid;place-items:center;border-radius:12px;background:#191a28;font-size:20px}
+.methodButton strong{display:block;font-size:16px;line-height:1.2}
+.methodButton small{display:block;margin-top:3px;color:#8f91a6;font-size:12px;line-height:1.3}
+.chevron{font-size:28px;color:#7d7f93;text-align:right}
+.customAuthForm{display:grid;gap:12px}
+.customAuthForm label{color:#d9dbea;font-size:13px;font-weight:800}
+.customAuthForm input{width:100%;min-height:52px;padding:13px 14px;border-radius:15px;border:1px solid #34364b;background:#0c0d15;color:#fff;font-size:16px;outline:none}
+.customAuthForm input:focus{border-color:#8b5cf6;box-shadow:0 0 0 3px rgba(139,92,246,.16)}
+.methodHeading{font-size:20px;font-weight:900;color:#fff;margin-top:2px}
+.backButton{justify-self:start;border:0;background:transparent;color:#b9a8ff;font-weight:800;padding:0;font-size:13px}
+.primaryAuthButton{width:100%;min-height:52px;border:0;border-radius:15px;background:#7c3aed;color:#fff;font-size:15px;font-weight:900}
+.primaryAuthButton:disabled,.resendButton:disabled{opacity:.55}
+.resendButton{border:0;background:transparent;color:#b9a8ff;font-weight:800;font-size:13px;padding:4px}
+.codeSent{margin:0;color:#9295a8;font-size:13px;line-height:1.45}
+.authError,.authInfo{padding:10px 12px;border-radius:12px;font-size:12px;line-height:1.4}
+.authError{border:1px solid #63303c;background:#251219;color:#ffb5c0}
+.authInfo{border:1px solid #3d3a65;background:#17162b;color:#c4b5fd}
+.signupBlock{display:flex;justify-content:center;align-items:center;gap:7px;margin-top:16px;padding-top:15px;border-top:1px solid #25283a;color:#85879a;font-size:13px}
+.signupBlock a{color:#c1b0ff;text-decoration:none;font-weight:900}
+.bottomRow{display:flex;justify-content:center;gap:6px;align-items:center;margin-top:12px;color:#6f7184;font-size:11px}
+.bottomRow a{color:#9e90dd;text-decoration:none;font-weight:800}
+.lockNote{margin:12px 0 0;padding-top:12px;border-top:1px solid #222536;color:#717689;font-size:10.5px;line-height:1.4;text-align:center}
 .form{display:grid;gap:12px}
 .form label{display:grid;gap:8px;color:#dfe3f0;font-size:13px;font-weight:700}
 .form input{width:100%;border-radius:15px;border:1px solid #34384b;background:#0f1018;color:#fff;padding:14px;outline:none}
@@ -13,7 +39,4 @@
 .form button{width:100%;margin:2px 0 0;border:0;border-radius:16px;padding:14px 16px;font-weight:900;background:#f4f6ff;color:#0b0b12}
 .form button:disabled{opacity:.55}
 .status{padding:12px;border-radius:14px;border:1px solid #5a2c39;background:#211118;color:#ffccd6;line-height:1.4}
-.bottomRow{display:flex;justify-content:center;gap:6px;align-items:center;margin-top:14px;color:#77798e;font-size:12px}
-.bottomRow a{color:#b8a7ff;text-decoration:none;font-weight:800}
-.lockNote{margin:14px 0 0;padding-top:14px;border-top:1px solid #25283a;color:#7f8598;font-size:11px;line-height:1.4;text-align:center}
-@media (max-width:520px){.shell{padding:14px}.card{padding:20px;border-radius:22px}.card h1{font-size:30px}.brandRow{margin-bottom:14px}}
+@media (max-width:520px){.shell{padding:14px}.card{padding:20px;border-radius:22px}.card h1{font-size:30px}.brandRow{margin-bottom:14px}.methodButton{min-height:66px}}

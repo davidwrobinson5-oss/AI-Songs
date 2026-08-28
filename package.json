@@ -8,17 +8,17 @@
     "start": "next start"
   },
   "dependencies": {
-    "@breezystack/lamejs": "^1.2.7",
-    "fflate": "latest",
-    "next": "latest",
-    "openai": "latest",
-    "react": "latest",
-    "react-dom": "latest"
+    "@breezystack/lamejs": "1.2.7",
+    "fflate": "0.8.3",
+    "next": "16.3.3",
+    "openai": "7.5.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
   },
   "devDependencies": {
-    "@types/node": "latest",
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "typescript": "latest"
+    "@types/node": "26.4.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "typescript": "7.0.2"
   }
 }

@@ -1,12 +1,13 @@
 # AI Songs Security
 
-AI Songs is a private-studio application. Production access is protected by server-side authentication and signed session cookies.
+AI Songs is a private-studio application. Production access is protected by Clerk authentication with the legacy signed-session password flow retained as a fallback.
 
 ## Current protections
 
 - Server-side API keys only
 - Auth required for application and API access
-- Secure, HttpOnly, SameSite=Strict session cookies
+- Clerk passkey, phone/SMS, and password authentication when configured
+- Legacy secure, HttpOnly, SameSite=Strict signed-session fallback
 - Login throttling
 - Same-origin API enforcement
 - Request and upload validation

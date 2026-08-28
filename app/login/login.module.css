@@ -3,7 +3,10 @@
 .logo{width:62px;height:62px;border-radius:20px;display:grid;place-items:center;font-size:30px;background:#0f1018;border:1px solid #333956;margin-bottom:18px}
 .eyebrow{margin:0 0 8px;color:#a8b2ff;font-size:12px;letter-spacing:.2em;font-weight:900}
 .card h1{font-size:36px;line-height:1;margin:0 0 14px}
-.sub{color:#b9bfca;line-height:1.55;margin:0 0 22px}
+.sub{color:#b9bfca;line-height:1.55;margin:0 0 18px}
+.authChoiceList{display:grid;gap:8px;margin:0 0 18px}
+.authChoiceList div{padding:12px 14px;border:1px solid #30354c;background:#10111a;border-radius:14px;color:#e7eaff;font-weight:800}
+.clerkWrap{width:100%;padding:4px 0}
 .form{display:grid;gap:12px}
 .form label{display:grid;gap:8px;color:#dfe3f0;font-size:13px;font-weight:700}
 .form input{width:100%;border-radius:15px;border:1px solid #34384b;background:#0f1018;color:#fff;padding:14px;outline:none}

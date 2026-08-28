@@ -6,8 +6,14 @@ function clerkConfigured() {
   return Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
 }
 
-export default function LoginPage() {
-  if (!clerkConfigured()) return <LegacyLoginForm />;
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ legacy?: string }>;
+}) {
+  const params = await searchParams;
+
+  if (!clerkConfigured() || params.legacy === '1') return <LegacyLoginForm />;
 
   return (
     <main className={styles.shell}>
@@ -30,7 +36,25 @@ export default function LoginPage() {
             }}
           />
         </div>
-        <p className={styles.lockNote}>Passkeys can use your phone's fingerprint, face unlock, or device PIN. Biometric data stays on your device.</p>
+        <a
+          href="/login?legacy=1"
+          style={{
+            display: 'block',
+            width: '100%',
+            marginTop: '18px',
+            padding: '14px 16px',
+            border: '1px solid rgba(180, 184, 255, 0.28)',
+            borderRadius: '14px',
+            color: '#f4f4ff',
+            textAlign: 'center',
+            textDecoration: 'none',
+            fontWeight: 700,
+            background: 'rgba(255,255,255,0.035)',
+          }}
+        >
+          🔐 Use Studio Password
+        </a>
+        <p className={styles.lockNote}>If passkey or phone options do not appear, use the Studio Password fallback above. Passkeys can use your phone's fingerprint, face unlock, or device PIN. Biometric data stays on your device.</p>
       </section>
     </main>
   );

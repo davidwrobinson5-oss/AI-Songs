@@ -28,6 +28,10 @@ function isPublicAccessRequest(pathname: string) {
   return pathname === '/api/access-request';
 }
 
+function isStudioPasswordRequest(req: NextRequest) {
+  return req.nextUrl.pathname === '/login' && req.nextUrl.searchParams.get('legacy') === '1';
+}
+
 function clerkConfigured() {
   return Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
 }
@@ -51,7 +55,7 @@ async function legacyProxy(req: NextRequest) {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req)) return NextResponse.next();
 
   if (!authConfigured()) {
     if (isLoginRoute(pathname)) return NextResponse.next();
@@ -78,7 +82,7 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req)) return NextResponse.next();
 
   const clerkAuth = await auth();
   const legacyValid = await legacySessionValid(req);

@@ -18,6 +18,10 @@ export default function SignUpPage() {
           <span>Already have an account?</span>
           <a href="/login">Sign In</a>
         </div>
+        <div className={styles.bottomRow}>
+          <span>Having trouble?</span>
+          <a href="/login?legacy=1">Use Studio Password</a>
+        </div>
       </section>
     </main>
   );

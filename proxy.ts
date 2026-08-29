@@ -20,6 +20,10 @@ function isLoginRoute(pathname: string) {
   return pathname === '/login' || pathname.startsWith('/login/') || pathname === '/api/auth/login';
 }
 
+function isSignupRoute(pathname: string) {
+  return pathname === '/signup' || pathname.startsWith('/signup/');
+}
+
 function isPublicAccessRequest(pathname: string) {
   return pathname === '/api/access-request';
 }
@@ -47,7 +51,7 @@ async function legacyProxy(req: NextRequest) {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname)) return NextResponse.next();
 
   if (!authConfigured()) {
     if (isLoginRoute(pathname)) return NextResponse.next();
@@ -74,7 +78,7 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname)) return NextResponse.next();
 
   const clerkAuth = await auth();
   const legacyValid = await legacySessionValid(req);
@@ -84,7 +88,6 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
     if (authenticated && pathname === '/login') {
       const home = req.nextUrl.clone();
       home.pathname = '/';
-      // Preserve Clerk development-session query parameters during the handoff.
       return NextResponse.redirect(home);
     }
     return NextResponse.next();
@@ -93,7 +96,6 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Authentication required.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
     const login = req.nextUrl.clone();
     login.pathname = '/login';
-    // Preserve Clerk development-session query parameters during the handoff.
     return NextResponse.redirect(login);
   }
   const response = NextResponse.next();

@@ -5,7 +5,14 @@
 .eyebrow{margin:0 0 5px;color:#a8b2ff;font-size:11px;letter-spacing:.2em;font-weight:900}
 .card h1{font-size:32px;line-height:1;margin:0}
 .sub{color:#aeb4c0;line-height:1.45;margin:0 0 18px;font-size:15px}
-.clerkWrap{width:100%;padding:0}
+.clerkWrap{width:100%;padding:0;min-height:320px}
+.loginSkeleton{min-height:320px;display:grid;align-content:start;gap:12px;padding-top:2px}
+.skeletonLabel,.skeletonLabelShort,.skeletonInput,.skeletonButton,.skeletonFooter{background:#1a1c29;border:1px solid #2a2d40}
+.skeletonLabel{width:92px;height:16px;border-radius:8px}
+.skeletonLabelShort{width:74px;height:16px;border-radius:8px;margin-top:6px}
+.skeletonInput{width:100%;height:52px;border-radius:15px}
+.skeletonButton{width:100%;height:52px;border-radius:15px;margin-top:4px}
+.skeletonFooter{width:118px;height:14px;border-radius:7px;justify-self:center;margin-top:8px}
 .methodList{display:grid;gap:10px}
 .methodButton{width:100%;min-height:68px;display:grid;grid-template-columns:40px 1fr 22px;align-items:center;gap:10px;padding:12px 14px;border-radius:16px;border:1px solid #34364b;background:#0d0e17;color:#fff;text-align:left;box-shadow:none}
 .methodButton:active{transform:scale(.995)}

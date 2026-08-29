@@ -5,6 +5,14 @@ import { useRouter } from 'next/navigation';
 import { FormEvent, useState } from 'react';
 import styles from '../login/login.module.css';
 
+function errorMessage(error: unknown, fallback: string) {
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = String((error as { message?: unknown }).message || '').trim();
+    if (message) return message;
+  }
+  return fallback;
+}
+
 export default function ClerkEmailSignUp() {
   const { signUp, errors, fetchStatus } = useSignUp();
   const router = useRouter();
@@ -27,11 +35,16 @@ export default function ClerkEmailSignUp() {
     });
 
     if (error) {
-      setFormError('We could not create the account. Check the details and try again.');
+      setFormError(errorMessage(error, 'We could not create the account. Check the details and try again.'));
       return;
     }
 
-    await signUp.verifications.sendEmailCode();
+    const verification = await signUp.verifications.sendEmailCode();
+    if (verification.error) {
+      setFormError(errorMessage(verification.error, 'We could not send the verification email. Please try again.'));
+      return;
+    }
+
     setVerifying(true);
   }
 
@@ -41,7 +54,7 @@ export default function ClerkEmailSignUp() {
 
     const { error } = await signUp.verifications.verifyEmailCode({ code: code.trim() });
     if (error) {
-      setFormError('That verification code did not work. Please try again.');
+      setFormError(errorMessage(error, 'That verification code did not work. Please try again.'));
       return;
     }
 
@@ -132,6 +145,8 @@ export default function ClerkEmailSignUp() {
       </label>
       {errors.fields.password?.message ? <p className={styles.fieldError}>{errors.fields.password.message}</p> : null}
       {formError ? <p className={styles.authError}>{formError}</p> : null}
+
+      <div id="clerk-captcha" />
 
       <button className={styles.primaryAuthButton} type="submit" disabled={busy || !email.trim() || !password}>
         {busy ? 'Creating account…' : 'Create Account'}

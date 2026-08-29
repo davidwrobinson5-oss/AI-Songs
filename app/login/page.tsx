@@ -29,7 +29,7 @@ export default async function LoginPage({
         </div>
 
         <p className={styles.sub}>
-          {signingUp ? 'Request access to AI Songs.' : 'Sign in to AI Songs.'}
+          {signingUp ? 'Request access to AI Songs.' : 'Sign in with your email.'}
         </p>
 
         {signingUp ? (
@@ -101,7 +101,7 @@ export default async function LoginPage({
           <span>Having trouble?</span>
           <a href="/login?legacy=1">Use Studio Password</a>
         </div>
-        <p className={styles.lockNote}>Passkeys use your phone&apos;s fingerprint, face unlock, or device PIN.</p>
+        <p className={styles.lockNote}>Email sign-in is used for the production studio.</p>
       </section>
     </main>
   );

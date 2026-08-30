@@ -31,7 +31,9 @@ export default function LegacyLoginForm() {
   return (
     <main className={styles.shell}>
       <section className={styles.card}>
-        <div className={styles.logo}>🎶</div>
+        <div className={styles.logo} aria-label="PieInEars">
+          <img src="/pieinears-mark.svg" alt="PieInEars" />
+        </div>
         <p className={styles.eyebrow}>PRIVATE STUDIO</p>
         <h1>AI Songs</h1>
         <p className={styles.sub}>Enter your studio password to access music generation, your voice tools, mixes, songs, and sheets.</p>

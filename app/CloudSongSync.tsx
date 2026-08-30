@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { useSession } from '@clerk/nextjs';
 import { createClient } from '@supabase/supabase-js';
 import {
   exportLocalLibrary,
@@ -12,7 +11,7 @@ import {
 
 const SUPABASE_URL = 'https://ynkrlatwwwaachijacmb.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
-const LIBRARY_URL = `${SUPABASE_URL}/functions/v1/pie-library`;
+const LIBRARY_URL = '/api/song-library';
 const BUCKET = 'pie-song-audio';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
@@ -48,22 +47,20 @@ function extensionFor(blob: Blob) {
   return 'mp3';
 }
 
-async function libraryRequest(token: string, body: unknown) {
+async function libraryRequest(body: unknown) {
   const res = await fetch(LIBRARY_URL, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json',
-      apikey: SUPABASE_KEY,
-    },
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+    cache: 'no-store',
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.error || 'Cloud library request failed.');
   return data;
 }
 
-async function uploadVersion(token: string, song: SavedSong, version: SavedVersion) {
+async function uploadVersion(song: SavedSong, version: SavedVersion) {
   const files: Record<string, { path: string; type?: string }> = {};
 
   for (const field of blobFields) {
@@ -71,7 +68,7 @@ async function uploadVersion(token: string, song: SavedSong, version: SavedVersi
     if (!(blob instanceof Blob) || blob.size === 0) continue;
 
     const fileName = `${field}.${extensionFor(blob)}`;
-    const prepared = await libraryRequest(token, {
+    const prepared = await libraryRequest({
       action: 'prepareUpload',
       songId: song.id,
       versionId: version.id,
@@ -88,7 +85,7 @@ async function uploadVersion(token: string, song: SavedSong, version: SavedVersi
     files[field] = { path: prepared.path, type: blob.type || undefined };
   }
 
-  await libraryRequest(token, {
+  await libraryRequest({
     action: 'upsertVersion',
     song,
     version: {
@@ -134,9 +131,9 @@ async function cloudVersionToLocal(version: CloudVersion): Promise<SavedVersion>
   return local;
 }
 
-async function synchronize(token: string) {
+async function synchronize() {
   const local = await exportLocalLibrary();
-  let cloud = await libraryRequest(token, { action: 'list' }) as CloudLibrary;
+  let cloud = await libraryRequest({ action: 'list' }) as CloudLibrary;
   const cloudVersionIds = new Set(cloud.versions.map((version) => version.id));
   const songById = new Map(local.songs.map((song) => [song.id, song]));
 
@@ -144,10 +141,10 @@ async function synchronize(token: string) {
     if (cloudVersionIds.has(version.id)) continue;
     const song = songById.get(version.songId);
     if (!song) continue;
-    await uploadVersion(token, song, version);
+    await uploadVersion(song, version);
   }
 
-  cloud = await libraryRequest(token, { action: 'list' }) as CloudLibrary;
+  cloud = await libraryRequest({ action: 'list' }) as CloudLibrary;
   const localVersionIds = new Set(local.versions.map((version) => version.id));
   const missingCloudVersions = cloud.versions.filter((version) => !localVersionIds.has(version.id));
   const downloaded: SavedVersion[] = [];
@@ -164,12 +161,10 @@ async function synchronize(token: string) {
 }
 
 export default function CloudSongSync() {
-  const { session, isLoaded } = useSession();
   const running = useRef(false);
   const queued = useRef(false);
 
   useEffect(() => {
-    if (!isLoaded || !session) return;
     let cancelled = false;
 
     const runSync = async () => {
@@ -180,8 +175,7 @@ export default function CloudSongSync() {
       }
       running.current = true;
       try {
-        const token = await session.getToken();
-        if (token && !cancelled) await synchronize(token);
+        await synchronize();
       } catch (error) {
         console.error('Pie cloud song sync failed:', error);
       } finally {
@@ -208,7 +202,7 @@ export default function CloudSongSync() {
       window.removeEventListener('online', onOnline);
       window.removeEventListener('focus', onFocus);
     };
-  }, [isLoaded, session]);
+  }, []);
 
   return null;
 }

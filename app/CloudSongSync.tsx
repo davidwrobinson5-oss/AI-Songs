@@ -39,8 +39,6 @@ const blobFields = [
   'masterBlob',
 ] as const;
 
-type BlobField = (typeof blobFields)[number];
-
 function extensionFor(blob: Blob) {
   const type = blob.type.toLowerCase();
   if (type.includes('wav')) return 'wav';
@@ -142,7 +140,6 @@ async function synchronize(token: string) {
   const cloudVersionIds = new Set(cloud.versions.map((version) => version.id));
   const songById = new Map(local.songs.map((song) => [song.id, song]));
 
-  // First preserve everything that exists on this exact browser origin.
   for (const version of local.versions) {
     if (cloudVersionIds.has(version.id)) continue;
     const song = songById.get(version.songId);
@@ -150,7 +147,6 @@ async function synchronize(token: string) {
     await uploadVersion(token, song, version);
   }
 
-  // Then merge the shared account library back into this browser's offline cache.
   cloud = await libraryRequest(token, { action: 'list' }) as CloudLibrary;
   const localVersionIds = new Set(local.versions.map((version) => version.id));
   const missingCloudVersions = cloud.versions.filter((version) => !localVersionIds.has(version.id));
@@ -170,25 +166,48 @@ async function synchronize(token: string) {
 export default function CloudSongSync() {
   const { session, isLoaded } = useSession();
   const running = useRef(false);
+  const queued = useRef(false);
 
   useEffect(() => {
-    if (!isLoaded || !session || running.current) return;
-    running.current = true;
-
+    if (!isLoaded || !session) return;
     let cancelled = false;
-    (async () => {
+
+    const runSync = async () => {
+      if (cancelled) return;
+      if (running.current) {
+        queued.current = true;
+        return;
+      }
+      running.current = true;
       try {
         const token = await session.getToken();
-        if (!token || cancelled) return;
-        await synchronize(token);
+        if (token && !cancelled) await synchronize(token);
       } catch (error) {
         console.error('Pie cloud song sync failed:', error);
       } finally {
         running.current = false;
+        if (queued.current && !cancelled) {
+          queued.current = false;
+          void runSync();
+        }
       }
-    })();
+    };
 
-    return () => { cancelled = true; };
+    const onLibraryChanged = () => { void runSync(); };
+    const onOnline = () => { void runSync(); };
+    const onFocus = () => { void runSync(); };
+
+    window.addEventListener('pie-local-library-changed', onLibraryChanged);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('focus', onFocus);
+    void runSync();
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener('pie-local-library-changed', onLibraryChanged);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('focus', onFocus);
+    };
   }, [isLoaded, session]);
 
   return null;

@@ -34,6 +34,10 @@ function isPublicAccessRequest(pathname: string) {
   return pathname === '/api/access-request';
 }
 
+function isLegacyVerifyRequest(pathname: string) {
+  return pathname === '/api/auth/legacy-verify';
+}
+
 function isStudioPasswordRequest(req: NextRequest) {
   return req.nextUrl.pathname === '/login' && req.nextUrl.searchParams.get('legacy') === '1';
 }
@@ -47,7 +51,7 @@ function enforceApiEnvelope(req: NextRequest) {
   const method = req.method.toUpperCase();
   if (method === 'OPTIONS') return new NextResponse(null, { status: 204, headers: { Allow: 'GET, POST, HEAD', 'Access-Control-Allow-Origin': 'null', 'Cache-Control': 'no-store' } });
   if (!['GET', 'POST', 'HEAD'].includes(method)) return NextResponse.json({ error: 'Method not allowed.' }, { status: 405, headers: { Allow: 'GET, POST, HEAD', 'Cache-Control': 'no-store' } });
-  if (!sameOrigin(req)) return NextResponse.json({ error: 'Cross-site API requests are not allowed.' }, { status: 403, headers: { 'Cache-Control': 'no-store' } });
+  if (!sameOrigin(req) && !isLegacyVerifyRequest(req.nextUrl.pathname)) return NextResponse.json({ error: 'Cross-site API requests are not allowed.' }, { status: 403, headers: { 'Cache-Control': 'no-store' } });
   return null;
 }
 
@@ -61,7 +65,7 @@ async function legacyProxy(req: NextRequest) {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req) || isLegacyVerifyRequest(pathname)) return NextResponse.next();
 
   if (!authConfigured()) {
     if (isLoginRoute(pathname)) return NextResponse.next();
@@ -88,7 +92,7 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req) || isLegacyVerifyRequest(pathname)) return NextResponse.next();
 
   const clerkAuth = await auth();
   const legacyValid = await legacySessionValid(req);

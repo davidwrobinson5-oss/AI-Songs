@@ -17,15 +17,11 @@ export default async function LoginPage({
   return (
     <main className={styles.shell}>
       <section className={styles.card}>
-        <div className={styles.brandRow}>
-          <img src="/pieinears-mark.svg" alt="" width="66" height="66" className={styles.brandLogo} />
-          <div>
-            <p className={styles.eyebrow}>THE KITCHEN&apos;S OPEN</p>
-            <h1>Pieinears</h1>
-          </div>
-        </div>
-
-        <p className={styles.brandTagline}>Let Them Cook!</p>
+        <img
+          src="/pieinears-logo.svg"
+          alt="Pieinears — The Kitchens Open. Let Them Cook!"
+          style={{ display: 'block', width: 'min(100%, 340px)', height: 'auto', margin: '0 auto 12px' }}
+        />
         <p className={styles.sub}>Your music. Your voice. Your studio.</p>
         <ClerkEmailLogin />
 

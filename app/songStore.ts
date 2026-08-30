@@ -44,6 +44,15 @@ function uid(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function stableId(value: string) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}
+
 function requestToPromise<T>(request: IDBRequest<T>) {
   return new Promise<T>((resolve, reject) => {
     request.onsuccess = () => resolve(request.result);
@@ -207,6 +216,55 @@ export async function importCloudLibrary(songs: SavedSong[], versions: SavedVers
     }
 
     await transactionDone(tx);
+  } finally {
+    db.close();
+  }
+}
+
+export async function importRecoveredAudio(input: {
+  sourceName: string;
+  title: string;
+  createdAt?: string;
+  blob: Blob;
+  durationMs?: number;
+}) {
+  const db = await openDb();
+  try {
+    const createdAt = input.createdAt || new Date().toISOString();
+    const key = stableId(`${input.sourceName}|${createdAt}|${input.blob.size}`);
+    const songId = `recovered_song_${key}`;
+    const versionId = `recovered_version_${key}`;
+
+    const checkTx = db.transaction(SONGS, 'readonly');
+    const existing = await requestToPromise(checkTx.objectStore(SONGS).get(songId) as IDBRequest<SavedSong | undefined>);
+    await transactionDone(checkTx);
+    if (existing) return { imported: false, song: existing };
+
+    const song: SavedSong = {
+      id: songId,
+      title: input.title || input.sourceName,
+      createdAt,
+      updatedAt: createdAt,
+    };
+    const version: SavedVersion = {
+      id: versionId,
+      songId,
+      versionNumber: 1,
+      createdAt,
+      prompt: 'Recovered from an earlier music session.',
+      mode: 'music',
+      vocalRange: 'Baritone',
+      durationMs: input.durationMs || 0,
+      instrumental: false,
+      generatedBlob: input.blob,
+    };
+
+    const tx = db.transaction([SONGS, VERSIONS], 'readwrite');
+    tx.objectStore(SONGS).put(song);
+    tx.objectStore(VERSIONS).put(version);
+    await transactionDone(tx);
+    window.dispatchEvent(new CustomEvent('pie-local-library-changed'));
+    return { imported: true, song };
   } finally {
     db.close();
   }

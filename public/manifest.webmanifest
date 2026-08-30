@@ -1,11 +1,11 @@
 {
-  "name": "AI Songs",
-  "short_name": "AI Songs",
+  "name": "Pie",
+  "short_name": "Pie",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0b0b12",
   "theme_color": "#0b0b12",
-  "description": "Mobile-first AI songwriting studio",
+  "description": "Pieinears — the creative kitchen for music.",
   "icons": [
     {
       "src": "/icon-192.svg",

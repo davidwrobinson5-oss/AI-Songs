@@ -83,18 +83,24 @@ export default function AccountControl() {
           style={{
             width: '46px',
             height: '46px',
+            minWidth: '46px',
+            minHeight: '46px',
             padding: 0,
+            margin: 0,
             borderRadius: '50%',
             border: open ? '2px solid rgba(255,255,255,.9)' : '1px solid rgba(255,255,255,.28)',
             background: 'linear-gradient(145deg,#ff3d81 0%,#8b5cff 58%,#45dfff 115%)',
             color: '#fff',
-            boxShadow: open ? '0 0 0 4px rgba(139,92,255,.16),0 12px 32px rgba(0,0,0,.38)' : '0 12px 28px rgba(0,0,0,.32)',
-            backdropFilter: 'blur(14px)',
+            boxShadow: '0 8px 22px rgba(0,0,0,.34)',
             fontWeight: 950,
             fontSize: '17px',
             letterSpacing: '-.06em',
             display: 'grid',
             placeItems: 'center',
+            overflow: 'hidden',
+            WebkitAppearance: 'none',
+            appearance: 'none',
+            transform: 'translateZ(0)',
             cursor: 'pointer',
           }}
         >
@@ -118,10 +124,10 @@ export default function AccountControl() {
       </div>
 
       {supportOpen && (
-        <div role="dialog" aria-modal="true" aria-label="AI Songs support" style={{ position: 'fixed', inset: 0, zIndex: 11000, display: 'grid', placeItems: 'center', padding: '18px', background: 'rgba(0,0,0,.68)' }}>
+        <div role="dialog" aria-modal="true" aria-label="Pie support" style={{ position: 'fixed', inset: 0, zIndex: 11000, display: 'grid', placeItems: 'center', padding: '18px', background: 'rgba(0,0,0,.68)' }}>
           <form onSubmit={sendSupport} style={{ width: 'min(100%,420px)', display: 'grid', gap: '12px', padding: '20px', borderRadius: '20px', border: '1px solid #34344a', background: '#151522', color: '#fff', boxShadow: '0 24px 70px rgba(0,0,0,.5)' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px' }}>
-              <div><div style={{ fontSize: '20px', fontWeight: 900 }}>Support</div><div style={{ marginTop: '3px', color: '#9999ad', fontSize: '12px' }}>Send a message to AI Songs support.</div></div>
+              <div><div style={{ fontSize: '20px', fontWeight: 900 }}>Support</div><div style={{ marginTop: '3px', color: '#9999ad', fontSize: '12px' }}>Send a message to Pie support.</div></div>
               <button type="button" aria-label="Close support" onClick={() => setSupportOpen(false)} style={{ border: 0, background: 'transparent', color: '#aaa9bd', fontSize: '24px' }}>×</button>
             </div>
             <label style={labelStyle}>Subject<input value={supportSubject} onChange={(event) => setSupportSubject(event.target.value)} maxLength={120} required style={inputStyle} placeholder="What do you need help with?" /></label>

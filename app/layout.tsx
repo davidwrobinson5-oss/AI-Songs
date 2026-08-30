@@ -1,4 +1,5 @@
 import './globals.css';
+import './pie-brand.css';
 import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import PasskeySetupBanner from './PasskeySetupBanner';
@@ -6,10 +7,10 @@ import AccountControl from './AccountControl';
 import AudioPolicy from './AudioPolicy';
 
 export const metadata: Metadata = {
-  title: 'Pie',
-  description: 'Pieinears — the creative kitchen for music.',
+  title: 'Pieinears',
+  description: 'Pieinears — The Kitchens Open. Let Them Cook!',
   manifest: '/manifest.webmanifest',
-  themeColor: '#070914',
+  themeColor: '#05070A',
 };
 
 function clerkConfigured() {

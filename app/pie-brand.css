@@ -13,6 +13,30 @@
   color:transparent!important;
 }
 
+.globalPieMark{
+  position:fixed;
+  top:max(12px,env(safe-area-inset-top));
+  left:12px;
+  width:44px;
+  height:44px;
+  display:grid;
+  place-items:center;
+  z-index:1200;
+  border-radius:14px;
+  background:rgba(5,7,10,.78);
+  border:1px solid rgba(243,154,31,.35);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  box-shadow:0 8px 28px rgba(0,0,0,.28);
+}
+
+.globalPieMark img{
+  width:36px;
+  height:36px;
+  display:block;
+  object-fit:contain;
+}
+
 .pieStudioBrand{
   display:block!important;
 }
@@ -51,8 +75,18 @@
     max-width:620px!important;
     margin-bottom:16px!important;
   }
+  .globalPieMark{
+    width:40px;
+    height:40px;
+    left:10px;
+  }
+  .globalPieMark img{
+    width:32px;
+    height:32px;
+  }
 }
 
 @media print{
+  .globalPieMark{display:none!important}
   .sheetBrand{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }

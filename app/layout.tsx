@@ -6,8 +6,8 @@ import AccountControl from './AccountControl';
 import AudioPolicy from './AudioPolicy';
 
 export const metadata: Metadata = {
-  title: 'AI Songs',
-  description: 'Mobile-first AI songwriting studio',
+  title: 'Pie',
+  description: 'Pieinears — the creative kitchen for music.',
   manifest: '/manifest.webmanifest',
   themeColor: '#070914',
 };

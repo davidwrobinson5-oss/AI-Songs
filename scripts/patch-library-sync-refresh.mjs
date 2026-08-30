@@ -10,4 +10,29 @@ if (!source.includes(marker)) {
   source = source.replace(needle, replacement);
   fs.writeFileSync(path, source);
 }
-console.log('Enabled immediate Songs refresh after cloud sync.');
+
+const uiFiles = [
+  'app/page.tsx',
+  'app/MelodyWorkspace.tsx',
+  'app/MixWorkspace.tsx',
+  'app/SheetsWorkspace.tsx',
+  'app/TrainVoiceWorkspace.tsx',
+  'app/VoiceWorkspace.tsx',
+  'app/DrobMixPlayer.tsx',
+  'app/CloudSongSync.tsx',
+];
+
+const processingPattern = /(['"`])((?:Generating|Writing|Improving|Creating|Finding|Converting|Saving|Sending|Analyzing|Preparing|Processing|Loading|Syncing|Uploading|Mixing|Mastering|Rendering|Exporting|Building|Separating|Transcribing|Detecting|Applying|Polishing)[^'"`\n]{0,120}(?:…|\.\.\.))\1/g;
+
+for (const file of uiFiles) {
+  if (!fs.existsSync(file)) continue;
+  const before = fs.readFileSync(file, 'utf8');
+  let after = before
+    .replaceAll('ElevenLabs Music v2', 'Music Generator')
+    .replaceAll('ElevenLabs', 'Music Engine')
+    .replace(processingPattern, (_match, quote) => `${quote}Turning up the heat…${quote}`);
+
+  if (after !== before) fs.writeFileSync(file, after);
+}
+
+console.log('Enabled immediate Songs refresh and applied Pie processing copy.');

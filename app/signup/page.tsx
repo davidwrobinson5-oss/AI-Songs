@@ -6,9 +6,9 @@ export default function SignUpPage() {
     <main className={styles.shell}>
       <section className={styles.card}>
         <img
-          src="/pieinears-logo.svg"
+          src="/pieinears-horizontal.svg"
           alt="Pieinears — The Kitchens Open. Let Them Cook!"
-          style={{ display: 'block', width: 'min(100%, 340px)', height: 'auto', margin: '0 auto 12px' }}
+          style={{ display: 'block', width: 'min(100%, 560px)', height: 'auto', aspectRatio: '700 / 175', objectFit: 'contain', margin: '0 auto 18px' }}
         />
         <p className={styles.sub}>Create your Pie account.</p>
         <ClerkEmailSignUp />

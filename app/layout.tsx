@@ -5,6 +5,7 @@ import { ClerkProvider } from '@clerk/nextjs';
 import PasskeySetupBanner from './PasskeySetupBanner';
 import AccountControl from './AccountControl';
 import AudioPolicy from './AudioPolicy';
+import CloudSongSync from './CloudSongSync';
 
 export const metadata: Metadata = {
   title: 'Pieinears',
@@ -40,6 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <Document>
         {children}
+        <CloudSongSync />
         <PasskeySetupBanner />
         <AccountControl />
       </Document>

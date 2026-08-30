@@ -13,7 +13,13 @@ function sameOrigin(req: NextRequest) {
 }
 
 function isPublicAsset(pathname: string) {
-  return pathname.startsWith('/_next/') || pathname === '/manifest.webmanifest' || pathname === '/favicon.ico' || pathname.startsWith('/icon-');
+  return (
+    pathname.startsWith('/_next/') ||
+    pathname === '/manifest.webmanifest' ||
+    pathname === '/favicon.ico' ||
+    pathname.startsWith('/icon-') ||
+    /\.(?:svg|png|jpe?g|webp|gif|avif|ico|woff2?|ttf|otf)$/i.test(pathname)
+  );
 }
 
 function isLoginRoute(pathname: string) {

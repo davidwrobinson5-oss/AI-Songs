@@ -2,7 +2,8 @@
 .card{width:min(100%,410px);background:#12131d;border:1px solid #292d42;border-radius:24px;padding:22px;box-shadow:0 22px 65px rgba(0,0,0,.42)}
 .brandRow{display:flex;align-items:center;gap:14px;margin-bottom:10px}
 .brandLogo{width:66px;height:66px;object-fit:contain;flex:0 0 auto;filter:drop-shadow(0 10px 24px rgba(139,92,246,.22))}
-.logo{width:54px;height:54px;border-radius:17px;display:grid;place-items:center;font-size:27px;background:#0d0e16;border:1px solid #303550;flex:0 0 auto}
+.logo{width:54px;height:54px;border-radius:17px;display:grid;place-items:center;font-size:27px;background:#0d0e16;border:1px solid #303550;flex:0 0 auto;overflow:hidden}
+.logo img{width:46px;height:46px;display:block;object-fit:contain}
 .eyebrow{margin:0 0 5px;color:#c8b8ff;font-size:11px;letter-spacing:.18em;font-weight:900}
 .card h1{font-size:32px;line-height:1;margin:0;letter-spacing:-.035em}
 .brandTagline{margin:2px 0 5px;font-size:19px;font-weight:950;letter-spacing:-.025em;color:#fff}

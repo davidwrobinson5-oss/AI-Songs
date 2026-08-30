@@ -23,6 +23,9 @@ function Document({ children }: { children: React.ReactNode }) {
     <html lang="en">
       <body>
         <AudioPolicy />
+        <a className="globalPieMark" href="/" aria-label="PieInEars home">
+          <img src="/pieinears-mark.svg" alt="PieInEars" />
+        </a>
         {children}
       </body>
     </html>

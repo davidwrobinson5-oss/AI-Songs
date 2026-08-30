@@ -171,3 +171,42 @@ export async function getSong(songId: string) {
     db.close();
   }
 }
+
+export async function exportLocalLibrary() {
+  const db = await openDb();
+  try {
+    const songsTx = db.transaction(SONGS, 'readonly');
+    const songs = await requestToPromise(songsTx.objectStore(SONGS).getAll() as IDBRequest<SavedSong[]>);
+    await transactionDone(songsTx);
+
+    const versionsTx = db.transaction(VERSIONS, 'readonly');
+    const versions = await requestToPromise(versionsTx.objectStore(VERSIONS).getAll() as IDBRequest<SavedVersion[]>);
+    await transactionDone(versionsTx);
+    return { songs, versions };
+  } finally {
+    db.close();
+  }
+}
+
+export async function importCloudLibrary(songs: SavedSong[], versions: SavedVersion[]) {
+  const db = await openDb();
+  try {
+    const tx = db.transaction([SONGS, VERSIONS], 'readwrite');
+    const songStore = tx.objectStore(SONGS);
+    const versionStore = tx.objectStore(VERSIONS);
+
+    for (const song of songs) {
+      const existing = await requestToPromise(songStore.get(song.id) as IDBRequest<SavedSong | undefined>);
+      if (!existing || song.updatedAt > existing.updatedAt) songStore.put(song);
+    }
+
+    for (const version of versions) {
+      const existing = await requestToPromise(versionStore.get(version.id) as IDBRequest<SavedVersion | undefined>);
+      if (!existing) versionStore.put(version);
+    }
+
+    await transactionDone(tx);
+  } finally {
+    db.close();
+  }
+}

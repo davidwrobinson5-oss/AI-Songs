@@ -18,18 +18,19 @@ export default async function LoginPage({
     <main className={styles.shell}>
       <section className={styles.card}>
         <div className={styles.brandRow}>
-          <div className={styles.logo}>🎶</div>
+          <img src="/pieinears-mark.svg" alt="" width="66" height="66" className={styles.brandLogo} />
           <div>
-            <p className={styles.eyebrow}>PRIVATE STUDIO</p>
-            <h1>AI Songs</h1>
+            <p className={styles.eyebrow}>THE KITCHEN&apos;S OPEN</p>
+            <h1>Pieinears</h1>
           </div>
         </div>
 
-        <p className={styles.sub}>Sign in with your email.</p>
+        <p className={styles.brandTagline}>Let Them Cook!</p>
+        <p className={styles.sub}>Your music. Your voice. Your studio.</p>
         <ClerkEmailLogin />
 
         <div className={styles.signupBlock}>
-          <span>New to AI Songs?</span>
+          <span>New to Pie?</span>
           <a href="/signup">Sign Up</a>
         </div>
 

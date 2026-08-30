@@ -83,6 +83,14 @@ export default function Home() {
     if (screen === 'songs') refreshLibrary();
   }, [screen]);
 
+  useEffect(() => {
+    const onSynced = () => {
+      if (screen === 'songs') void refreshLibrary();
+    };
+    window.addEventListener('pie-library-synced', onSynced);
+    return () => window.removeEventListener('pie-library-synced', onSynced);
+  }, [screen]);
+
   async function generateDirection() {
     setLoading(true);
     setResult('');
@@ -334,21 +342,20 @@ export default function Home() {
     setSongTitle(song.title);
     setPrompt(version.prompt);
     setLyrics(version.lyrics || '');
-    setMelodyBlob(version.melodyBlob || null);
-    setMelodyAnalysis(version.melodyAnalysis || null);
-    setPrecisionGuideBlob(version.precisionGuideBlob || null);
     setMode(version.mode);
     setVocalRange(version.vocalRange);
     setDurationMs(version.durationMs);
     setInstrumental(version.instrumental);
+    setMelodyBlob(version.melodyBlob || null);
+    setMelodyAnalysis(version.melodyAnalysis || null);
+    setPrecisionGuideBlob(version.precisionGuideBlob || null);
     setGeneratedBlob(version.generatedBlob || null);
+    setMasterBlob(version.masterBlob || null);
     setAudioUrl(blobUrl(version.generatedBlob));
     setBackingUrl(blobUrl(version.backingBlob));
-    setGuideVocalUrl(blobUrl(version.guideVocalBlob || version.precisionGuideBlob));
+    setGuideVocalUrl(blobUrl(version.guideVocalBlob));
     setDrobVocalUrl(blobUrl(version.drobVocalBlob));
-    setMasterBlob(version.masterBlob || null);
-    setDrobStatus(version.drobVocalBlob ? `Loaded ${song.title} — Version ${version.versionNumber}` : '');
-    setSaveStatus(`Loaded Version ${version.versionNumber}`);
+    setSaveStatus(`Loaded ${song.title} · Version ${version.versionNumber}`);
     setScreen('create');
   }
 
@@ -362,12 +369,14 @@ export default function Home() {
     setMelodyAnalysis(null);
     setPrecisionGuideBlob(null);
     setGeneratedBlob(null);
+    setMasterBlob(null);
     setAudioUrl('');
     setBackingUrl('');
     setGuideVocalUrl('');
     setDrobVocalUrl('');
-    setMasterBlob(null);
     setSaveStatus('');
+    setMusicError('');
+    setDrobError('');
     setDrobStatus('');
     setLyricsStatus('');
     setScreen('create');
@@ -379,32 +388,36 @@ export default function Home() {
         <section className="hero">
           <div className="brand">AI SONGS</div>
           <p className="eyebrow">Song Library</p>
-          <h1>Your songs & versions.</h1>
+          <h1>My Songs</h1>
           <p className="sub">Saved locally on this device so your audio, lyrics, melodies, and versions survive refreshes.</p>
           <button className="primary" onClick={newSong}>＋ New Song</button>
         </section>
 
         <section className="panel">
-          {songs.length === 0 && <div className="statusBox">No saved songs yet. Create lyrics, a melody, or music, then tap Save Song Version.</div>}
-          {songs.map((song) => (
-            <div className="playerCard" key={song.id}>
-              <strong>{song.title}</strong>
-              <small>{(versionsBySong[song.id] || []).length} saved version(s)</small>
-              {(versionsBySong[song.id] || []).map((version) => (
-                <button className="secondary" key={version.id} onClick={() => loadSavedVersion(song, version)}>
-                  Open Version {version.versionNumber} · {new Date(version.createdAt).toLocaleString()}
-                </button>
-              ))}
-            </div>
-          ))}
+          <h2>Saved songs</h2>
+          {songs.length === 0 ? (
+            <div className="statusBox">No saved songs yet. Create a song, then use Save Version.</div>
+          ) : (
+            songs.map((song) => (
+              <div className="playerCard" key={song.id}>
+                <strong>{song.title}</strong>
+                <small>{versionsBySong[song.id]?.length || 0} saved versions · Updated {new Date(song.updatedAt).toLocaleString()}</small>
+                {(versionsBySong[song.id] || []).map((version) => (
+                  <button className="secondary" key={version.id} onClick={() => loadSavedVersion(song, version)}>
+                    Open Version {version.versionNumber} · {new Date(version.createdAt).toLocaleString()}
+                  </button>
+                ))}
+              </div>
+            ))
+          )}
         </section>
 
-        <nav className="bottomNav">
-          <span onClick={() => setScreen('create')}>🏠<small>Home</small></span>
-          <span className="navActive">🎵<small>Songs</small></span>
-          <span onClick={newSong}>＋<small>Create</small></span>
-          <span>🎚️<small>Mix</small></span>
-          <span>📄<small>Sheets</small></span>
+        <nav className="bottomNav noPrint" aria-label="Main navigation">
+          <span onClick={() => setScreen('create')}><b>🎹</b><small>Music</small></span>
+          <span><b>🎤</b><small>Voice</small></span>
+          <span className="navActive" onClick={() => setScreen('songs')}><b>🎵</b><small>Songs</small></span>
+          <span><b>🎚️</b><small>Mix</small></span>
+          <span><b>📄</b><small>Sheets</small></span>
         </nav>
       </main>
     );
@@ -414,181 +427,184 @@ export default function Home() {
     <main>
       <section className="hero">
         <div className="brand">AI SONGS</div>
-        <p className="eyebrow">Your cloud music studio</p>
-        <h1>Create a song from your phone.</h1>
+        <p className="eyebrow">Mobile Song Creation Studio</p>
+        <h1>Build the song around your voice.</h1>
         <p className="sub">Start with music, lyrics, or a melody. Build the song, vocals, mix, master, stems, MIDI, and sheet music in one mobile-first workspace.</p>
       </section>
 
       <section className="panel">
-        <h2>Song project</h2>
-        <input value={songTitle} onChange={(e) => setSongTitle(e.target.value)} placeholder="Song title" />
-        {currentVersionNumber && <div className="statusBox">Working from Version {currentVersionNumber}</div>}
-      </section>
-
-      <section className="panel">
-        <h2>How do you want to start?</h2>
+        <h2>Start With</h2>
         <div className="modeGrid">
           {modes.map((item) => (
             <button key={item.id} className={`modeCard ${mode === item.id ? 'active' : ''}`} onClick={() => setMode(item.id)}>
-              <span className="icon">{item.icon}</span><strong>{item.title}</strong><small>{item.copy}</small>
+              <span className="icon">{item.icon}</span>
+              <strong>{item.title}</strong>
+              <small>{item.copy}</small>
             </button>
           ))}
         </div>
       </section>
 
       <section className="panel">
-        <h2>Lead vocal range</h2>
-        <div className="chips">{ranges.map((r) => <button key={r} className={vocalRange === r ? 'chip activeChip' : 'chip'} onClick={() => setVocalRange(r)}>{r}</button>)}</div>
+        <h2>Vocal Range</h2>
+        <div className="chips">
+          {ranges.map((range) => (
+            <button key={range} className={`chip ${vocalRange === range ? 'activeChip' : ''}`} onClick={() => setVocalRange(range)}>
+              {range}
+            </button>
+          ))}
+        </div>
       </section>
 
       <section className="panel">
-        <h2>Describe the song</h2>
-        <textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder="Example: uplifting Christian hip-hop with warm piano, deep bass, crisp drums, hopeful energy, 92 BPM..." />
-
-        {mode === 'lyrics' && (
-          <div className="musicControls">
-            <button className="primary" onClick={() => runLyrics('generate')} disabled={lyricsLoading || !prompt.trim()}>
-              {lyricsLoading ? 'Writing Lyrics…' : 'Generate Full Lyrics'}
-            </button>
-            <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} placeholder="Your full lyrics will appear here. You can edit every word." style={{ minHeight: 360 }} />
-            <button className="secondary" onClick={() => runLyrics('rewrite')} disabled={lyricsLoading || !lyrics.trim()}>
-              Improve / Rework Lyrics
-            </button>
-            {lyricsStatus && <div className="statusBox">{lyricsStatus}</div>}
-            {lyrics.trim() && (
-              <div className="playerCard">
-                <button className="primary" onClick={saveCurrentVersion}>💾 Save Lyrics Version</button>
-                {saveStatus && <small>{saveStatus}</small>}
-                <small>Each save creates a new version, so earlier lyric drafts stay available.</small>
-              </div>
-            )}
-            <button className="secondary" onClick={() => setMode('music')} disabled={!lyrics.trim()}>Continue to Music →</button>
-          </div>
-        )}
-
-        {mode === 'melody' && (
-          <div className="musicControls">
-            <MelodyWorkspace
-              prompt={prompt}
-              vocalRange={vocalRange}
-              lyrics={lyrics}
-              initialBlob={melodyBlob}
-              initialAnalysis={melodyAnalysis}
-              initialPrecisionGuide={precisionGuideBlob}
-              onLyricsFitted={(fittedLyrics) => {
-                setLyrics(fittedLyrics);
-                setLyricsStatus('Lyrics fitted to your melody.');
-              }}
-              onMelodyChanged={(blob, analysis) => {
-                setMelodyBlob(blob);
-                setMelodyAnalysis(analysis);
-                setPrecisionGuideBlob(null);
-              }}
-              onPrecisionGuide={(blob) => {
-                setPrecisionGuideBlob(blob);
-                setGuideVocalUrl(URL.createObjectURL(blob));
-                setDrobVocalUrl('');
-              }}
-            />
-
-            {precisionGuideBlob && (
-              <div className="playerCard">
-                <strong>Precision guide → Drob</strong>
-                <small>This bypasses ElevenLabs vocal extraction. Kits receives the dry score-based guide directly.</small>
-                <button className="primary" onClick={() => convertGuideToDrob(precisionGuideBlob)} disabled={drobLoading}>
-                  {drobLoading ? 'Creating Drob Precision Vocal…' : '5. Convert Precision Guide to Drob'}
-                </button>
-                {drobStatus && <div className="statusBox">{drobStatus}</div>}
-                {drobError && <div className="errorBox">{drobError}</div>}
-                {drobVocalUrl && (
-                  <>
-                    <small>Drob precision vocal</small>
-                    <audio controls src={drobVocalUrl} />
-                  </>
-                )}
-              </div>
-            )}
-
-            {lyrics.trim() && (
-              <div className="playerCard">
-                <strong>Melody-fit lyrics</strong>
-                <textarea value={lyrics} onChange={(e) => setLyrics(e.target.value)} style={{ minHeight: 300 }} />
-                <button className="primary" onClick={saveCurrentVersion}>💾 Save Melody Version</button>
-                {saveStatus && <small>{saveStatus}</small>}
-                <button className="secondary" onClick={() => setMode('music')}>Continue to Music →</button>
-              </div>
-            )}
-          </div>
-        )}
-
-        {mode === 'music' && (
-          <div className="musicControls">
-            {lyrics.trim() && (
-              <details>
-                <summary>Lyrics attached to this song</summary>
-                <pre style={{ whiteSpace: 'pre-wrap' }}>{lyrics}</pre>
-              </details>
-            )}
-            {melodyAnalysis && (
-              <div className="statusBox">Melody attached: {melodyAnalysis.lowestNote}–{melodyAnalysis.highestNote}, {melodyAnalysis.phrases.length} phrases.</div>
-            )}
-            {precisionGuideBlob && (
-              <div className="statusBox">Precision guide attached. You can generate an instrumental around it, then mix with Drob.</div>
-            )}
-            <div>
-              <div className="controlLabel">Generation length</div>
-              <div className="chips">{durations.map((d) => <button key={d.value} className={durationMs === d.value ? 'chip activeChip' : 'chip'} onClick={() => setDurationMs(d.value)}>{d.label}</button>)}</div>
-            </div>
-
-            <label className="toggleRow">
-              <input type="checkbox" checked={instrumental} onChange={(e) => setInstrumental(e.target.checked)} />
-              <span><strong>Instrumental first</strong><small>Turn this off when you want ElevenLabs to create a guide singer that we can convert into Drob.</small></span>
-            </label>
-
-            <button className="primary" onClick={generateMusic} disabled={musicLoading || !prompt.trim()}>{musicLoading ? 'Generating Music…' : 'Generate Music v2'}</button>
-
-            {audioUrl && (
-              <div className="playerCard">
-                <strong>Generated track</strong><audio controls src={audioUrl} />
-                {!instrumental && generatedBlob && !precisionGuideBlob && <button className="secondary" onClick={useDrobVoice} disabled={drobLoading}>{drobLoading ? 'Building Clean Drob Vocal…' : 'Use Drob Voice — Clean Stem'}</button>}
-                {precisionGuideBlob && !drobVocalUrl && (
-                  <button className="secondary" onClick={() => convertGuideToDrob(precisionGuideBlob)} disabled={drobLoading}>
-                    {drobLoading ? 'Creating Drob Precision Vocal…' : 'Use Precision Guide for Drob'}
-                  </button>
-                )}
-                <small>{precisionGuideBlob ? 'Precision mode uses the dry score-based vocal instead of extracting a singer from the generated song.' : instrumental ? 'Instrumental version ready for lyrics and vocals.' : 'Drob uses ElevenLabs’ dedicated vocal stem before Kits conversion.'}</small>
-              </div>
-            )}
-
-            {drobStatus && <div className="statusBox">{drobStatus}</div>}
-            {drobError && <div className="errorBox">{drobError}</div>}
-
-            {drobVocalUrl && backingUrl && guideVocalUrl && (
-              <DrobMixPlayer backingUrl={backingUrl} guideVocalUrl={guideVocalUrl} drobVocalUrl={drobVocalUrl} onMasterRendered={setMasterBlob} />
-            )}
-
-            {generatedBlob && (
-              <div className="playerCard">
-                <button className="primary" onClick={saveCurrentVersion}>💾 Save Song Version</button>
-                {saveStatus && <small>{saveStatus}</small>}
-                <small>Saving again creates the next version instead of overwriting the previous one.</small>
-              </div>
-            )}
-
-            {musicError && <div className="errorBox">{musicError}</div>}
-            <button className="secondary" onClick={generateDirection} disabled={loading || !prompt.trim()}>{loading ? 'Planning…' : 'Plan Song Before Generating'}</button>
-          </div>
-        )}
-
+        <h2>Describe the Song</h2>
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Example: Warm soulful gospel-pop, 88 BPM, B♭ major, live drums, Rhodes, bass, choir lift in the hook..."
+        />
+        <button className="primary" onClick={generateDirection} disabled={loading || !prompt.trim()}>
+          {loading ? 'Building Direction…' : 'Build Song Direction'}
+        </button>
         {result && <div className="result"><pre>{result}</pre></div>}
       </section>
 
-      <nav className="bottomNav">
-        <span>🏠<small>Home</small></span>
-        <span onClick={() => setScreen('songs')}>🎵<small>Songs</small></span>
-        <span className="navActive" onClick={newSong}>＋<small>Create</small></span>
-        <span>🎚️<small>Mix</small></span>
-        <span>📄<small>Sheets</small></span>
+      {mode === 'lyrics' && (
+        <section className="panel">
+          <h2>Lyrics</h2>
+          <textarea
+            value={lyrics}
+            onChange={(e) => setLyrics(e.target.value)}
+            placeholder="Start writing here, or generate full lyrics from your song description..."
+          />
+          <div className="mixButtons">
+            <button className="primary" onClick={() => runLyrics('generate')} disabled={lyricsLoading || !prompt.trim()}>
+              {lyricsLoading ? 'Writing…' : 'Generate Full Lyrics'}
+            </button>
+            <button className="secondary" onClick={() => runLyrics('rewrite')} disabled={lyricsLoading || !lyrics.trim()}>
+              Rewrite
+            </button>
+          </div>
+          {lyricsStatus && <div className="statusBox">{lyricsStatus}</div>}
+        </section>
+      )}
+
+      {mode === 'melody' && (
+        <section className="panel">
+          <MelodyWorkspace
+            vocalRange={vocalRange}
+            prompt={prompt}
+            lyrics={lyrics}
+            onMelodyChange={(blob, analysis) => {
+              setMelodyBlob(blob);
+              setMelodyAnalysis(analysis);
+              setPrecisionGuideBlob(null);
+              setGuideVocalUrl('');
+              setDrobVocalUrl('');
+            }}
+            onPrecisionGuide={(blob) => {
+              setPrecisionGuideBlob(blob);
+              setGuideVocalUrl(URL.createObjectURL(blob));
+              setDrobVocalUrl('');
+            }}
+            onConvertPrecisionGuide={convertGuideToDrob}
+            drobLoading={drobLoading}
+            drobStatus={drobStatus}
+            drobError={drobError}
+          />
+        </section>
+      )}
+
+      <section className="panel">
+        <h2>ElevenLabs Music v2</h2>
+        <div className="musicControls">
+          <div>
+            <div className="controlLabel">Length</div>
+            <div className="chips">
+              {durations.map((item) => (
+                <button key={item.value} className={`chip ${durationMs === item.value ? 'activeChip' : ''}`} onClick={() => setDurationMs(item.value)}>
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <label className="toggleRow">
+            <input type="checkbox" checked={instrumental} onChange={(e) => setInstrumental(e.target.checked)} />
+            <span>
+              <strong>Instrumental first</strong>
+              <small>Best for building a backing track that leaves room for your Drob vocal later.</small>
+            </span>
+          </label>
+        </div>
+        <button className="primary" onClick={generateMusic} disabled={musicLoading || !prompt.trim()}>
+          {musicLoading ? 'Generating Music…' : 'Generate Music'}
+        </button>
+        {musicError && <div className="errorBox">{musicError}</div>}
+        {audioUrl && (
+          <div className="playerCard">
+            <strong>Generated Track</strong>
+            <audio controls src={audioUrl} />
+            <small>{instrumental ? 'Instrumental backing ready.' : 'Full AI song ready.'}</small>
+          </div>
+        )}
+      </section>
+
+      {!instrumental && audioUrl && (
+        <section className="panel">
+          <h2>Replace AI Vocal with Drob</h2>
+          <p className="sub">ElevenLabs separates the generated vocal from the music, then Kits converts only that clean vocal to your Drob model.</p>
+          <button className="primary" onClick={useDrobVoice} disabled={drobLoading || !generatedBlob}>
+            {drobLoading ? 'Creating Drob Vocal…' : 'Use Drob Voice'}
+          </button>
+          {drobStatus && <div className="statusBox">{drobStatus}</div>}
+          {drobError && <div className="errorBox">{drobError}</div>}
+        </section>
+      )}
+
+      {(backingUrl || guideVocalUrl || drobVocalUrl) && (
+        <section className="panel">
+          <h2>Vocal / Music Mix</h2>
+          <DrobMixPlayer
+            backingUrl={backingUrl}
+            guideUrl={guideVocalUrl}
+            drobUrl={drobVocalUrl}
+            title={songTitle.trim() || 'Untitled Song'}
+            onMasterReady={(blob) => setMasterBlob(blob)}
+          />
+        </section>
+      )}
+
+      <section className="panel">
+        <h2>Song Project</h2>
+        <div className="musicControls">
+          <label>
+            <div className="controlLabel">Song title</div>
+            <input
+              value={songTitle}
+              onChange={(e) => setSongTitle(e.target.value)}
+              placeholder="Untitled Song"
+              maxLength={120}
+            />
+          </label>
+          <div className="statusBox">
+            {currentSongId ? `Current song · Version ${currentVersionNumber ?? '—'}` : 'New unsaved song'}
+          </div>
+        </div>
+        <div className="mixButtons">
+          <button className="primary" onClick={saveCurrentVersion} disabled={!generatedBlob && !lyrics.trim() && !melodyBlob && !precisionGuideBlob}>
+            Save Version
+          </button>
+          <button className="secondary" onClick={newSong}>New Song</button>
+        </div>
+        {saveStatus && <div className="statusBox">{saveStatus}</div>}
+      </section>
+
+      <nav className="bottomNav noPrint" aria-label="Main navigation">
+        <span className="navActive" onClick={() => setScreen('create')}><b>🎹</b><small>Music</small></span>
+        <span><b>🎤</b><small>Voice</small></span>
+        <span onClick={() => setScreen('songs')}><b>🎵</b><small>Songs</small></span>
+        <span><b>🎚️</b><small>Mix</small></span>
+        <span><b>📄</b><small>Sheets</small></span>
       </nav>
     </main>
   );

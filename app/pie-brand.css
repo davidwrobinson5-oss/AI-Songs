@@ -13,6 +13,8 @@
   color:transparent!important;
 }
 
+.hero:before{display:none!important}
+
 .globalPieMark{
   position:fixed;
   top:max(12px,env(safe-area-inset-top));

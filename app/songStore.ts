@@ -129,6 +129,7 @@ export async function saveVersion(input: SaveVersionInput) {
     tx.objectStore(SONGS).put(song);
     tx.objectStore(VERSIONS).put(version);
     await transactionDone(tx);
+    window.dispatchEvent(new CustomEvent('pie-local-library-changed'));
     return { song, version };
   } finally {
     db.close();

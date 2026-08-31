@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
+import { getVercelOidcToken } from '@vercel/oidc';
 import { cookies } from 'next/headers';
 import { SESSION_COOKIE, verifySessionToken } from '../../auth';
 
@@ -14,11 +15,6 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    // The browser must still be authenticated to Pie, but the cloud library no
-    // longer uses the browser's auth identity as the storage owner. Vercel signs
-    // a project-scoped OIDC token for this deployment, and Supabase verifies that
-    // token before accepting any library request. This gives every production
-    // deployment of Pie one stable, canonical music library.
     let clerkSignedIn = false;
     try {
       const clerk = await auth();
@@ -37,9 +33,9 @@ export async function POST(req: NextRequest) {
       return noStore({ error: 'Authentication required.' }, 401);
     }
 
-    const vercelOidcToken = process.env.VERCEL_OIDC_TOKEN || '';
+    const vercelOidcToken = await getVercelOidcToken().catch(() => '');
     if (!vercelOidcToken) {
-      console.error('Pie cloud library is missing the Vercel OIDC token.');
+      console.error('Pie cloud library could not obtain the Vercel OIDC token.');
       return noStore({ error: 'Cloud library identity is temporarily unavailable.' }, 503);
     }
 

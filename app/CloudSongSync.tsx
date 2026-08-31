@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import * as tus from 'tus-js-client';
 import {
   exportLocalLibrary,
   importCloudLibrary,
@@ -9,10 +8,9 @@ import {
   type SavedVersion,
 } from './songStore';
 
-const PROJECT_ID = 'ynkrlatwwwaachijacmb';
 const LIBRARY_URL = '/api/song-library';
-const BUCKET = 'pie-song-audio';
-const TUS_ENDPOINT = `https://${PROJECT_ID}.storage.supabase.co/storage/v1/upload/resumable`;
+const AUDIO_UPLOAD_URL = '/api/song-audio-upload';
+const CHUNK_BYTES = 2 * 1024 * 1024;
 
 type CloudFile = { url: string; type?: string };
 type CloudVersion = Omit<SavedVersion,
@@ -43,17 +41,19 @@ function extensionFor(blob: Blob) {
   return 'mp3';
 }
 
+async function jsonRequest(url: string, init: RequestInit) {
+  const res = await fetch(url, { ...init, credentials: 'same-origin', cache: 'no-store' });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data?.error || `Request failed (${res.status}).`);
+  return data;
+}
+
 async function libraryRequest(body: unknown) {
-  const res = await fetch(LIBRARY_URL, {
+  return jsonRequest(LIBRARY_URL, {
     method: 'POST',
-    credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-    cache: 'no-store',
   });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data?.error || 'Cloud library request failed.');
-  return data;
 }
 
 function versionMetadata(version: SavedVersion) {
@@ -81,32 +81,44 @@ function versionNeedsUpload(local: SavedVersion, cloud?: CloudVersion) {
   return false;
 }
 
-function uploadWithTus(blob: Blob, path: string, token: string) {
-  return new Promise<void>((resolve, reject) => {
-    const upload = new tus.Upload(blob, {
-      endpoint: TUS_ENDPOINT,
-      retryDelays: [0, 3000, 5000, 10000, 20000],
+async function uploadThroughPie(blob: Blob, path: string, token: string) {
+  const started = await jsonRequest(AUDIO_UPLOAD_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      path,
+      token,
+      type: blob.type || 'application/octet-stream',
+      size: blob.size,
+    }),
+  });
+
+  const uploadUrl = String(started.uploadUrl || '');
+  let offset = Number(started.offset || 0);
+  if (!uploadUrl || !Number.isFinite(offset) || offset < 0) {
+    throw new Error('Pie audio upload did not start correctly.');
+  }
+
+  while (offset < blob.size) {
+    const end = Math.min(offset + CHUNK_BYTES, blob.size);
+    const chunk = blob.slice(offset, end);
+    const result = await jsonRequest(AUDIO_UPLOAD_URL, {
+      method: 'PATCH',
       headers: {
-        'x-signature': token,
-        'x-upsert': 'true',
+        'Content-Type': 'application/octet-stream',
+        'x-pie-upload-url': uploadUrl,
+        'x-pie-upload-token': token,
+        'x-pie-upload-offset': String(offset),
       },
-      uploadDataDuringCreation: true,
-      removeFingerprintOnSuccess: true,
-      chunkSize: 6 * 1024 * 1024,
-      metadata: {
-        bucketName: BUCKET,
-        objectName: path,
-        contentType: blob.type || 'application/octet-stream',
-        cacheControl: '3600',
-      },
-      onError: (error) => reject(error),
-      onSuccess: () => resolve(),
+      body: chunk,
     });
 
-    // Start immediately. Mobile privacy browsers can block or stall TUS's
-    // previous-upload fingerprint lookup before a request ever leaves the page.
-    upload.start();
-  });
+    const nextOffset = Number(result.offset);
+    if (!Number.isFinite(nextOffset) || nextOffset <= offset) {
+      throw new Error('Pie audio upload stopped before completion.');
+    }
+    offset = nextOffset;
+  }
 }
 
 async function uploadVersion(song: SavedSong, version: SavedVersion) {
@@ -131,7 +143,7 @@ async function uploadVersion(song: SavedSong, version: SavedVersion) {
       fileName,
     });
 
-    await uploadWithTus(blob, prepared.path, prepared.token);
+    await uploadThroughPie(blob, prepared.path, prepared.token);
     files[field] = { path: prepared.path, type: blob.type || undefined };
   }
 

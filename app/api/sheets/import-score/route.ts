@@ -4,7 +4,7 @@ import { rateLimit, safeClientError } from '../../../security';
 import { removeStagedFile, signedStagingUrl } from '../staging';
 
 export const runtime = 'nodejs';
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_NOTES = 2200;

@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
 import { rateLimit, safeClientError } from '../../../security';
+import { removeStagedFile, signedStagingUrl } from '../staging';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -66,47 +67,50 @@ function sanitizeScore(raw: any) {
   };
 }
 
+async function readStaged(path: string) {
+  const url = await signedStagingUrl(path);
+  const response = await fetch(url, { cache: 'no-store' });
+  if (!response.ok) throw new Error('Could not read staged sheet file.');
+  const declared = Number(response.headers.get('content-length') || 0);
+  if (declared && declared > MAX_FILE_BYTES) throw new Error('SHEET_TOO_LARGE');
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (!bytes.length || bytes.length > MAX_FILE_BYTES) throw new Error('SHEET_TOO_LARGE');
+  return bytes;
+}
+
 export async function POST(req: Request) {
   const limited = rateLimit(req, 'sheets-import-score', 4, 60_000);
   if (limited) return limited;
 
+  let stagedPath = '';
   try {
     if (!process.env.OPENAI_API_KEY) {
       return NextResponse.json({ error: 'Score reading is temporarily unavailable.' }, { status: 503 });
     }
 
-    const declared = Number(req.headers.get('content-length') || 0);
-    if (declared && declared > MAX_FILE_BYTES + 1_000_000) {
-      return NextResponse.json({ error: 'Music-sheet upload is too large.' }, { status: 413 });
-    }
+    const body = await req.json() as { stagedPath?: string; name?: string; type?: string };
+    stagedPath = String(body.stagedPath || '');
+    if (!stagedPath) return NextResponse.json({ error: 'Upload the music-sheet file first.' }, { status: 400 });
 
-    const form = await req.formData();
-    const file = form.get('file');
-    if (!(file instanceof File)) {
-      return NextResponse.json({ error: 'Choose a PDF, image, MusicXML, or XML score.' }, { status: 400 });
-    }
-    if (!file.size || file.size > MAX_FILE_BYTES) {
-      return NextResponse.json({ error: 'Music-sheet files must be 20 MB or smaller.' }, { status: 413 });
-    }
-
-    const filename = (file.name || 'score').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 120);
-    const bytes = Buffer.from(await file.arrayBuffer());
+    const filename = String(body.name || 'score').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 120);
+    const fileType = String(body.type || 'application/pdf').toLowerCase();
+    const bytes = await readStaged(stagedPath);
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const instructions = `Read this uploaded music score accurately enough to reconstruct its composition. Return ONLY valid JSON, no markdown.\n\nJSON shape:\n{\n  "title": string,\n  "composer": string,\n  "tempo": number,\n  "key": string,\n  "timeSignature": string,\n  "style": string,\n  "lyrics": string,\n  "parts": [\n    {\n      "name": string,\n      "instrument": string,\n      "isVocal": boolean,\n      "choirRole": "soprano" | "alto" | "tenor" | "bass" | "",\n      "lyrics": string,\n      "notes": [{"midi": number, "startBeat": number, "durationBeats": number, "velocity": number}]\n    }\n  ]\n}\n\nUse MIDI note numbers 21-108. startBeat begins at 0. Preserve rests with gaps and chords with shared startBeat. Use the written tempo when visible. Expand repeats into the performed sequence when practical. Detect every clearly written instrument and vocal staff. IMPORTANT: choir writing must identify Soprano, Alto, Tenor, and Choir Bass as distinct vocal parts using choirRole. Choir Bass is NOT bass guitar/electric bass/acoustic bass; instrument bass must use choirRole "". Transcribe printed lyrics per vocal part when possible. Keep the total note-event count under ${MAX_NOTES}; for a large score preserve the whole-song structure and prioritize complete SATB voices, melody, instrument bass, harmony, percussion cues, and principal accompaniment across the whole piece.`;
 
     const lowerName = filename.toLowerCase();
     let content: any[];
-    if (lowerName.endsWith('.xml') || lowerName.endsWith('.musicxml') || file.type.includes('xml')) {
+    if (lowerName.endsWith('.xml') || lowerName.endsWith('.musicxml') || fileType.includes('xml')) {
       const xml = bytes.toString('utf8').slice(0, 1_500_000);
       content = [{ type: 'input_text', text: `${instructions}\n\nMusicXML/XML source:\n${xml}` }];
-    } else if (file.type.startsWith('image/')) {
-      const dataUrl = `data:${file.type};base64,${bytes.toString('base64')}`;
+    } else if (fileType.startsWith('image/')) {
+      const dataUrl = `data:${fileType};base64,${bytes.toString('base64')}`;
       content = [
         { type: 'input_text', text: instructions },
         { type: 'input_image', image_url: dataUrl, detail: 'high' },
       ];
     } else {
-      const mime = file.type || 'application/pdf';
+      const mime = fileType || 'application/pdf';
       const dataUrl = `data:${mime};base64,${bytes.toString('base64')}`;
       content = [
         { type: 'input_text', text: instructions },
@@ -127,7 +131,12 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ score }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
+    if (error instanceof Error && error.message === 'SHEET_TOO_LARGE') {
+      return NextResponse.json({ error: 'Music-sheet files must be 20 MB or smaller.' }, { status: 413 });
+    }
     console.error('Score import failed', error);
     return NextResponse.json({ error: safeClientError(error, 'Could not read the uploaded music sheets.') }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
+  } finally {
+    if (stagedPath) await removeStagedFile(stagedPath);
   }
 }

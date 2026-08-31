@@ -38,6 +38,10 @@ function isLegacyVerifyRequest(pathname: string) {
   return pathname === '/api/auth/legacy-verify';
 }
 
+function isAudioUploadRequest(pathname: string) {
+  return pathname === '/api/song-audio-upload';
+}
+
 function isStudioPasswordRequest(req: NextRequest) {
   return req.nextUrl.pathname === '/login' && req.nextUrl.searchParams.get('legacy') === '1';
 }
@@ -53,9 +57,35 @@ function clerkConfigured() {
 function enforceApiEnvelope(req: NextRequest) {
   if (!req.nextUrl.pathname.startsWith('/api/')) return null;
   const method = req.method.toUpperCase();
-  if (method === 'OPTIONS') return new NextResponse(null, { status: 204, headers: { Allow: 'GET, POST, HEAD', 'Access-Control-Allow-Origin': 'null', 'Cache-Control': 'no-store' } });
-  if (!['GET', 'POST', 'HEAD'].includes(method)) return NextResponse.json({ error: 'Method not allowed.' }, { status: 405, headers: { Allow: 'GET, POST, HEAD', 'Cache-Control': 'no-store' } });
-  if (!sameOrigin(req) && !isLegacyVerifyRequest(req.nextUrl.pathname)) return NextResponse.json({ error: 'Cross-site API requests are not allowed.' }, { status: 403, headers: { 'Cache-Control': 'no-store' } });
+  const allowPatch = isAudioUploadRequest(req.nextUrl.pathname);
+  const allowedMethods = allowPatch ? ['GET', 'POST', 'PATCH', 'HEAD'] : ['GET', 'POST', 'HEAD'];
+  const allowHeader = allowedMethods.join(', ');
+
+  if (method === 'OPTIONS') {
+    return new NextResponse(null, {
+      status: 204,
+      headers: {
+        Allow: allowHeader,
+        'Access-Control-Allow-Methods': allowHeader,
+        'Access-Control-Allow-Origin': 'null',
+        'Cache-Control': 'no-store',
+      },
+    });
+  }
+
+  if (!allowedMethods.includes(method)) {
+    return NextResponse.json(
+      { error: 'Method not allowed.' },
+      { status: 405, headers: { Allow: allowHeader, 'Cache-Control': 'no-store' } },
+    );
+  }
+
+  if (!sameOrigin(req) && !isLegacyVerifyRequest(req.nextUrl.pathname)) {
+    return NextResponse.json(
+      { error: 'Cross-site API requests are not allowed.' },
+      { status: 403, headers: { 'Cache-Control': 'no-store' } },
+    );
+  }
   return null;
 }
 

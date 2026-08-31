@@ -182,6 +182,27 @@ export async function getSong(songId: string) {
   }
 }
 
+export async function deleteSong(songId: string) {
+  const db = await openDb();
+  try {
+    const lookupTx = db.transaction(VERSIONS, 'readonly');
+    const versionKeys = await requestToPromise(
+      lookupTx.objectStore(VERSIONS).index('songId').getAllKeys(IDBKeyRange.only(songId)) as IDBRequest<IDBValidKey[]>,
+    );
+    await transactionDone(lookupTx);
+
+    const tx = db.transaction([SONGS, VERSIONS], 'readwrite');
+    tx.objectStore(SONGS).delete(songId);
+    const versionStore = tx.objectStore(VERSIONS);
+    for (const key of versionKeys) versionStore.delete(key);
+    await transactionDone(tx);
+    window.dispatchEvent(new CustomEvent('pie-local-library-changed'));
+    window.dispatchEvent(new CustomEvent('pie-library-synced'));
+  } finally {
+    db.close();
+  }
+}
+
 export async function exportLocalLibrary() {
   const db = await openDb();
   try {

@@ -16,7 +16,8 @@
     "next": "16.3.3",
     "openai": "7.5.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "tus-js-client": "4.3.1"
   },
   "devDependencies": {
     "@types/node": "26.4.0",

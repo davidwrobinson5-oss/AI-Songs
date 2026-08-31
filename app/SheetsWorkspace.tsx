@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MelodyAnalysis } from './MelodyWorkspace';
 import { exportAudioBlob } from './audioExport';
+import SheetImportTools from './SheetImportTools';
 
 type SheetType = 'full' | 'chords' | 'lead' | 'drums' | 'bass' | 'guitar' | 'keys';
 type JobMap = Partial<Record<'full'|'chords'|'separation'|'lead'|'drums'|'bass'|'guitar'|'keys', string>>;
@@ -95,9 +96,10 @@ export default function SheetsWorkspace({songTitle,lyrics,melodyAnalysis,prompt=
   const leadRows=useMemo(()=>melodyAnalysis?.phrases?.map((p,i)=>({p,lyric:lyrics.split(/\r?\n/).filter(Boolean)[i]||''}))||[],[melodyAnalysis,lyrics]);
 
   return <section className="panel sheetsWorkspace exportSheetsWorkspace">
+    <SheetImportTools />
     <div className="sheetSourceCard noPrint">
-      <p className="eyebrow">Source song</p><h2>{songTitle||'Untitled Song'}</h2>
-      <p className="sub">AI Songs transcribes the finished audio itself. The temporary analysis copy does not change your saved song or master.</p>
+      <p className="eyebrow">Song → Sheets</p><h2>{songTitle||'Untitled Song'}</h2>
+      <p className="sub">Pie transcribes the finished audio itself. The temporary analysis copy does not change your saved song or master.</p>
       <div className="assetStatusGrid"><div className={hasMusic?'assetReady':'assetMissing'}>{hasMusic?'✓':'—'}<small>Music / Master</small></div><div className={hasVocal?'assetReady':'assetMissing'}>{hasVocal?'✓':'—'}<small>Lead Vocal</small></div><div className={hasLyrics?'assetReady':'assetMissing'}>{hasLyrics?'✓':'—'}<small>Lyrics</small></div></div>
       <button className="primary" onClick={generate} disabled={busy}>{busy?'Preparing…':'🎼 Generate Sheet Music From Song'}</button>
       {status&&<div className="statusBox">{status}</div>}
@@ -107,7 +109,7 @@ export default function SheetsWorkspace({songTitle,lyrics,melodyAnalysis,prompt=
       {sheet==='chords'&&chords.length?<button className="primary" onClick={()=>window.print()}>⬇ Save Chords + Lyrics PDF</button>:selectedReady?<><a className="primary" href={`/api/sheets/download/${selectedJob}/pdf`}>PDF</a><a className="primary" href={`/api/sheets/download/${selectedJob}/xml`}>MusicXML</a><a className="primary" href={`/api/sheets/download/${selectedJob}/midi_quant`}>MIDI</a></>:<button className="primary" disabled>Downloads appear when ready</button>}
     </div>
     <article className="sheetPaper">
-      <header className="sheetHeader"><div><p className="sheetBrand">AI SONGS</p><h1>{songTitle||'Untitled Song'}</h1><h2>{SHEETS.find(x=>x[0]===sheet)?.[2]}</h2></div><div className="sheetVersion">Transcribed From Finished Song</div></header>
+      <header className="sheetHeader"><div><p className="sheetBrand">PIE</p><h1>{songTitle||'Untitled Song'}</h1><h2>{SHEETS.find(x=>x[0]===sheet)?.[2]}</h2></div><div className="sheetVersion">Transcribed From Finished Song</div></header>
       {prompt&&<p className="sheetPrompt">Original song brief: {prompt}</p>}
       {sheet==='chords'&&chords.length?<section className="sheetSection"><h3>Detected Chords</h3>{chords.map((c,i)=><p key={i}><b>{fmt(c[0])}</b> — {c[2]}</p>)}{hasLyrics&&<><h3>Lyrics</h3>{lyrics.split(/\r?\n/).filter(Boolean).map((l,i)=><p className="lyricLine" key={i}>{l}</p>)}</>}</section>:sheet==='lead'&&leadRows.length&&!selectedReady?<>{leadRows.map(({p,lyric},i)=><section className="sheetSection" key={p.index}><h3>Phrase {i+1} · {fmt(p.start)} - {fmt(p.end)}</h3><div className="noteRun">{p.notes.join(' · ')}</div><p className="lyricLine">{lyric}</p></section>)}</>:<div className="sheetEmptyState">{selectedReady?'Your transcribed notation is ready. Use PDF, MusicXML, or MIDI above.':'Generate the sheet package and this page will track the real transcription from the finished audio.'}</div>}
     </article>

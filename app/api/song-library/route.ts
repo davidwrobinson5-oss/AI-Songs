@@ -10,63 +10,46 @@ function noStore(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
-function clerkIssuerHost(token: string) {
-  try {
-    const [, payload] = token.split('.');
-    if (!payload) return '';
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
-    const decoded = JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as { iss?: unknown };
-    if (typeof decoded.iss !== 'string') return '';
-    return new URL(decoded.iss).hostname.toLowerCase();
-  } catch {
-    return '';
-  }
-}
-
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
-    // Prefer the signed-in Clerk account whenever it is available. Some browsers
-    // can still carry an older valid studio cookie after moving to Clerk. If we
-    // prefer that legacy cookie, the Supabase function has to call back through
-    // Vercel deployment protection to verify it, which fails before Pie sees the
-    // request. Clerk is therefore the canonical identity for account cloud sync.
-    let clerkToken = '';
+    // The browser must still be authenticated to Pie, but the cloud library no
+    // longer uses the browser's auth identity as the storage owner. Vercel signs
+    // a project-scoped OIDC token for this deployment, and Supabase verifies that
+    // token before accepting any library request. This gives every production
+    // deployment of Pie one stable, canonical music library.
+    let clerkSignedIn = false;
     try {
       const clerk = await auth();
-      if (clerk.userId) clerkToken = await clerk.getToken() || '';
+      clerkSignedIn = Boolean(clerk.userId);
     } catch {
-      clerkToken = '';
+      clerkSignedIn = false;
     }
 
     const jar = await cookies();
     const legacyToken = jar.get(SESSION_COOKIE)?.value || '';
-    const legacyValid = clerkToken
+    const legacyValid = clerkSignedIn
       ? false
       : await verifySessionToken(legacyToken, process.env.AI_SONGS_SESSION_SECRET);
 
-    if (!clerkToken && !legacyValid) {
-      console.info('Pie cloud auth diagnostic', { mode: 'none' });
+    if (!clerkSignedIn && !legacyValid) {
       return noStore({ error: 'Authentication required.' }, 401);
     }
 
-    console.info('Pie cloud auth diagnostic', {
-      mode: clerkToken ? 'clerk' : 'legacy',
-      issuerHost: clerkToken ? clerkIssuerHost(clerkToken) : undefined,
-    });
-
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      apikey: SUPABASE_PUBLISHABLE_KEY,
-    };
-    if (clerkToken) headers.Authorization = `Bearer ${clerkToken}`;
-    else headers['X-Pie-Legacy-Session'] = legacyToken;
+    const vercelOidcToken = process.env.VERCEL_OIDC_TOKEN || '';
+    if (!vercelOidcToken) {
+      console.error('Pie cloud library is missing the Vercel OIDC token.');
+      return noStore({ error: 'Cloud library identity is temporarily unavailable.' }, 503);
+    }
 
     const response = await fetch(LIBRARY_URL, {
       method: 'POST',
-      headers,
+      headers: {
+        'Content-Type': 'application/json',
+        apikey: SUPABASE_PUBLISHABLE_KEY,
+        'X-Pie-Vercel-OIDC': vercelOidcToken,
+      },
       body: JSON.stringify(body),
       cache: 'no-store',
     });

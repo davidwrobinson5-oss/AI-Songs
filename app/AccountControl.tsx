@@ -73,7 +73,7 @@ export default function AccountControl() {
 
   return (
     <>
-      <div ref={wrapRef} style={{ position: 'fixed', top: 'max(12px, env(safe-area-inset-top))', right: '14px', zIndex: 10000 }}>
+      <div ref={wrapRef} style={{ position: 'fixed', top: 'max(14px, env(safe-area-inset-top))', right: '16px', zIndex: 10000 }}>
         <button
           type="button"
           aria-label="Open account options"
@@ -81,37 +81,35 @@ export default function AccountControl() {
           aria-expanded={open}
           onClick={() => setOpen((value) => !value)}
           style={{
-            width: '46px',
-            height: '46px',
-            minWidth: '46px',
-            minHeight: '46px',
+            width: '42px',
+            height: '42px',
+            minWidth: '42px',
+            minHeight: '42px',
             padding: 0,
             margin: 0,
             borderRadius: '50%',
-            border: open ? '2px solid rgba(255,255,255,.9)' : '1px solid rgba(255,255,255,.28)',
-            background: 'linear-gradient(145deg,#ff3d81 0%,#8b5cff 58%,#45dfff 115%)',
-            color: '#fff',
-            boxShadow: '0 8px 22px rgba(0,0,0,.34)',
-            fontWeight: 950,
-            fontSize: '17px',
-            letterSpacing: '-.06em',
+            border: open ? '1px solid rgba(255,255,255,.72)' : '1px solid rgba(255,255,255,.18)',
+            background: '#11151c',
+            color: '#f4f4f7',
+            boxShadow: '0 6px 16px rgba(0,0,0,.28)',
             display: 'grid',
             placeItems: 'center',
-            overflow: 'hidden',
             WebkitAppearance: 'none',
             appearance: 'none',
-            transform: 'translateZ(0)',
             cursor: 'pointer',
           }}
         >
-          <span aria-hidden="true" style={{ transform: 'translateX(-1px)' }}>dR</span>
+          <svg aria-hidden="true" width="21" height="21" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 12.25a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" strokeWidth="1.8"/>
+            <path d="M4.75 20c.8-3.42 3.36-5.25 7.25-5.25S18.45 16.58 19.25 20" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/>
+          </svg>
         </button>
 
         {open && (
-          <div role="menu" style={{ position: 'absolute', top: '54px', right: 0, width: '220px', padding: '10px', borderRadius: '16px', border: '1px solid rgba(167,139,250,.25)', background: '#151522', color: '#f5f3ff', boxShadow: '0 22px 55px rgba(0,0,0,.45)' }}>
+          <div role="menu" style={{ position: 'absolute', top: '50px', right: 0, width: '220px', padding: '10px', borderRadius: '16px', border: '1px solid rgba(255,255,255,.1)', background: '#151922', color: '#f5f3ff', boxShadow: '0 22px 55px rgba(0,0,0,.45)' }}>
             {isSignedIn && (
-              <div style={{ padding: '7px 9px 11px', borderBottom: '1px solid #2c2c3e', marginBottom: '7px' }}>
-                <div style={{ fontSize: '12px', color: '#9695a8' }}>Signed in as</div>
+              <div style={{ padding: '7px 9px 11px', borderBottom: '1px solid #2c2f38', marginBottom: '7px' }}>
+                <div style={{ fontSize: '12px', color: '#9699a5' }}>Signed in as</div>
                 <div style={{ marginTop: '3px', fontSize: '13px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>{email || label}</div>
               </div>
             )}

@@ -25,16 +25,22 @@ if (!sheets.includes("const [sheetAnalysisPlan,setSheetAnalysisPlan]")) {
 if (!sheets.includes('<SongAnalysisWorkspace')) {
   const returnNeedle = '  return <section className="panel sheetsWorkspace exportSheetsWorkspace">\n    <SheetImportTools />';
   if (!sheets.includes(returnNeedle)) throw new Error('Song analysis patch could not find Sheets workspace return anchor.');
-  const replacement = `  return <section className="panel sheetsWorkspace exportSheetsWorkspace">\n    <SongAnalysisWorkspace\n      vocalRange={analysisVocalRange}\n      onVocalRangeChange={setAnalysisVocalRange}\n      onApply={(plan,range)=>{setAnalysisVocalRange(range);setSheetAnalysisPlan(plan)}}\n    />\n    <SheetImportTools analysisPlan={sheetAnalysisPlan} />`;
+  const replacement = `  return <section className="panel sheetsWorkspace exportSheetsWorkspace">\n    <SongAnalysisWorkspace\n      vocalRange={analysisVocalRange}\n      onVocalRangeChange={setAnalysisVocalRange}\n      onApply={(plan,range)=>{setAnalysisVocalRange(range);setSheetAnalysisPlan(plan)}}\n    />\n    <SheetImportTools analysisPlan={sheetAnalysisPlan} vocalRange={analysisVocalRange} />`;
   sheets = sheets.replace(returnNeedle, replacement);
 } else {
-  sheets = sheets.replace('<SheetImportTools />', '<SheetImportTools analysisPlan={sheetAnalysisPlan} />');
+  sheets = sheets.replace('<SheetImportTools />', '<SheetImportTools analysisPlan={sheetAnalysisPlan} vocalRange={analysisVocalRange} />');
 }
 
 fs.writeFileSync(sheetsPath, sheets);
 
 const toolsPath = 'app/SheetImportTools.tsx';
 let tools = fs.readFileSync(toolsPath, 'utf8');
+
+if (!tools.includes("import { saveVersion } from './songStore';")) {
+  const uploadImport = "import { stagePieFile } from './stagedUpload';";
+  if (!tools.includes(uploadImport)) throw new Error('Song analysis patch could not find SheetImportTools import anchor.');
+  tools = tools.replace(uploadImport, `${uploadImport}\nimport { saveVersion } from './songStore';`);
+}
 
 tools = tools.replace(
   'async function productionRender(score:Score,parts:ScorePart[],full:boolean){\n  const prompt=productionPrompt(score,parts,full);',
@@ -43,7 +49,7 @@ tools = tools.replace(
 
 tools = tools.replace(
   'export default function SheetImportTools(){',
-  "export default function SheetImportTools({analysisPlan=''}:{analysisPlan?:string}){"
+  "export default function SheetImportTools({analysisPlan='',vocalRange='Baritone'}:{analysisPlan?:string;vocalRange?:string}){"
 );
 
 tools = tools.replaceAll(
@@ -61,10 +67,16 @@ if (!tools.includes('renderResultsRef')) {
   tools = tools.replace(refNeedle, `${refNeedle}\n  const renderResultsRef=useRef<HTMLDivElement>(null);`);
 }
 
+if (!tools.includes('savedSongId')) {
+  const renderBusyNeedle = "  const [renderBusy,setRenderBusy]=useState(false);";
+  if (!tools.includes(renderBusyNeedle)) throw new Error('Song analysis patch could not find save state anchor.');
+  tools = tools.replace(renderBusyNeedle, `${renderBusyNeedle}\n  const [savedSongId,setSavedSongId]=useState('');`);
+}
+
 if (!tools.includes("pie-score-analyzed")) {
   const cleanupNeedle = "  useEffect(()=>()=>{for(const item of renders)URL.revokeObjectURL(item.url)},[renders]);";
   if (!tools.includes(cleanupNeedle)) throw new Error('Song analysis patch could not find SheetImportTools effect anchor.');
-  const handoff = `${cleanupNeedle}\n\n  useEffect(()=>{\n    const useAnalyzedScore=(next:Score|null)=>{\n      if(!next||!Array.isArray(next.parts)||!next.parts.length)return;\n      setScore(next); setRenders([]); setSelected({}); setFullArrangement(false);\n      setScoreStatus('Score already analyzed. Choose the parts you want to render — no second upload needed.');\n      setTimeout(()=>chooserRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),140);\n    };\n    try{\n      const saved=sessionStorage.getItem('pie-last-analyzed-score');\n      if(saved)useAnalyzedScore(JSON.parse(saved) as Score);\n    }catch{}\n    const onAnalyzed=(event:Event)=>useAnalyzedScore((event as CustomEvent<Score>).detail||null);\n    window.addEventListener('pie-score-analyzed',onAnalyzed);\n    return()=>window.removeEventListener('pie-score-analyzed',onAnalyzed);\n  },[]);`;
+  const handoff = `${cleanupNeedle}\n\n  useEffect(()=>{\n    const useAnalyzedScore=(next:Score|null)=>{\n      if(!next||!Array.isArray(next.parts)||!next.parts.length)return;\n      setScore(next); setRenders([]); setSelected({}); setFullArrangement(false); setSavedSongId('');\n      setScoreStatus('Score already analyzed. Choose the parts you want to render — no second upload needed.');\n      setTimeout(()=>chooserRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),140);\n    };\n    try{\n      const saved=sessionStorage.getItem('pie-last-analyzed-score');\n      if(saved)useAnalyzedScore(JSON.parse(saved) as Score);\n    }catch{}\n    const onAnalyzed=(event:Event)=>useAnalyzedScore((event as CustomEvent<Score>).detail||null);\n    window.addEventListener('pie-score-analyzed',onAnalyzed);\n    return()=>window.removeEventListener('pie-score-analyzed',onAnalyzed);\n  },[]);`;
   tools = tools.replace(cleanupNeedle, handoff);
 }
 
@@ -96,9 +108,28 @@ if (!tools.includes('ref={renderResultsRef}')) {
   );
 }
 
-if (!tools.includes("renderResultsRef.current?.scrollIntoView")) {
+// Full Arrangement is a finished song, so save it into the normal Songs library.
+if (!tools.includes('Saved automatically to Songs')) {
+  const startNeedle = "    setRenderBusy(true);\n    try{";
+  if (!tools.includes(startNeedle)) throw new Error('Song analysis patch could not find render start anchor.');
+  tools = tools.replace(startNeedle, "    setRenderBusy(true);\n    let librarySaveNote='';\n    try{");
+
+  const fullNeedle = "        const result=await productionRender(score,parts,true,analysisPlan);\n        next.unshift({key:'full',label:'Full Arrangement',blob:result.blob,url:URL.createObjectURL(result.blob),extension:result.extension});\n        setRenders([...next]);";
+  if (!tools.includes(fullNeedle)) throw new Error('Song analysis patch could not find full arrangement render anchor.');
+  const fullReplacement = `        const result=await productionRender(score,parts,true,analysisPlan);\n        next.unshift({key:'full',label:'Full Arrangement',blob:result.blob,url:URL.createObjectURL(result.blob),extension:result.extension});\n        setRenders([...next]);\n        try{\n          const vocal=parts.some(part=>part.isVocal||part.choirRole);\n          const lyrics=(parts.filter(part=>part.isVocal||part.choirRole).map(part=>part.lyrics||'').filter(Boolean).join('\\n')||score.lyrics||'').trim();\n          const saved=await saveVersion({\n            songId:savedSongId||undefined,\n            title:score.title||'Untitled Song',\n            prompt:analysisPlan.trim()||'Rendered automatically from imported music sheets.',\n            mode:'music',\n            vocalRange,\n            durationMs:durationFor(score,parts),\n            instrumental:!vocal,\n            lyrics:lyrics||undefined,\n            generatedBlob:result.blob,\n            masterBlob:result.blob,\n          });\n          setSavedSongId(saved.song.id);\n          librarySaveNote=' Saved automatically to Songs.';\n        }catch{\n          librarySaveNote=' The render finished, but Pie could not save the copy to Songs.';\n        }`;
+  tools = tools.replace(fullNeedle, fullReplacement);
+
   const completeNeedle = "      setScoreStatus('Production render complete. These are realistic performance renders of the written parts.');";
   if (!tools.includes(completeNeedle)) throw new Error('Song analysis patch could not find render completion anchor.');
+  tools = tools.replace(
+    completeNeedle,
+    "      setScoreStatus(`Production render complete.${librarySaveNote}`);"
+  );
+}
+
+if (!tools.includes("renderResultsRef.current?.scrollIntoView")) {
+  const completeNeedle = "      setScoreStatus(`Production render complete.${librarySaveNote}`);";
+  if (!tools.includes(completeNeedle)) throw new Error('Song analysis patch could not find render completion scroll anchor.');
   tools = tools.replace(
     completeNeedle,
     `${completeNeedle}\n      setTimeout(()=>renderResultsRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),180);`
@@ -124,4 +155,4 @@ if (!analysis.includes("sessionStorage.setItem('pie-last-analyzed-score'")) {
 
 fs.writeFileSync(analysisPath, analysis);
 
-console.log('Sheets analysis now reuses scores and keeps render progress/results visible.');
+console.log('Sheets analysis now reuses scores, shows render progress, and saves full renders to Songs.');

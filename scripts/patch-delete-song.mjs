@@ -3,11 +3,13 @@ import fs from 'node:fs';
 const pagePath = 'app/page.tsx';
 let page = fs.readFileSync(pagePath, 'utf8');
 
-// Ensure the restored production page imports the delete helper.
-page = page.replace(
-  "import { getSongVersions, listSongs, saveVersion, type SavedSong, type SavedVersion } from './songStore';",
-  "import { deleteSong, getSongVersions, listSongs, saveVersion, type SavedSong, type SavedVersion } from './songStore';"
-);
+// Ensure the restored/repached production page imports the delete helper.
+// Use a separate import so this survives other build patches changing the existing songStore import list.
+if (!/import\s*\{[^}]*\bdeleteSong\b[^}]*\}\s*from\s*['"]\.\/songStore['"]/.test(page)) {
+  const useClient = "'use client';";
+  if (!page.includes(useClient)) throw new Error('Client module header not found for deleteSong import.');
+  page = page.replace(useClient, `${useClient}\n\nimport { deleteSong } from './songStore';`);
+}
 
 // Add a confirmed delete handler once.
 if (!page.includes('async function deleteSavedSong(')) {
@@ -17,7 +19,7 @@ if (!page.includes('async function deleteSavedSong(')) {
   page = page.replace(needle, handler + needle);
 }
 
-// Add Delete Song to the 3-dot menu after share actions / older versions.
+// Add Delete Song to the 3-dot menu after older versions.
 if (!page.includes('className="songDeleteAction"')) {
   const versionNeedle = '                          {versions.length > 1 && <div className="songVersionMenu"><small>OLDER VERSIONS</small><div>{versions.slice(1).map((version) => <button key={version.id} onClick={() => { setSongMenuId(null); loadSavedVersion(song, version); }}>Version {version.versionNumber}<span>{new Date(version.createdAt).toLocaleDateString()}</span></button>)}</div></div>}';
   if (!page.includes(versionNeedle)) throw new Error('Song menu insertion point not found.');

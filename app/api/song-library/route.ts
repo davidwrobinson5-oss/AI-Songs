@@ -13,28 +13,34 @@ function noStore(body: unknown, status = 200) {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const jar = await cookies();
-    const legacyToken = jar.get(SESSION_COOKIE)?.value || '';
-    const legacyValid = await verifySessionToken(legacyToken, process.env.AI_SONGS_SESSION_SECRET);
 
+    // Prefer the signed-in Clerk account whenever it is available. Some browsers
+    // can still carry an older valid studio cookie after moving to Clerk. If we
+    // prefer that legacy cookie, the Supabase function has to call back through
+    // Vercel deployment protection to verify it, which fails before Pie sees the
+    // request. Clerk is therefore the canonical identity for account cloud sync.
     let clerkToken = '';
-    if (!legacyValid) {
-      try {
-        const clerk = await auth();
-        if (clerk.userId) clerkToken = await clerk.getToken() || '';
-      } catch {
-        clerkToken = '';
-      }
+    try {
+      const clerk = await auth();
+      if (clerk.userId) clerkToken = await clerk.getToken() || '';
+    } catch {
+      clerkToken = '';
     }
 
-    if (!legacyValid && !clerkToken) return noStore({ error: 'Authentication required.' }, 401);
+    const jar = await cookies();
+    const legacyToken = jar.get(SESSION_COOKIE)?.value || '';
+    const legacyValid = clerkToken
+      ? false
+      : await verifySessionToken(legacyToken, process.env.AI_SONGS_SESSION_SECRET);
+
+    if (!clerkToken && !legacyValid) return noStore({ error: 'Authentication required.' }, 401);
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       apikey: SUPABASE_PUBLISHABLE_KEY,
     };
-    if (legacyValid) headers['X-Pie-Legacy-Session'] = legacyToken;
-    else headers.Authorization = `Bearer ${clerkToken}`;
+    if (clerkToken) headers.Authorization = `Bearer ${clerkToken}`;
+    else headers['X-Pie-Legacy-Session'] = legacyToken;
 
     const response = await fetch(LIBRARY_URL, {
       method: 'POST',

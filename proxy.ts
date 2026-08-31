@@ -29,6 +29,11 @@ function isPublicFoundationRead(req: NextRequest) {
   return req.nextUrl.pathname === '/api/pie/foundation' && (method === 'GET' || method === 'HEAD');
 }
 
+function isPublicRecoveryReader(req: NextRequest) {
+  const method = req.method.toUpperCase();
+  return req.nextUrl.pathname === '/recover-origins/source' && (method === 'GET' || method === 'HEAD');
+}
+
 function clerkConfigured() {
   return Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
 }
@@ -50,7 +55,7 @@ async function legacySessionValid(req: NextRequest) {
 async function legacyProxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   if (isPublicAsset(pathname)) return NextResponse.next();
-  if (isPublicFoundationRead(req)) return NextResponse.next();
+  if (isPublicFoundationRead(req) || isPublicRecoveryReader(req)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
   if (isPublicAccessRequest(pathname)) return NextResponse.next();
@@ -78,7 +83,7 @@ async function legacyProxy(req: NextRequest) {
 const clerkProxy = clerkMiddleware(async (auth, req) => {
   const pathname = req.nextUrl.pathname;
   if (isPublicAsset(pathname)) return NextResponse.next();
-  if (isPublicFoundationRead(req)) return NextResponse.next();
+  if (isPublicFoundationRead(req) || isPublicRecoveryReader(req)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
   if (isPublicAccessRequest(pathname)) return NextResponse.next();

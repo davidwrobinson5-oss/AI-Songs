@@ -42,6 +42,10 @@ function isStudioPasswordRequest(req: NextRequest) {
   return req.nextUrl.pathname === '/login' && req.nextUrl.searchParams.get('legacy') === '1';
 }
 
+function isCloudConnectRequest(req: NextRequest) {
+  return req.nextUrl.pathname === '/login' && req.nextUrl.searchParams.get('cloud') === '1';
+}
+
 function clerkConfigured() {
   return Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
 }
@@ -99,9 +103,15 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   const authenticated = clerkAuth.isAuthenticated || legacyValid;
 
   if (isLoginRoute(pathname)) {
+    // Let an existing Studio-password session open the Clerk sign-in screen so
+    // the browser's existing IndexedDB song library can be attached to an
+    // account without signing out or clearing any local songs first.
+    if (isCloudConnectRequest(req) && !clerkAuth.isAuthenticated) return NextResponse.next();
+
     if (authenticated && pathname === '/login') {
       const home = req.nextUrl.clone();
       home.pathname = '/';
+      home.search = '';
       return NextResponse.redirect(home);
     }
     return NextResponse.next();

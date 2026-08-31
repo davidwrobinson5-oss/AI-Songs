@@ -72,6 +72,22 @@ function versionMetadata(version: SavedVersion) {
   };
 }
 
+function cloudMetadataVersion(version: CloudVersion): SavedVersion {
+  return {
+    id: version.id,
+    songId: version.songId,
+    versionNumber: version.versionNumber,
+    createdAt: version.createdAt,
+    prompt: version.prompt,
+    mode: version.mode,
+    vocalRange: version.vocalRange,
+    durationMs: version.durationMs,
+    instrumental: version.instrumental,
+    lyrics: version.lyrics,
+    melodyAnalysis: version.melodyAnalysis,
+  };
+}
+
 function versionNeedsUpload(local: SavedVersion, cloud?: CloudVersion) {
   if (!cloud) return true;
   for (const field of blobFields) {
@@ -158,27 +174,19 @@ async function uploadVersion(song: SavedSong, version: SavedVersion) {
 }
 
 async function cloudVersionToLocal(version: CloudVersion): Promise<SavedVersion> {
-  const local: SavedVersion = {
-    id: version.id,
-    songId: version.songId,
-    versionNumber: version.versionNumber,
-    createdAt: version.createdAt,
-    prompt: version.prompt,
-    mode: version.mode,
-    vocalRange: version.vocalRange,
-    durationMs: version.durationMs,
-    instrumental: version.instrumental,
-    lyrics: version.lyrics,
-    melodyAnalysis: version.melodyAnalysis,
-  };
+  const local = cloudMetadataVersion(version);
 
   for (const field of blobFields) {
     const file = version.files?.[field];
     if (!file?.url) continue;
-    const res = await fetch(file.url, { cache: 'no-store' });
-    if (!res.ok) continue;
-    const raw = await res.blob();
-    local[field] = new Blob([raw], { type: file.type || raw.type || 'application/octet-stream' });
+    try {
+      const res = await fetch(file.url, { cache: 'no-store' });
+      if (!res.ok) continue;
+      const raw = await res.blob();
+      local[field] = new Blob([raw], { type: file.type || raw.type || 'application/octet-stream' });
+    } catch (error) {
+      console.warn(`Pie cloud audio restore skipped ${field}:`, error);
+    }
   }
   return local;
 }
@@ -186,6 +194,14 @@ async function cloudVersionToLocal(version: CloudVersion): Promise<SavedVersion>
 async function synchronize() {
   const local = await exportLocalLibrary();
   let cloud = await libraryRequest({ action: 'list' }) as CloudLibrary;
+
+  // Restore visible cloud metadata immediately. Audio is best-effort and must never
+  // prevent the Songs list from appearing.
+  await importCloudLibrary(cloud.songs, cloud.versions.map(cloudMetadataVersion));
+  window.dispatchEvent(new CustomEvent('pie-library-synced', {
+    detail: { cloudSongs: cloud.songs.length, uploadedVersions: 0, downloadedVersions: 0 },
+  }));
+
   const cloudVersionById = new Map(cloud.versions.map((version) => [version.id, version]));
   const songById = new Map(local.songs.map((song) => [song.id, song]));
   let uploadedVersions = 0;
@@ -194,16 +210,27 @@ async function synchronize() {
     if (!versionNeedsUpload(version, cloudVersionById.get(version.id))) continue;
     const song = songById.get(version.songId);
     if (!song) continue;
-    await uploadVersion(song, version);
-    uploadedVersions += 1;
+    try {
+      await uploadVersion(song, version);
+      uploadedVersions += 1;
+    } catch (error) {
+      console.error('Pie cloud version upload skipped:', error);
+    }
   }
 
   cloud = await libraryRequest({ action: 'list' }) as CloudLibrary;
-  const localVersionIds = new Set(local.versions.map((version) => version.id));
+  const refreshedLocal = await exportLocalLibrary();
+  const localVersionIds = new Set(refreshedLocal.versions.map((version) => version.id));
   const missingCloudVersions = cloud.versions.filter((version) => !localVersionIds.has(version.id));
   const downloaded: SavedVersion[] = [];
-  for (const version of missingCloudVersions) downloaded.push(await cloudVersionToLocal(version));
-  await importCloudLibrary(cloud.songs, downloaded);
+  for (const version of missingCloudVersions) {
+    try {
+      downloaded.push(await cloudVersionToLocal(version));
+    } catch (error) {
+      console.error('Pie cloud version restore skipped:', error);
+    }
+  }
+  if (downloaded.length) await importCloudLibrary([], downloaded);
 
   window.dispatchEvent(new CustomEvent('pie-library-synced', {
     detail: {

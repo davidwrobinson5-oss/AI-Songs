@@ -103,18 +103,13 @@ function uploadWithTus(blob: Blob, path: string, token: string) {
       onSuccess: () => resolve(),
     });
 
-    upload.findPreviousUploads()
-      .then((previousUploads) => {
-        if (previousUploads.length > 0) upload.resumeFromPreviousUpload(previousUploads[0]);
-        upload.start();
-      })
-      .catch(reject);
+    // Start immediately. Mobile privacy browsers can block or stall TUS's
+    // previous-upload fingerprint lookup before a request ever leaves the page.
+    upload.start();
   });
 }
 
 async function uploadVersion(song: SavedSong, version: SavedVersion) {
-  // Persist metadata first. If the audio transfer is interrupted, the song and
-  // version remain in the permanent library and a later sync retries the blob.
   await libraryRequest({
     action: 'upsertVersion',
     song,

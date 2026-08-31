@@ -19,7 +19,7 @@ export async function stagePieFile(file:File,onProgress?:(percent:number)=>void)
   const started=await jsonRequest('/api/song-audio-upload',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({path,type:file.type||'application/octet-stream',size:file.size}),
+    body:JSON.stringify({path,type:'application/octet-stream',size:file.size}),
   });
   const uploadUrl=String(started.uploadUrl||'');
   let offset=Number(started.offset||0);

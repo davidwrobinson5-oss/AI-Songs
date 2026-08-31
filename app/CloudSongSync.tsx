@@ -10,7 +10,9 @@ import {
 } from './songStore';
 
 const SUPABASE_URL = 'https://ynkrlatwwwaachijacmb.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+// Use the JWT-based anon key for signed Storage uploads. The cloud library API
+// itself is still protected by the Pie server + Vercel OIDC identity.
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlua3JsYXR3d3dhYWNoaWphY21iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDU4MTgsImV4cCI6MjEwMzUyMTgxOH0.S3D71MNh4g5AuBFkiLltYltKSVVnBHlZqFU4u6IF-tg';
 const LIBRARY_URL = '/api/song-library';
 const BUCKET = 'pie-song-audio';
 
@@ -60,7 +62,42 @@ async function libraryRequest(body: unknown) {
   return data;
 }
 
+function versionMetadata(version: SavedVersion) {
+  return {
+    id: version.id,
+    songId: version.songId,
+    versionNumber: version.versionNumber,
+    createdAt: version.createdAt,
+    prompt: version.prompt,
+    mode: version.mode,
+    vocalRange: version.vocalRange,
+    durationMs: version.durationMs,
+    instrumental: version.instrumental,
+    lyrics: version.lyrics,
+    melodyAnalysis: version.melodyAnalysis,
+  };
+}
+
+function versionNeedsUpload(local: SavedVersion, cloud?: CloudVersion) {
+  if (!cloud) return true;
+  for (const field of blobFields) {
+    const blob = local[field];
+    if (blob instanceof Blob && blob.size > 0 && !cloud.files?.[field]?.url) return true;
+  }
+  return false;
+}
+
 async function uploadVersion(song: SavedSong, version: SavedVersion) {
+  // Persist metadata first so the canonical library never loses the song record
+  // just because an audio transfer is interrupted. A later sync retries any
+  // local blob that is still missing from cloud storage.
+  await libraryRequest({
+    action: 'upsertVersion',
+    song,
+    version: versionMetadata(version),
+    files: {},
+  });
+
   const files: Record<string, { path: string; type?: string }> = {};
 
   for (const field of blobFields) {
@@ -85,24 +122,14 @@ async function uploadVersion(song: SavedSong, version: SavedVersion) {
     files[field] = { path: prepared.path, type: blob.type || undefined };
   }
 
-  await libraryRequest({
-    action: 'upsertVersion',
-    song,
-    version: {
-      id: version.id,
-      songId: version.songId,
-      versionNumber: version.versionNumber,
-      createdAt: version.createdAt,
-      prompt: version.prompt,
-      mode: version.mode,
-      vocalRange: version.vocalRange,
-      durationMs: version.durationMs,
-      instrumental: version.instrumental,
-      lyrics: version.lyrics,
-      melodyAnalysis: version.melodyAnalysis,
-    },
-    files,
-  });
+  if (Object.keys(files).length > 0) {
+    await libraryRequest({
+      action: 'upsertVersion',
+      song,
+      version: versionMetadata(version),
+      files,
+    });
+  }
 }
 
 async function cloudVersionToLocal(version: CloudVersion): Promise<SavedVersion> {
@@ -134,14 +161,16 @@ async function cloudVersionToLocal(version: CloudVersion): Promise<SavedVersion>
 async function synchronize() {
   const local = await exportLocalLibrary();
   let cloud = await libraryRequest({ action: 'list' }) as CloudLibrary;
-  const cloudVersionIds = new Set(cloud.versions.map((version) => version.id));
+  const cloudVersionById = new Map(cloud.versions.map((version) => [version.id, version]));
   const songById = new Map(local.songs.map((song) => [song.id, song]));
+  let uploadedVersions = 0;
 
   for (const version of local.versions) {
-    if (cloudVersionIds.has(version.id)) continue;
+    if (!versionNeedsUpload(version, cloudVersionById.get(version.id))) continue;
     const song = songById.get(version.songId);
     if (!song) continue;
     await uploadVersion(song, version);
+    uploadedVersions += 1;
   }
 
   cloud = await libraryRequest({ action: 'list' }) as CloudLibrary;
@@ -154,7 +183,7 @@ async function synchronize() {
   window.dispatchEvent(new CustomEvent('pie-library-synced', {
     detail: {
       cloudSongs: cloud.songs.length,
-      uploadedVersions: local.versions.filter((version) => !cloudVersionIds.has(version.id)).length,
+      uploadedVersions,
       downloadedVersions: downloaded.length,
     },
   }));

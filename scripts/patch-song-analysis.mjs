@@ -10,15 +10,13 @@ if (!page.includes("import SongAnalysisWorkspace from './SongAnalysisWorkspace';
 }
 
 if (!page.includes('<SongAnalysisWorkspace')) {
-  const generatorNeedles = [
-    '      <section className="panel">\n        <h2>Music Generator</h2>',
-    '      <section className="panel">\n        <h2>ElevenLabs Music v2</h2>',
-  ];
-  const needle = generatorNeedles.find((item) => page.includes(item));
-  if (!needle) throw new Error('Song analysis patch could not find the Music Generator section.');
-
   const workspace = `      <SongAnalysisWorkspace\n        vocalRange={vocalRange}\n        onVocalRangeChange={setVocalRange}\n        onApply={(plan, range) => {\n          setVocalRange(range);\n          setPrompt((current) => current.trim()\n            ? current.trim() + '\\n\\nPIE ANALYSIS SETTINGS\\n' + plan\n            : plan);\n        }}\n      />\n\n`;
-  page = page.replace(needle, workspace + needle);
+
+  const createMainNeedle = '  return (\n    <main>';
+  const index = page.lastIndexOf(createMainNeedle);
+  if (index < 0) throw new Error('Song analysis patch could not find the Music page main return.');
+  const insertAt = index + createMainNeedle.length;
+  page = page.slice(0, insertAt) + '\n' + workspace + page.slice(insertAt);
 }
 
 fs.writeFileSync(pagePath, page);

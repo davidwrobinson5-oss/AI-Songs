@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { createClient } from '@supabase/supabase-js';
+import * as tus from 'tus-js-client';
 import {
   exportLocalLibrary,
   importCloudLibrary,
@@ -9,16 +9,10 @@ import {
   type SavedVersion,
 } from './songStore';
 
-const SUPABASE_URL = 'https://ynkrlatwwwaachijacmb.supabase.co';
-// Use the JWT-based anon key for signed Storage uploads. The cloud library API
-// itself is still protected by the Pie server + Vercel OIDC identity.
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlua3JsYXR3d3dhYWNoaWphY21iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODc5NDU4MTgsImV4cCI6MjEwMzUyMTgxOH0.S3D71MNh4g5AuBFkiLltYltKSVVnBHlZqFU4u6IF-tg';
+const PROJECT_ID = 'ynkrlatwwwaachijacmb';
 const LIBRARY_URL = '/api/song-library';
 const BUCKET = 'pie-song-audio';
-
-const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const TUS_ENDPOINT = `https://${PROJECT_ID}.storage.supabase.co/storage/v1/upload/resumable`;
 
 type CloudFile = { url: string; type?: string };
 type CloudVersion = Omit<SavedVersion,
@@ -87,10 +81,40 @@ function versionNeedsUpload(local: SavedVersion, cloud?: CloudVersion) {
   return false;
 }
 
+function uploadWithTus(blob: Blob, path: string, token: string) {
+  return new Promise<void>((resolve, reject) => {
+    const upload = new tus.Upload(blob, {
+      endpoint: TUS_ENDPOINT,
+      retryDelays: [0, 3000, 5000, 10000, 20000],
+      headers: {
+        'x-signature': token,
+        'x-upsert': 'true',
+      },
+      uploadDataDuringCreation: true,
+      removeFingerprintOnSuccess: true,
+      chunkSize: 6 * 1024 * 1024,
+      metadata: {
+        bucketName: BUCKET,
+        objectName: path,
+        contentType: blob.type || 'application/octet-stream',
+        cacheControl: '3600',
+      },
+      onError: (error) => reject(error),
+      onSuccess: () => resolve(),
+    });
+
+    upload.findPreviousUploads()
+      .then((previousUploads) => {
+        if (previousUploads.length > 0) upload.resumeFromPreviousUpload(previousUploads[0]);
+        upload.start();
+      })
+      .catch(reject);
+  });
+}
+
 async function uploadVersion(song: SavedSong, version: SavedVersion) {
-  // Persist metadata first so the canonical library never loses the song record
-  // just because an audio transfer is interrupted. A later sync retries any
-  // local blob that is still missing from cloud storage.
+  // Persist metadata first. If the audio transfer is interrupted, the song and
+  // version remain in the permanent library and a later sync retries the blob.
   await libraryRequest({
     action: 'upsertVersion',
     song,
@@ -112,13 +136,7 @@ async function uploadVersion(song: SavedSong, version: SavedVersion) {
       fileName,
     });
 
-    const { error } = await supabase.storage
-      .from(BUCKET)
-      .uploadToSignedUrl(prepared.path, prepared.token, blob, {
-        contentType: blob.type || 'application/octet-stream',
-        upsert: true,
-      });
-    if (error) throw error;
+    await uploadWithTus(blob, prepared.path, prepared.token);
     files[field] = { path: prepared.path, type: blob.type || undefined };
   }
 

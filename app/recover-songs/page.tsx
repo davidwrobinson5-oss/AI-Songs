@@ -23,6 +23,14 @@ function mimeFor(name: string) {
   return 'audio/mpeg';
 }
 
+function titleFromFilename(name: string) {
+  return name
+    .replace(/\.(mp3|wav|m4a|ogg|aac)$/i, '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim() || 'Recovered Song';
+}
+
 export default function RecoverSongsPage() {
   const [status, setStatus] = useState('');
   const [busy, setBusy] = useState(false);
@@ -55,9 +63,36 @@ export default function RecoverSongsPage() {
         else skipped += 1;
       }
 
-      setStatus(`Recovered ${imported} song${imported === 1 ? '' : 's'}${skipped ? ` · ${skipped} already in your library` : ''}. Cloud backup will run automatically.`);
+      window.dispatchEvent(new CustomEvent('pie-library-synced'));
+      setStatus(`Recovered ${imported} song${imported === 1 ? '' : 's'}${skipped ? ` · ${skipped} already in your library` : ''}.`);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not recover songs.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function importAudioFiles(files: File[]) {
+    if (!files.length) return;
+    setBusy(true);
+    setStatus(`Importing ${files.length} audio file${files.length === 1 ? '' : 's'}…`);
+    try {
+      let imported = 0;
+      let skipped = 0;
+      for (const file of files) {
+        const result = await importRecoveredAudio({
+          sourceName: file.name,
+          title: titleFromFilename(file.name),
+          createdAt: file.lastModified ? new Date(file.lastModified).toISOString() : undefined,
+          blob: file,
+        });
+        if (result.imported) imported += 1;
+        else skipped += 1;
+      }
+      window.dispatchEvent(new CustomEvent('pie-library-synced'));
+      setStatus(`Recovered ${imported} song${imported === 1 ? '' : 's'}${skipped ? ` · ${skipped} already in your library` : ''}. Open My Songs to verify them.`);
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : 'Could not import those audio files.');
     } finally {
       setBusy(false);
     }
@@ -68,10 +103,26 @@ export default function RecoverSongsPage() {
       <section className="panel">
         <p className="eyebrow">PIE RECOVERY</p>
         <h1 style={{ marginTop: 0 }}>Recover Songs</h1>
-        <p className="sub">Import the recovery bundle once. Pie will restore each recovered audio track to Songs and skip anything already restored.</p>
+        <p className="sub">Restore old Pie audio from your phone. You can select several MP3, WAV, M4A, or OGG files at once, or import a Pie recovery ZIP.</p>
 
         <label className="primary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: busy ? 'default' : 'pointer' }}>
-          {busy ? 'Turning up the heat…' : 'Choose Recovery ZIP'}
+          {busy ? 'Recovering…' : 'Choose Audio Files'}
+          <input
+            type="file"
+            accept="audio/*,.mp3,.wav,.m4a,.ogg,.aac"
+            multiple
+            disabled={busy}
+            style={{ display: 'none' }}
+            onChange={(event) => {
+              const selected = Array.from(event.target.files || []);
+              if (selected.length) void importAudioFiles(selected);
+              event.currentTarget.value = '';
+            }}
+          />
+        </label>
+
+        <label className="secondary" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: busy ? 'default' : 'pointer', marginTop: 12 }}>
+          Choose Recovery ZIP
           <input
             type="file"
             accept=".zip,application/zip"

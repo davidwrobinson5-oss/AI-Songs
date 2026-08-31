@@ -7,6 +7,7 @@ const PIE_ORIGINS = [
   'https://ai-songs-drobinhood1.vercel.app',
   'https://ai-songs-bice.vercel.app',
   'https://ai-songs-git-main-drobinhood1.vercel.app',
+  'https://ai-songs-git-pie-backend-foundation-drobinhood1.vercel.app',
 ];
 
 type RecoveryMessage = {
@@ -85,6 +86,7 @@ export default function RecoverOriginsPage() {
         <div style={{ marginTop: '18px', display: 'grid', gap: '12px' }}>
           {otherOrigins.map((origin, index) => {
             const done = checked.includes(origin);
+            const label = origin.includes('pie-backend-foundation') ? 'Check Aug. 28 Pie preview' : `Check older Pie location ${index + 1}`;
             return (
               <button
                 key={origin}
@@ -92,7 +94,7 @@ export default function RecoverOriginsPage() {
                 onClick={() => openSource(origin)}
                 style={{ minHeight: '62px', borderRadius: '16px', border: done ? '1px solid #4d7c61' : '1px solid #343641', background: done ? '#102018' : '#141720', color: '#fff', padding: '13px 15px', textAlign: 'left', fontWeight: 900, fontSize: '15px' }}
               >
-                {done ? '✓ ' : ''}Check older Pie location {index + 1}
+                {done ? '✓ ' : ''}{label}
                 <div style={{ marginTop: '4px', color: '#8f909c', fontSize: '11px', fontWeight: 600, wordBreak: 'break-all' }}>{origin}</div>
               </button>
             );

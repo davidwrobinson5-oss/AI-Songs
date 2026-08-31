@@ -55,6 +55,12 @@ tools = tools.replaceAll(
   'productionRender(score,parts,true,analysisPlan)'
 );
 
+if (!tools.includes('renderResultsRef')) {
+  const refNeedle = "  const chooserRef=useRef<HTMLDivElement>(null);";
+  if (!tools.includes(refNeedle)) throw new Error('Song analysis patch could not find render ref anchor.');
+  tools = tools.replace(refNeedle, `${refNeedle}\n  const renderResultsRef=useRef<HTMLDivElement>(null);`);
+}
+
 if (!tools.includes("pie-score-analyzed")) {
   const cleanupNeedle = "  useEffect(()=>()=>{for(const item of renders)URL.revokeObjectURL(item.url)},[renders]);";
   if (!tools.includes(cleanupNeedle)) throw new Error('Song analysis patch could not find SheetImportTools effect anchor.');
@@ -75,6 +81,30 @@ tools = tools.replace(
   "{scoreBusy?'Reading score…':score?'Analyze a Different Score':'⬆ Upload Music Sheets'}"
 );
 
+// Keep render feedback visible where the user taps, then jump to finished players.
+if (!tools.includes('Rendering your selected score now…')) {
+  const buttonNeedle = '<button type="button" className="primary" disabled={renderBusy} onClick={()=>void renderSelected()} style={{marginTop:16}}>{renderBusy?\'Creating Real Performances…\':\'▶ Render Real Instruments & Singers\'}</button>';
+  if (!tools.includes(buttonNeedle)) throw new Error('Song analysis patch could not find render button.');
+  const buttonReplacement = `<button type="button" className="primary" disabled={renderBusy} onClick={()=>void renderSelected()} style={{marginTop:16}}>{renderBusy?'⏳ Rendering…':'▶ Render Real Instruments & Singers'}</button>\n        {renderBusy&&<div className="statusBox" style={{marginTop:10}}><strong>Rendering your selected score now…</strong><small style={{display:'block',marginTop:4}}>{scoreStatus||'Pie is creating the performance. Keep this page open.'}</small></div>}`;
+  tools = tools.replace(buttonNeedle, buttonReplacement);
+}
+
+if (!tools.includes('ref={renderResultsRef}')) {
+  tools = tools.replace(
+    '{renders.length>0&&<div className="renderedPartList">',
+    '{renders.length>0&&<div ref={renderResultsRef} className="renderedPartList" style={{scrollMarginTop:24}}>'
+  );
+}
+
+if (!tools.includes("renderResultsRef.current?.scrollIntoView")) {
+  const completeNeedle = "      setScoreStatus('Production render complete. These are realistic performance renders of the written parts.');";
+  if (!tools.includes(completeNeedle)) throw new Error('Song analysis patch could not find render completion anchor.');
+  tools = tools.replace(
+    completeNeedle,
+    `${completeNeedle}\n      setTimeout(()=>renderResultsRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),180);`
+  );
+}
+
 fs.writeFileSync(toolsPath, tools);
 
 const analysisPath = 'app/SongAnalysisWorkspace.tsx';
@@ -94,4 +124,4 @@ if (!analysis.includes("sessionStorage.setItem('pie-last-analyzed-score'")) {
 
 fs.writeFileSync(analysisPath, analysis);
 
-console.log('Moved automatic song analysis to Sheets and reused analyzed scores without a second upload.');
+console.log('Sheets analysis now reuses scores and keeps render progress/results visible.');

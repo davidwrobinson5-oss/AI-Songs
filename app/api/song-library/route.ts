@@ -10,6 +10,20 @@ function noStore(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
+function clerkIssuerHost(token: string) {
+  try {
+    const [, payload] = token.split('.');
+    if (!payload) return '';
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    const decoded = JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as { iss?: unknown };
+    if (typeof decoded.iss !== 'string') return '';
+    return new URL(decoded.iss).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -33,7 +47,15 @@ export async function POST(req: NextRequest) {
       ? false
       : await verifySessionToken(legacyToken, process.env.AI_SONGS_SESSION_SECRET);
 
-    if (!clerkToken && !legacyValid) return noStore({ error: 'Authentication required.' }, 401);
+    if (!clerkToken && !legacyValid) {
+      console.info('Pie cloud auth diagnostic', { mode: 'none' });
+      return noStore({ error: 'Authentication required.' }, 401);
+    }
+
+    console.info('Pie cloud auth diagnostic', {
+      mode: clerkToken ? 'clerk' : 'legacy',
+      issuerHost: clerkToken ? clerkIssuerHost(clerkToken) : undefined,
+    });
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -50,6 +72,12 @@ export async function POST(req: NextRequest) {
     });
 
     const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.info('Pie cloud response diagnostic', {
+        status: response.status,
+        error: typeof data?.error === 'string' ? data.error : 'unknown',
+      });
+    }
     return noStore(data, response.status);
   } catch (error) {
     console.error('Song library proxy failed:', error);

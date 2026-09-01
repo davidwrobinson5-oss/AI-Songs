@@ -1,7 +1,11 @@
 package app.pie.recorder
 
 import android.accessibilityservice.AccessibilityService
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
@@ -13,6 +17,25 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     private var hasSeenPlaying = false
     private var pendingStop = false
     private var monitorRunning = false
+    private var returnTriggered = false
+    private var autoFinishedReceiverRegistered = false
+
+    private val autoFinishedReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != PlaybackCaptureService.ACTION_AUTO_FINISHED) return
+            if (returnTriggered) return
+            returnTriggered = true
+
+            // Audio-silence completion used to launch the Pie URL again, which could
+            // land in a different Brave/custom-tab authentication context. Always
+            // unwind back to the browser surface that actually launched the capture.
+            // The delay also lets any already-started browser intent settle first so
+            // one Back action closes it and reveals the original authenticated Pie tab.
+            handler.postDelayed({
+                try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) {}
+            }, AUTO_FINISH_RETURN_DELAY_MS)
+        }
+    }
 
     private val resumeRunnable = Runnable {
         if (!CaptureSession.isActive(this) || adActive || pendingStop) return@Runnable
@@ -34,6 +57,11 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             inspectCurrentYouTubeWindow()
             handler.postDelayed(this, MONITOR_INTERVAL_MS)
         }
+    }
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        registerAutoFinishedReceiver()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -124,12 +152,33 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         resetState()
+        if (autoFinishedReceiverRegistered) {
+            try { unregisterReceiver(autoFinishedReceiver) } catch (_: Exception) {}
+            autoFinishedReceiverRegistered = false
+        }
         super.onDestroy()
+    }
+
+    private fun registerAutoFinishedReceiver() {
+        if (autoFinishedReceiverRegistered) return
+        val filter = IntentFilter(PlaybackCaptureService.ACTION_AUTO_FINISHED)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(autoFinishedReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("DEPRECATION")
+                registerReceiver(autoFinishedReceiver, filter)
+            }
+            autoFinishedReceiverRegistered = true
+        } catch (_: Exception) {
+            autoFinishedReceiverRegistered = false
+        }
     }
 
     private fun ensureMonitor() {
         if (monitorRunning) return
         monitorRunning = true
+        returnTriggered = false
         handler.post(monitorRunnable)
     }
 
@@ -174,6 +223,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         adActive = false
         hasSeenPlaying = false
         pendingStop = false
+        returnTriggered = false
     }
 
     private fun clickedSnapshot(event: AccessibilityEvent): String = buildString {
@@ -243,12 +293,8 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     }
 
     private fun stopAndReturnToPie() {
-        if (!CaptureSession.isActive(this)) return
-
-        // Do not depend on Android allowing a background Activity launch. Ask the
-        // recorder service to finalize, upload, and open Pie, then use Accessibility's
-        // user-equivalent Back action to immediately leave YouTube. Pie is the screen
-        // directly underneath because the capture was launched from Pie.
+        if (!CaptureSession.isActive(this) || returnTriggered) return
+        returnTriggered = true
         sendCaptureAction(PlaybackCaptureService.ACTION_AUTO_STOP)
         handler.postDelayed({
             try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) {}
@@ -273,6 +319,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private const val STOP_STABILITY_MS = 900L
         private const val MONITOR_INTERVAL_MS = 500L
         private const val RETURN_BACK_DELAY_MS = 180L
+        private const val AUTO_FINISH_RETURN_DELAY_MS = 650L
 
         private val AD_MARKERS = listOf(
             "skip ad",

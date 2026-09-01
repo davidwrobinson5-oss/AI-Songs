@@ -2,8 +2,8 @@ const key=process.env.KLANGIO_API_KEY?.trim();
 if(!key){console.log('KLANGIO_URL_TEST missing key');process.exit(0)}
 const endpoint=new URL('https://api.klang.io/transcription');
 endpoint.searchParams.set('model','universal');
-endpoint.searchParams.append('outputs','pdf');
 const form=new FormData();
+form.append('outputs','pdf');
 form.append('url','https://www.youtube.com/watch?v=jNQXAC9IVRw');
 try{
   const r=await fetch(endpoint,{method:'POST',headers:{'kl-api-key':key},body:form});

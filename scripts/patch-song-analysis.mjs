@@ -95,10 +95,10 @@ tools = tools.replace(
 
 // Keep render feedback visible where the user taps, then jump to finished players.
 if (!tools.includes('Rendering your selected score now…')) {
-  const buttonNeedle = '<button type="button" className="primary" disabled={renderBusy} onClick={()=>void renderSelected()} style={{marginTop:16}}>{renderBusy?\'Creating Real Performances…\':\'▶ Render Real Instruments & Singers\'}</button>';
-  if (!tools.includes(buttonNeedle)) throw new Error('Song analysis patch could not find render button.');
   const buttonReplacement = `<button type="button" className="primary" disabled={renderBusy} onClick={()=>void renderSelected()} style={{marginTop:16}}>{renderBusy?'⏳ Rendering…':'▶ Render Real Instruments & Singers'}</button>\n        {renderBusy&&<div className="statusBox" style={{marginTop:10}}><strong>Rendering your selected score now…</strong><small style={{display:'block',marginTop:4}}>{scoreStatus||'Pie is creating the performance. Keep this page open.'}</small></div>}`;
-  tools = tools.replace(buttonNeedle, buttonReplacement);
+  const renderButtonPattern = /<button type="button" className="primary" disabled=\{renderBusy\} onClick=\{\(\)=>void renderSelected\(\)\}[^>]*>[\s\S]*?<\/button>/;
+  if (!renderButtonPattern.test(tools)) throw new Error('Song analysis patch could not find render button.');
+  tools = tools.replace(renderButtonPattern, buttonReplacement);
 }
 
 if (!tools.includes('ref={renderResultsRef}')) {

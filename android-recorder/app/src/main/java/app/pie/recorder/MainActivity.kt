@@ -34,6 +34,7 @@ class MainActivity : Activity() {
     private var returnUrl: String? = null
     private var pendingSourceUrl: String? = null
     private var autoProcessAfterSave = false
+    private var returnedToPieAfterStop = false
     private var wantsStems = true
     private var wantsFullSheet = true
     private var wantsPartSheets = true
@@ -42,13 +43,17 @@ class MainActivity : Activity() {
     private val savedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             savedPath = intent?.getStringExtra(PlaybackCaptureService.EXTRA_PATH)
-            if (savedPath != null && autoProcessAfterSave) processRecording()
+            if (savedPath != null && autoProcessAfterSave) {
+                // Start the upload first, then immediately put the user back in Pie.
+                // OkHttp keeps the request running after this transparent activity closes.
+                processRecording(returnOnCompletion = false)
+                returnedToPieAfterStop = true
+                returnToPie("processing")
+            }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // This activity is only a secure Android permission bridge. Use a translucent
-        // window so the user keeps seeing Pie underneath the required system dialogs.
         setTheme(android.R.style.Theme_Translucent_NoTitleBar)
         super.onCreate(savedInstanceState)
         makePopupOnlyWindow()
@@ -76,7 +81,6 @@ class MainActivity : Activity() {
     private fun handleIntent(intent: Intent?) {
         val data = intent?.data
         if (data?.scheme != "pie-recorder" || data.host != "capture") {
-            // If somebody taps the helper icon directly, send them straight to Pie.
             openPie("https://ai-songs-git-main-drobinhood1.vercel.app")
             return
         }
@@ -91,6 +95,7 @@ class MainActivity : Activity() {
         when (data.pathSegments.firstOrNull()?.lowercase()) {
             "stop" -> {
                 autoProcessAfterSave = true
+                returnedToPieAfterStop = false
                 startService(
                     Intent(this, PlaybackCaptureService::class.java)
                         .setAction(PlaybackCaptureService.ACTION_STOP)
@@ -145,8 +150,6 @@ class MainActivity : Activity() {
         if (raw.isNotEmpty()) {
             try {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(raw)))
-                // Recording continues in the foreground service. Remove the helper
-                // activity so there is never a visible recorder screen behind the source.
                 finish()
             } catch (_: Exception) {
                 returnToPie("sourceOpenFailed")
@@ -156,11 +159,11 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun processRecording() {
+    private fun processRecording(returnOnCompletion: Boolean = true) {
         val path = savedPath ?: return
         val file = File(path)
         if (!file.exists()) {
-            returnToPie("recordingMissing")
+            if (returnOnCompletion && !returnedToPieAfterStop) returnToPie("recordingMissing")
             return
         }
 
@@ -181,15 +184,19 @@ class MainActivity : Activity() {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                runOnUiThread { returnToPie("uploadFailed") }
+                if (returnOnCompletion && !returnedToPieAfterStop) {
+                    runOnUiThread { returnToPie("uploadFailed") }
+                }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 val success = response.isSuccessful
                 response.body?.close()
-                runOnUiThread {
-                    if (success) returnToPie("accepted")
-                    else returnToPie("processingFailed")
+                if (returnOnCompletion && !returnedToPieAfterStop) {
+                    runOnUiThread {
+                        if (success) returnToPie("accepted")
+                        else returnToPie("processingFailed")
+                    }
                 }
             }
         })
@@ -208,7 +215,7 @@ class MainActivity : Activity() {
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         } catch (_: Exception) {
-            // There is intentionally no fallback UI. Pie Recorder stays invisible.
+            // No fallback UI: the recorder bridge stays invisible.
         } finally {
             finish()
         }

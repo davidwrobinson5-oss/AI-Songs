@@ -1,5 +1,4 @@
 import { NextResponse } from 'next/server';
-import { Innertube } from 'youtubei.js';
 import { rateLimit, safeClientError } from '../../../security';
 import { createChordRecognition, createSourceSeparation, createTranscription } from '../klangio';
 import { removeStagedFile, signedStagingUrl } from '../staging';
@@ -19,57 +18,10 @@ function isPrivateHost(hostname:string){
   return host==='localhost'||host==='127.0.0.1'||host==='::1'||host.endsWith('.local')||/^10\./.test(host)||/^192\.168\./.test(host)||/^172\.(1[6-9]|2\d|3[01])\./.test(host);
 }
 
-function youtubeVideoId(url:URL){
-  if(url.hostname.toLowerCase().includes('youtu.be')) return url.pathname.split('/').filter(Boolean)[0]||'';
-  const byQuery=url.searchParams.get('v')||'';
-  if(byQuery)return byQuery;
-  const parts=url.pathname.split('/').filter(Boolean);
-  if(['shorts','embed','live'].includes(parts[0]||''))return parts[1]||'';
-  return '';
-}
-
-async function readStreamLimited(stream:ReadableStream<Uint8Array>){
-  const reader=stream.getReader();
-  const chunks:Uint8Array[]=[];
-  let total=0;
-  try{
-    while(true){
-      const {done,value}=await reader.read();
-      if(done)break;
-      if(value){
-        total+=value.byteLength;
-        if(total>MAX_BYTES)throw new Error('LINK_TOO_LARGE');
-        chunks.push(value);
-      }
-    }
-  }finally{
-    reader.releaseLock();
-  }
-  if(!total)throw new Error('LINK_FETCH_FAILED');
-  const merged=new Uint8Array(total);
-  let offset=0;
-  for(const chunk of chunks){merged.set(chunk,offset);offset+=chunk.byteLength;}
-  return merged;
-}
-
-async function fetchYouTubeAudio(rawUrl:string){
-  const parsed=new URL(rawUrl);
-  const id=youtubeVideoId(parsed);
-  if(!id)throw new Error('YOUTUBE_INVALID_URL');
-
-  const youtube=await Innertube.create({generate_session_locally:true});
-  const info=await youtube.getInfo(id);
-  const duration=Number(info.basic_info.duration||0);
-  if(duration&&duration>20*60)throw new Error('YOUTUBE_TOO_LONG');
-  const stream=await info.download({type:'audio',quality:'best'});
-  const bytes=await readStreamLimited(stream);
-  const title=String(info.basic_info.title||'YouTube audio').slice(0,120);
-  return {blob:new Blob([bytes],{type:'audio/mp4'}),sourceLabel:title};
-}
-
 async function fetchDirectMedia(rawUrl:string){
   const url=new URL(rawUrl);
   if(url.protocol!=='https:')throw new Error('LINK_HTTPS_ONLY');
+  if(isYouTubeHost(url.hostname))throw new Error('YOUTUBE_AUTHORIZED_MEDIA_REQUIRED');
   if(isPrivateHost(url.hostname))throw new Error('PRIVATE_LINK_BLOCKED');
 
   const controller=new AbortController();
@@ -116,8 +68,7 @@ export async function POST(req:Request){
     }else{
       const rawUrl=String(body.url||'').trim();
       if(!rawUrl)return NextResponse.json({error:'Paste a music link first.'},{status:400});
-      const parsed=new URL(rawUrl);
-      const result=isYouTubeHost(parsed.hostname)?await fetchYouTubeAudio(rawUrl):await fetchDirectMedia(rawUrl);
+      const result=await fetchDirectMedia(rawUrl);
       blob=result.blob;
       sourceLabel=result.sourceLabel;
     }
@@ -131,10 +82,9 @@ export async function POST(req:Request){
     return NextResponse.json({jobs:{full,chords,separation},sourceLabel},{headers:{'Cache-Control':'no-store'}});
   }catch(error){
     const message=error instanceof Error?error.message:'';
-    if(message==='YOUTUBE_INVALID_URL')return NextResponse.json({error:'That YouTube link is not recognized.'},{status:400});
-    if(message==='YOUTUBE_TOO_LONG')return NextResponse.json({error:'Use a YouTube video under 20 minutes for this analysis.'},{status:413});
-    if(message==='LINK_NOT_MEDIA')return NextResponse.json({error:'That link is a webpage rather than direct media. YouTube links are supported; other sites must provide a direct audio/video URL.'},{status:415});
-    if(message==='LINK_TOO_LARGE')return NextResponse.json({error:'That media source is too large. Use audio under 45 MB.'},{status:413});
+    if(message==='YOUTUBE_AUTHORIZED_MEDIA_REQUIRED')return NextResponse.json({error:'YouTube does not expose the audio stream through its official API. Use the Upload Audio / Video button with a file you are authorized to analyze.'},{status:409});
+    if(message==='LINK_NOT_MEDIA')return NextResponse.json({error:'That URL is a webpage, not a direct audio/video file. Use a direct media URL or upload the audio/video file.'},{status:415});
+    if(message==='LINK_TOO_LARGE')return NextResponse.json({error:'That media source is too large. Use audio/video under 45 MB.'},{status:413});
     if(message==='LINK_HTTPS_ONLY'||message==='PRIVATE_LINK_BLOCKED')return NextResponse.json({error:'That link cannot be fetched safely.'},{status:400});
     if(message==='KLANGIO_NOT_CONFIGURED')return NextResponse.json({error:'Sheet and stem processing is not configured yet.'},{status:503});
     console.error('Music link processing failed',error);

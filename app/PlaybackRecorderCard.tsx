@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+const CAPTURE_STARTED_KEY='pieCaptureStartedAt';
+
 export default function PlaybackRecorderCard(){
   const [sourceUrl,setSourceUrl]=useState('');
   const [status,setStatus]=useState('');
@@ -9,13 +11,38 @@ export default function PlaybackRecorderCard(){
   const [recording,setRecording]=useState(false);
 
   useEffect(()=>{
-    const current=new URL(window.location.href);
-    if(current.searchParams.get('pieCapture')==='accepted'){
-      setStatus('Recording sent to Pie. Processing has started.');
-      setRecording(false);
-      current.searchParams.delete('pieCapture');
-      window.history.replaceState({},'',current.toString());
-    }
+    const reconcileReturn=()=>{
+      const current=new URL(window.location.href);
+      const result=current.searchParams.get('pieCapture');
+      if(result){
+        if(result==='accepted') setStatus('Recording sent to Pie. Processing has started.');
+        else if(result==='processing') setStatus('Recording finished. Pie is processing it.');
+        else if(result==='processingFailed') setStatus('Recording finished, but processing needs attention.');
+        else setStatus('Recording session finished.');
+        setRecording(false);
+        sessionStorage.removeItem(CAPTURE_STARTED_KEY);
+        current.searchParams.delete('pieCapture');
+        window.history.replaceState({},'',current.toString());
+        return;
+      }
+
+      const startedAt=Number(sessionStorage.getItem(CAPTURE_STARTED_KEY)||0);
+      if(startedAt>0 && Date.now()-startedAt>2500 && document.visibilityState==='visible'){
+        setRecording(false);
+        sessionStorage.removeItem(CAPTURE_STARTED_KEY);
+        setStatus('Recording session finished.');
+      }
+    };
+
+    reconcileReturn();
+    window.addEventListener('pageshow',reconcileReturn);
+    window.addEventListener('focus',reconcileReturn);
+    document.addEventListener('visibilitychange',reconcileReturn);
+    return()=>{
+      window.removeEventListener('pageshow',reconcileReturn);
+      window.removeEventListener('focus',reconcileReturn);
+      document.removeEventListener('visibilitychange',reconcileReturn);
+    };
   },[]);
 
   function openSource(){
@@ -49,15 +76,9 @@ export default function PlaybackRecorderCard(){
     params.set('chords','true');
     setConfirming(false);
     setRecording(true);
+    sessionStorage.setItem(CAPTURE_STARTED_KEY,String(Date.now()));
     setStatus('Android will place its required app-sharing permission over Pie. Choose only the music app you want to capture.');
     window.location.href=`pie-recorder://capture/start?${params.toString()}`;
-  }
-
-  function stopRecorder(){
-    const params=new URLSearchParams();
-    params.set('return',window.location.href);
-    window.location.href=`pie-recorder://capture/stop?${params.toString()}`;
-    setStatus('Stopping the recording and sending it back to Pie…');
   }
 
   return <section className="panel" style={{padding:20,marginBottom:16,position:'relative',overflow:'hidden'}}>
@@ -74,7 +95,7 @@ export default function PlaybackRecorderCard(){
     />
     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
       <button className="secondary" type="button" onClick={openSource}>Open URL / Choose App</button>
-      {!recording?<button className="primary" type="button" onClick={()=>setConfirming(true)}>● Record</button>:<button className="primary" type="button" onClick={stopRecorder}>■ Stop & Send to Pie</button>}
+      {!recording?<button className="primary" type="button" onClick={()=>setConfirming(true)}>● Record</button>:<button className="primary" type="button" disabled aria-disabled="true">● Recording — stops automatically</button>}
     </div>
     <small style={{display:'block',marginTop:10}}>Pie keeps the helper invisible. Android still requires its own secure “Share one app” permission sheet, and Android controls that sheet’s colors and buttons.</small>
     {status&&<div className="statusBox" style={{marginTop:12}}>{status}</div>}

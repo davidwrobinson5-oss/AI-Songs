@@ -5,7 +5,9 @@ let source=fs.readFileSync(path,'utf8');
 
 const stateAnchor="  const [stemReady,setStemReady]=useState(false);";
 if(source.includes(stateAnchor)&&!source.includes('linkJobs,setLinkJobs')){
-  source=source.replace(stateAnchor,`${stateAnchor}\n  const [linkJobs,setLinkJobs]=useState<Record<string,string>>({});\n  const [linkStatuses,setLinkStatuses]=useState<Record<string,string>>({});\n  const [linkChords,setLinkChords]=useState<Array<[number,number,string]>>([]);\n  const [linkStemStarted,setLinkStemStarted]=useState(false);\n  const [linkSourceName,setLinkSourceName]=useState('');\n  const [linkSessionId,setLinkSessionId]=useState('');`);
+  source=source.replace(stateAnchor,`${stateAnchor}\n  const [linkJobs,setLinkJobs]=useState<Record<string,string>>({});\n  const [linkStatuses,setLinkStatuses]=useState<Record<string,string>>({});\n  const [linkChords,setLinkChords]=useState<Array<[number,number,string]>>([]);\n  const [linkStemStarted,setLinkStemStarted]=useState(false);\n  const [linkSourceName,setLinkSourceName]=useState('');\n  const [linkSessionId,setLinkSessionId]=useState('');\n  const [linkAuthorized,setLinkAuthorized]=useState(false);`);
+}else if(source.includes(stateAnchor)&&!source.includes('linkAuthorized,setLinkAuthorized')){
+  source=source.replace(stateAnchor,`${stateAnchor}\n  const [linkAuthorized,setLinkAuthorized]=useState(false);`);
 }
 
 const beginStart='  async function beginStemAnalysis(body:BodyInit,headers?:HeadersInit){';
@@ -13,13 +15,17 @@ const analyzeLinkStart='  async function analyzeLink(){';
 const beginIndex=source.indexOf(beginStart);
 const analyzeLinkIndex=source.indexOf(analyzeLinkStart,beginIndex);
 if(beginIndex!==-1&&analyzeLinkIndex!==-1){
-  const replacement=`  async function beginLinkProcessing(payload:Record<string,string>){\n    setLinkBusy(true); setStemReady(false); setStemJob(''); setLinkJobs({}); setLinkStatuses({}); setLinkChords([]); setLinkStemStarted(false); setLinkStatus('Starting full transcription, chords, and six-part stem analysis…');\n    try{\n      const r=await fetch('/api/sheets/link-process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});\n      const d=await responseJson(r,'Could not analyze this music source.');\n      if(!r.ok) throw new Error(d.error||'Could not analyze this music source.');\n      const next=(d.jobs||{}) as Record<string,string>;\n      if(!next.full||!next.chords||!next.separation)throw new Error('Pie did not receive all transcription job IDs.');\n      const id=crypto.randomUUID();\n      setLinkSessionId(id); setLinkSourceName(String(d.sourceLabel||payload.name||'Music link')); setLinkJobs(next); setStemJob(String(next.separation));\n      setLinkStatus('Processing full score, chords, and six stems…');\n    }catch(e){setLinkStatus(e instanceof Error?e.message:'Could not analyze this music source.')}finally{setLinkBusy(false)}\n  }\n\n`;
+  const replacement=`  async function beginLinkProcessing(payload:Record<string,string|boolean>){\n    setLinkBusy(true); setStemReady(false); setStemJob(''); setLinkJobs({}); setLinkStatuses({}); setLinkChords([]); setLinkStemStarted(false); setLinkStatus('Starting full transcription, chords, and six-part stem analysis…');\n    try{\n      const r=await fetch('/api/sheets/link-process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});\n      const d=await responseJson(r,'Could not analyze this music source.');\n      if(!r.ok) throw new Error(d.error||'Could not analyze this music source.');\n      const next=(d.jobs||{}) as Record<string,string>;\n      if(!next.full||!next.chords||!next.separation)throw new Error('Pie did not receive all transcription job IDs.');\n      const id=crypto.randomUUID();\n      setLinkSessionId(id); setLinkSourceName(String(d.sourceLabel||payload.name||'Music link')); setLinkJobs(next); setStemJob(String(next.separation));\n      setLinkStatus('Processing full score, chords, and six stems…');\n    }catch(e){setLinkStatus(e instanceof Error?e.message:'Could not analyze this music source.')}finally{setLinkBusy(false)}\n  }\n\n`;
   source=source.slice(0,beginIndex)+replacement+source.slice(analyzeLinkIndex);
 }
 
 source=source.replace(
   "    await beginStemAnalysis(JSON.stringify({url:link.trim()}),{'Content-Type':'application/json'});",
-  "    await beginLinkProcessing({url:link.trim()});"
+  "    await beginLinkProcessing({url:link.trim(),authorized:linkAuthorized});"
+);
+source=source.replace(
+  "    await beginLinkProcessing({url:link.trim()});",
+  "    await beginLinkProcessing({url:link.trim(),authorized:linkAuthorized});"
 );
 
 const mediaStart='  async function analyzeMedia(file:File){';
@@ -42,8 +48,17 @@ if(oldPollIndex!==-1&&chooserIndex!==-1){
 
 source=source.replace(
   '<p className="sub">Paste a direct music/media link or upload an audio/video file. Pie separates the performance into six individual stems.</p>',
-  '<p className="sub">Paste a supported direct music/media link or upload an audio/video file. Pie creates a full transcription, detects chords, separates six stems, then creates sheet music for the individual parts.</p>'
+  '<p className="sub">Paste a YouTube or supported direct media link, or upload audio/video. Pie temporarily streams authorized audio, creates a full transcription, detects chords, separates six stems, then creates sheet music for the individual parts.</p>'
 );
+source=source.replace(
+  '<p className="sub">Paste a supported direct music/media link or upload an audio/video file. Pie creates a full transcription, detects chords, separates six stems, then creates sheet music for the individual parts.</p>',
+  '<p className="sub">Paste a YouTube or supported direct media link, or upload audio/video. Pie temporarily streams authorized audio, creates a full transcription, detects chords, separates six stems, then creates sheet music for the individual parts.</p>'
+);
+
+const row='<div className="referenceUrlRow"><input value={link} onChange={e=>setLink(e.target.value)} placeholder="Paste music or YouTube link…" inputMode="url"/><button type="button" className="primary" disabled={linkBusy} onClick={()=>void analyzeLink()}>{linkBusy?\'Analyzing…\':\'Analyze Link\'}</button></div>';
+if(source.includes(row)&&!source.includes('I own this source or have permission')){
+  source=source.replace(row,`${row}\n      <label style={{display:'flex',gap:10,alignItems:'flex-start',marginTop:10,fontSize:13,lineHeight:1.35}}><input type="checkbox" checked={linkAuthorized} onChange={e=>setLinkAuthorized(e.target.checked)} style={{marginTop:2}}/><span>I own this source or have permission to process its audio.</span></label>`);
+}
 
 const stemGrid='{stemReady&&stemJob&&<div className="sheetExportGrid">{STEMS.map(([key,icon,label])=><div className="sheetExportCard" key={key}><span className="sheetExportIcon">{icon}</span><span><strong>{label}</strong><audio controls preload="none" src={`/api/sheets/stem/${encodeURIComponent(stemJob)}/${key}`}/><a href={`/api/sheets/stem/${encodeURIComponent(stemJob)}/${key}`} download={`${key}.wav`}>Download WAV</a></span></div>)}</div>}';
 if(source.includes(stemGrid)&&!source.includes('LINK NOTATION DOWNLOADS')){

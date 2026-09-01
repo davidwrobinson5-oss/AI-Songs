@@ -42,6 +42,7 @@ class PlaybackCaptureService : Service() {
         const val EXTRA_FULL_SHEET = "fullSheet"
         const val EXTRA_PART_SHEETS = "partSheets"
         const val EXTRA_CHORDS = "chords"
+        const val EXTRA_AUTO_STOP_REQUESTED = "autoStopRequested"
         const val CHANNEL_ID = "pie_capture"
 
         private const val SILENCE_THRESHOLD = 16
@@ -240,18 +241,16 @@ class PlaybackCaptureService : Service() {
                     Intent(ACTION_AUTO_FINISHED)
                         .setPackage(packageName)
                         .putExtra(EXTRA_RETURN_URL, returnUrl)
+                        .putExtra(EXTRA_AUTO_STOP_REQUESTED, autoStopRequested.get())
                 )
             }
 
             sendBroadcast(Intent(ACTION_SAVED).setPackage(packageName).putExtra(EXTRA_PATH, file.absolutePath))
 
             if (autoFinished) {
-                // When Accessibility saw the YouTube stop, it already returned the user
-                // to the exact Pie tab they started from. Do NOT open the URL again here:
-                // doing so can create a second browser/custom-tab context with a separate
-                // authentication session. Silence-only fallback still opens Pie because
-                // there was no Accessibility return action in that path.
-                if (!autoStopRequested.get()) openPie("processing")
+                // The Accessibility service owns the return-to-Pie navigation so there
+                // is exactly one browser transition. Reopening Pie here caused a second
+                // browser context and, on Samsung/Brave, could bounce back to YouTube.
                 uploadRecording(file)
             } else {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -432,17 +431,6 @@ class PlaybackCaptureService : Service() {
         getSystemService(NotificationManager::class.java).notify(47, notification)
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
-    }
-
-    private fun openPie(result: String) {
-        try {
-            val intent = Intent(Intent.ACTION_VIEW, pieResultUri(result)).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            }
-            startActivity(intent)
-        } catch (_: Exception) {
-            // Accessibility bridge handles the return if Android blocks this launch.
-        }
     }
 
     private fun pieResultUri(result: String): Uri {

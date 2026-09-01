@@ -45,11 +45,15 @@ class PlaybackCaptureService : Service() {
         const val EXTRA_AUTO_STOP_REQUESTED = "autoStopRequested"
         const val CHANNEL_ID = "pie_capture"
 
-        private const val SILENCE_THRESHOLD = 96
-        private const val YOUTUBE_END_SILENCE_MS = 2200L
-        private const val OTHER_END_SILENCE_MS = 3200L
-        private const val MEDIA_INACTIVE_STOP_MS = 1200L
-        private const val MIN_ACTIVE_CAPTURE_MS = 2500L
+        // A single stray PCM sample used to count as active playback. YouTube can leave
+        // tiny digital noise after pause, so we now classify whole buffers instead.
+        private const val SIGNAL_MEAN_ABS_THRESHOLD = 48L
+        private const val SIGNAL_ACTIVE_SAMPLE_THRESHOLD = 220
+        private const val SIGNAL_ACTIVE_SAMPLE_FRACTION = 250
+        private const val YOUTUBE_END_SILENCE_MS = 1600L
+        private const val OTHER_END_SILENCE_MS = 2800L
+        private const val MEDIA_INACTIVE_STOP_MS = 800L
+        private const val MIN_ACTIVE_CAPTURE_MS = 1500L
         private const val SPLICE_FADE_MS = 18
         private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
     }
@@ -192,9 +196,6 @@ class PlaybackCaptureService : Service() {
                         continue
                     }
 
-                    // Android exposes whether the media stream is actually active. This
-                    // catches YouTube's paused state even on UI variants where the
-                    // Accessibility tree does not expose a reliable Play/Pause label.
                     if (heardAudio && now - startedAt >= MIN_ACTIVE_CAPTURE_MS) {
                         if (audioManager.isMusicActive) {
                             mediaInactiveSince = 0L
@@ -268,8 +269,6 @@ class PlaybackCaptureService : Service() {
             sendBroadcast(Intent(ACTION_SAVED).setPackage(packageName).putExtra(EXTRA_PATH, file.absolutePath))
 
             if (autoFinished) {
-                // Accessibility owns the one return-to-Pie navigation. The recorder
-                // only finalizes and uploads so it cannot open a competing browser task.
                 uploadRecording(file)
             } else {
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -385,13 +384,25 @@ class PlaybackCaptureService : Service() {
     }
 
     private fun hasPlaybackSignal(buffer: ByteArray, length: Int): Boolean {
+        var totalAbs = 0L
+        var sampleCount = 0
+        var activeSampleCount = 0
         var i = 0
+
         while (i + 1 < length) {
-            val sample = (buffer[i].toInt() and 0xff) or (buffer[i + 1].toInt() shl 8)
-            if (abs(sample.toShort().toInt()) > SILENCE_THRESHOLD) return true
+            val sample = decodePcm16(buffer, i)
+            val amplitude = abs(sample)
+            totalAbs += amplitude.toLong()
+            if (amplitude >= SIGNAL_ACTIVE_SAMPLE_THRESHOLD) activeSampleCount++
+            sampleCount++
             i += 2
         }
-        return false
+
+        if (sampleCount == 0) return false
+        val meanAbs = totalAbs / sampleCount
+        val minimumActiveSamples = maxOf(4, sampleCount / SIGNAL_ACTIVE_SAMPLE_FRACTION)
+
+        return meanAbs >= SIGNAL_MEAN_ABS_THRESHOLD || activeSampleCount >= minimumActiveSamples
     }
 
     private fun isYouTubeSource(raw: String?): Boolean {

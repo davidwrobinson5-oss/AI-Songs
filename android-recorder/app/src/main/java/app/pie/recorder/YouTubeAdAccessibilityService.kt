@@ -2,6 +2,7 @@ package app.pie.recorder
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
@@ -38,21 +39,17 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         }
 
         if (adActive) {
-            // Require a short stable no-ad window so a disappearing overlay during an ad
-            // does not resume the recording too early.
             adActive = false
             handler.removeCallbacks(resumeRunnable)
             handler.postDelayed(resumeRunnable, RESUME_STABILITY_MS)
         } else {
-            // This also releases the initial auto-pause once the actual YouTube content
-            // has settled and no ad UI is present.
             handler.removeCallbacks(resumeRunnable)
             handler.postDelayed(resumeRunnable, RESUME_STABILITY_MS)
         }
 
         if (ended) {
             handler.removeCallbacks(resumeRunnable)
-            sendCaptureAction(PlaybackCaptureService.ACTION_AUTO_STOP)
+            stopAndReturnToPie()
         }
     }
 
@@ -73,6 +70,19 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun stopAndReturnToPie() {
+        try {
+            val uri = Uri.parse("pie-recorder://capture/stop").buildUpon()
+                .appendQueryParameter("return", PIE_URL)
+                .build()
+            startActivity(Intent(Intent.ACTION_VIEW, uri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            })
+        } catch (_: Exception) {
+            sendCaptureAction(PlaybackCaptureService.ACTION_STOP)
+        }
+    }
+
     private fun collectText(node: AccessibilityNodeInfo?, out: StringBuilder, depth: Int) {
         if (node == null || depth > 18) return
         node.text?.let { out.append(' ').append(it) }
@@ -85,6 +95,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     companion object {
         private const val YOUTUBE_PACKAGE = "com.google.android.youtube"
         private const val RESUME_STABILITY_MS = 1800L
+        private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
 
         private val AD_MARKERS = listOf(
             "skip ad",

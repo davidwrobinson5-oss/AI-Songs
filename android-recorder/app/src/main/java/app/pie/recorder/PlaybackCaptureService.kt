@@ -29,6 +29,7 @@ class PlaybackCaptureService : Service() {
         const val ACTION_START = "app.pie.recorder.START"
         const val ACTION_STOP = "app.pie.recorder.STOP"
         const val ACTION_AUTO_STOP = "app.pie.recorder.AUTO_STOP"
+        const val ACTION_AUTO_FINISHED = "app.pie.recorder.AUTO_FINISHED"
         const val ACTION_PAUSE = "app.pie.recorder.PAUSE"
         const val ACTION_RESUME = "app.pie.recorder.RESUME"
         const val ACTION_SAVED = "app.pie.recorder.SAVED"
@@ -44,8 +45,9 @@ class PlaybackCaptureService : Service() {
         const val CHANNEL_ID = "pie_capture"
 
         private const val SILENCE_THRESHOLD = 16
-        private const val END_SILENCE_MS = 4000L
-        private const val MIN_ACTIVE_CAPTURE_MS = 5000L
+        private const val YOUTUBE_END_SILENCE_MS = 1800L
+        private const val OTHER_END_SILENCE_MS = 3200L
+        private const val MIN_ACTIVE_CAPTURE_MS = 2500L
         private const val SPLICE_FADE_MS = 18
         private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
     }
@@ -148,7 +150,7 @@ class PlaybackCaptureService : Service() {
         val file = outputFile ?: return
         recording.set(true)
 
-        val autoEndEnabled = isYouTubeSource(sourceUrl)
+        val silenceTimeout = if (isYouTubeSource(sourceUrl)) YOUTUBE_END_SILENCE_MS else OTHER_END_SILENCE_MS
         val fadeSamples = sampleRate * channels * SPLICE_FADE_MS / 1000
 
         worker = Thread {
@@ -165,22 +167,49 @@ class PlaybackCaptureService : Service() {
                 var fadeInRemaining = 0
 
                 while (recording.get()) {
-                    val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
-                    if (read <= 0) continue
-
+                    val now = SystemClock.elapsedRealtime()
                     val isPaused = paused.get()
+
+                    // Non-blocking reads are essential here. On several Samsung devices,
+                    // a blocking AudioRecord.read() can wait forever after YouTube is paused,
+                    // so the old silence timer never got a chance to fire.
+                    val read = audioRecord?.read(
+                        buffer,
+                        0,
+                        buffer.size,
+                        AudioRecord.READ_NON_BLOCKING
+                    ) ?: 0
+
                     if (isPaused) {
-                        if (!wasPaused) {
+                        if (!wasPaused && read > 0) {
                             applyFadeOutToTail(wav, pcmBytes, sampleRate, channels)
                             wasPaused = true
                         }
+                        // Ad filtering intentionally pauses capture. Keep the end watchdog
+                        // alive so an ad pause is never mistaken for the user stopping playback.
+                        lastSignalAt = now
+                        if (read <= 0) try { Thread.sleep(20) } catch (_: InterruptedException) {}
+                        continue
+                    }
+
+                    if (read <= 0) {
+                        if (
+                            heardAudio &&
+                            now - startedAt >= MIN_ACTIVE_CAPTURE_MS &&
+                            now - lastSignalAt >= silenceTimeout
+                        ) {
+                            autoFinished = true
+                            recording.set(false)
+                            break
+                        }
+                        try { Thread.sleep(20) } catch (_: InterruptedException) {}
                         continue
                     }
 
                     if (wasPaused) {
                         wasPaused = false
                         fadeInRemaining = fadeSamples
-                        lastSignalAt = SystemClock.elapsedRealtime()
+                        lastSignalAt = now
                     }
 
                     if (fadeInRemaining > 0) {
@@ -190,18 +219,17 @@ class PlaybackCaptureService : Service() {
                     wav.write(buffer, 0, read)
                     pcmBytes += read
 
-                    val now = SystemClock.elapsedRealtime()
                     if (hasPlaybackSignal(buffer, read)) {
                         heardAudio = true
                         lastSignalAt = now
                     } else if (
-                        autoEndEnabled &&
                         heardAudio &&
                         now - startedAt >= MIN_ACTIVE_CAPTURE_MS &&
-                        now - lastSignalAt >= END_SILENCE_MS
+                        now - lastSignalAt >= silenceTimeout
                     ) {
                         autoFinished = true
                         recording.set(false)
+                        break
                     }
                 }
 
@@ -211,6 +239,16 @@ class PlaybackCaptureService : Service() {
             }
 
             projection.stop()
+
+            if (autoFinished) {
+                // Tell the accessibility bridge before ACTION_SAVED clears the Pie session.
+                sendBroadcast(
+                    Intent(ACTION_AUTO_FINISHED)
+                        .setPackage(packageName)
+                        .putExtra(EXTRA_RETURN_URL, returnUrl)
+                )
+            }
+
             sendBroadcast(Intent(ACTION_SAVED).setPackage(packageName).putExtra(EXTRA_PATH, file.absolutePath))
 
             if (autoFinished) {
@@ -247,14 +285,14 @@ class PlaybackCaptureService : Service() {
         val notification = Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(if (isPaused) "Pie capture paused for ad" else "Pie is recording playback audio")
             .setContentText(
-                if (isPaused) "Tap Resume when the song returns"
-                else "Ad starts? Tap Pause for ad — Pie will stitch the song smoothly"
+                if (isPaused) "Pie is excluding the ad"
+                else "Pie will finish automatically when playback stops"
             )
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setOngoing(true)
             .addAction(
                 if (isPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
-                if (isPaused) "Resume song" else "Pause for ad",
+                if (isPaused) "Resume song" else "Pause capture",
                 pauseResumePending
             )
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop & return to Pie", stopPendingIntent)
@@ -404,13 +442,12 @@ class PlaybackCaptureService : Service() {
             }
             startActivity(intent)
         } catch (_: Exception) {
-            // Android may restrict background app switching. The AccessibilityService
-            // also navigates back to Pie when it observes a YouTube stop event.
+            // Accessibility bridge handles the return if Android blocks this launch.
         }
     }
 
     private fun pieResultUri(result: String): Uri {
-        val base = returnUrl?.takeIf { it.startsWith("https://") } ?: PIE_URL
+        val base = returnUrl?.takeIf(CaptureSession::isValidPieUrl) ?: PIE_URL
         return Uri.parse(base).buildUpon()
             .appendQueryParameter("pieCapture", result)
             .build()

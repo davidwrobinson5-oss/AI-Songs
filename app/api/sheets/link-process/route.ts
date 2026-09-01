@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { rateLimit, safeClientError } from '../../../security';
 import { createChordRecognition, createSourceSeparation, createTranscription } from '../klangio';
 import { removeStagedFile, signedStagingUrl } from '../staging';
+import { mintYoutubeVideoPoToken } from '../youtube-po';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -58,7 +59,7 @@ async function readStreamLimited(stream:ReadableStream<Uint8Array>){
   return merged;
 }
 
-async function fetchYouTubeViaYtDlp(rawUrl:string){
+async function fetchYouTubeViaYtDlp(rawUrl:string,videoId:string){
   const dir=await mkdtemp(join(tmpdir(),'pie-ytdlp-'));
   const template=join(dir,'source.%(ext)s');
 
@@ -106,6 +107,18 @@ async function fetchYouTubeViaYtDlp(rawUrl:string){
     }catch{}
 
     try{
+      console.info('Minting video-bound YouTube PO token',{videoId});
+      const poToken=await mintYoutubeVideoPoToken(videoId);
+      return await runAttempt('po_token_web_safari',{
+        extractorArgs:`youtube:player_client=web_safari,mweb;po_token=mweb.player+${poToken}`,
+        format:'bestaudio[protocol^=m3u8][filesize<45M]/bestaudio[protocol^=m3u8]/bestaudio[filesize<45M]/bestaudio',
+        hlsPreferNative:true,
+      });
+    }catch(error){
+      console.warn('Local PO-token attempt failed',error instanceof Error?error.message:String(error));
+    }
+
+    try{
       return await runAttempt('generic',{
         format:'bestaudio[filesize<45M]/bestaudio',
       });
@@ -140,8 +153,8 @@ async function fetchYouTubeAudio(rawUrl:string){
     }
   }
 
-  console.warn('YouTube.js clients exhausted; trying yt-dlp fallbacks.');
-  return fetchYouTubeViaYtDlp(rawUrl);
+  console.warn('YouTube.js clients exhausted; trying yt-dlp and PO-token fallbacks.');
+  return fetchYouTubeViaYtDlp(rawUrl,id);
 }
 
 async function fetchDirectMedia(rawUrl:string){
@@ -152,7 +165,7 @@ async function fetchDirectMedia(rawUrl:string){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),30_000);
   try{
-    const response=await fetch(url,{method:'GET',redirect:'follow',cache:'no-store',signal:controller.signal,headers:{'User-Agent':'PieMusicAnalyzer/2.4'}});
+    const response=await fetch(url,{method:'GET',redirect:'follow',cache:'no-store',signal:controller.signal,headers:{'User-Agent':'PieMusicAnalyzer/2.5'}});
     if(!response.ok)throw new Error('LINK_FETCH_FAILED');
     const finalUrl=new URL(response.url||url.toString());
     if(isPrivateHost(finalUrl.hostname))throw new Error('PRIVATE_LINK_BLOCKED');
@@ -227,7 +240,7 @@ export async function POST(req:Request){
     const message=error instanceof Error?error.message:'';
     if(message==='YOUTUBE_INVALID_URL')return NextResponse.json({error:'That YouTube link is not recognized.'},{status:400});
     if(message==='YOUTUBE_TOO_LONG')return NextResponse.json({error:'Use a YouTube source under 15 minutes for this version.'},{status:413});
-    if(message==='YOUTUBE_FETCH_BLOCKED')return NextResponse.json({error:'YouTube blocked Pie’s available server playback paths for this video. A PO-token provider or uploaded audio/video is required for this source.'},{status:409});
+    if(message==='YOUTUBE_FETCH_BLOCKED')return NextResponse.json({error:'YouTube still blocked this server request after Pie tried direct playback, HLS, and a locally generated PO token. Uploading the audio/video remains the fallback for this source.'},{status:409});
     if(message==='LINK_NOT_MEDIA')return NextResponse.json({error:'That URL is a webpage, not a direct audio/video file. YouTube links are supported; other sites need a direct media URL.'},{status:415});
     if(message==='LINK_TOO_LARGE')return NextResponse.json({error:'That media source is too large. Use audio/video under 45 MB.'},{status:413});
     if(message==='LINK_HTTPS_ONLY'||message==='PRIVATE_LINK_BLOCKED')return NextResponse.json({error:'That link cannot be fetched safely.'},{status:400});

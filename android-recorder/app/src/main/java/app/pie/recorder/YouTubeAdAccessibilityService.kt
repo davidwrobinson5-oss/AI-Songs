@@ -11,10 +11,18 @@ import android.view.accessibility.AccessibilityNodeInfo
 class YouTubeAdAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var adActive = false
+    private var hasSeenPlaying = false
+    private var pendingStop = false
 
     private val resumeRunnable = Runnable {
-        if (adActive) return@Runnable
+        if (adActive || pendingStop) return@Runnable
         sendCaptureAction(PlaybackCaptureService.ACTION_RESUME)
+    }
+
+    private val stoppedRunnable = Runnable {
+        if (!pendingStop || adActive || !hasSeenPlaying) return@Runnable
+        pendingStop = false
+        stopAndReturnToPie()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
@@ -28,8 +36,12 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
         val nowAd = AD_MARKERS.any { snapshot.contains(it) }
         val ended = END_MARKERS.any { snapshot.contains(it) } && !nowAd
+        val showsPauseControl = PLAYING_MARKERS.any { snapshot.contains(it) } && !nowAd
+        val showsPlayControl = STOPPED_MARKERS.any { snapshot.contains(it) } && !nowAd
 
         if (nowAd) {
+            pendingStop = false
+            handler.removeCallbacks(stoppedRunnable)
             handler.removeCallbacks(resumeRunnable)
             if (!adActive) {
                 adActive = true
@@ -38,27 +50,49 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             return
         }
 
+        if (showsPauseControl) {
+            hasSeenPlaying = true
+            pendingStop = false
+            handler.removeCallbacks(stoppedRunnable)
+        }
+
+        if (ended) {
+            pendingStop = false
+            handler.removeCallbacks(stoppedRunnable)
+            handler.removeCallbacks(resumeRunnable)
+            stopAndReturnToPie()
+            return
+        }
+
+        // In YouTube the visible control changes from Pause to Play when the user
+        // stops/pauses playback. Only treat that as the end after we have actually
+        // observed playback, so opening a video before it starts cannot end capture.
+        if (hasSeenPlaying && showsPlayControl) {
+            pendingStop = true
+            handler.removeCallbacks(resumeRunnable)
+            handler.removeCallbacks(stoppedRunnable)
+            handler.postDelayed(stoppedRunnable, STOP_STABILITY_MS)
+            return
+        }
+
         if (adActive) {
             adActive = false
             handler.removeCallbacks(resumeRunnable)
             handler.postDelayed(resumeRunnable, RESUME_STABILITY_MS)
-        } else {
+        } else if (!pendingStop) {
             handler.removeCallbacks(resumeRunnable)
             handler.postDelayed(resumeRunnable, RESUME_STABILITY_MS)
-        }
-
-        if (ended) {
-            handler.removeCallbacks(resumeRunnable)
-            stopAndReturnToPie()
         }
     }
 
     override fun onInterrupt() {
         handler.removeCallbacks(resumeRunnable)
+        handler.removeCallbacks(stoppedRunnable)
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(resumeRunnable)
+        handler.removeCallbacks(stoppedRunnable)
         super.onDestroy()
     }
 
@@ -95,6 +129,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     companion object {
         private const val YOUTUBE_PACKAGE = "com.google.android.youtube"
         private const val RESUME_STABILITY_MS = 1800L
+        private const val STOP_STABILITY_MS = 1500L
         private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
 
         private val AD_MARKERS = listOf(
@@ -106,6 +141,16 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             "ad 1 of",
             "ad 2 of",
             "about this ad"
+        )
+
+        private val PLAYING_MARKERS = listOf(
+            "pause video",
+            "pause"
+        )
+
+        private val STOPPED_MARKERS = listOf(
+            "play video",
+            "play"
         )
 
         private val END_MARKERS = listOf(

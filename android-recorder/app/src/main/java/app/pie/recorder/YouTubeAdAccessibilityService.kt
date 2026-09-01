@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Handler
@@ -296,38 +297,67 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     }
 
     private fun returnFromYouTube(returnUrl: String?, backDelayMs: Long) {
+        val expectedBrowser = resolveBrowserPackage(returnUrl)
         handler.postDelayed({
             try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) {}
-            verifyReturnedFromYouTube(returnUrl, 0)
+            verifyReturnedFromYouTube(returnUrl, expectedBrowser, 0)
         }, backDelayMs)
     }
 
-    private fun verifyReturnedFromYouTube(returnUrl: String?, attempt: Int) {
+    private fun verifyReturnedFromYouTube(returnUrl: String?, expectedBrowser: String?, attempt: Int) {
         handler.postDelayed({
             val activePackage = try { rootInActiveWindow?.packageName?.toString() } catch (_: Exception) { null }
-            if (!activePackage.isNullOrBlank() && activePackage != YOUTUBE_PACKAGE) return@postDelayed
+            if (isExpectedBrowser(activePackage, expectedBrowser)) return@postDelayed
 
             if (attempt < RETURN_VERIFY_ATTEMPTS - 1) {
-                verifyReturnedFromYouTube(returnUrl, attempt + 1)
+                verifyReturnedFromYouTube(returnUrl, expectedBrowser, attempt + 1)
             } else {
-                openPieFallback(returnUrl)
+                bringExistingBrowserToFront(returnUrl, expectedBrowser)
             }
         }, RETURN_VERIFY_INTERVAL_MS)
     }
 
-    private fun openPieFallback(returnUrl: String?) {
+    private fun resolveBrowserPackage(returnUrl: String?): String? {
         val base = returnUrl?.takeIf(CaptureSession::isValidPieUrl) ?: PIE_URL
-        val uri = Uri.parse(base).buildUpon()
-            .appendQueryParameter("pieCapture", "processing")
-            .build()
-        try {
-            startActivity(
-                Intent(Intent.ACTION_VIEW, uri)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            )
+        return try {
+            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(base)).addCategory(Intent.CATEGORY_BROWSABLE)
+            packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)?.activityInfo?.packageName
         } catch (_: Exception) {
-            // If Android blocks the fallback launch, the notification still remains available.
+            null
         }
+    }
+
+    private fun isExpectedBrowser(activePackage: String?, expectedBrowser: String?): Boolean {
+        if (activePackage.isNullOrBlank()) return false
+        if (!expectedBrowser.isNullOrBlank() && activePackage == expectedBrowser) return true
+        return KNOWN_BROWSER_PACKAGES.contains(activePackage)
+    }
+
+    private fun bringExistingBrowserToFront(returnUrl: String?, expectedBrowser: String?) {
+        val resolved = expectedBrowser ?: resolveBrowserPackage(returnUrl)
+        val candidates = buildList {
+            if (!resolved.isNullOrBlank()) add(resolved)
+            addAll(KNOWN_BROWSER_PACKAGES)
+        }.distinct()
+
+        for (packageName in candidates) {
+            try {
+                val launch = packageManager.getLaunchIntentForPackage(packageName) ?: continue
+                launch.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP
+                )
+                startActivity(launch)
+                return
+            } catch (_: Exception) {
+                // Try the next installed browser without opening a URL/new tab.
+            }
+        }
+
+        // Last resort: show Recents instead of opening Pie by URL. Opening the return
+        // URL created a fresh Brave tab/session and forced the user back to the login page.
+        try { performGlobalAction(GLOBAL_ACTION_RECENTS) } catch (_: Exception) {}
     }
 
     private fun collectText(node: AccessibilityNodeInfo?, out: StringBuilder, depth: Int) {
@@ -356,6 +386,13 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private const val RETURN_VERIFY_INTERVAL_MS = 350L
         private const val RETURN_VERIFY_ATTEMPTS = 3
         private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
+
+        private val KNOWN_BROWSER_PACKAGES = listOf(
+            "com.brave.browser",
+            "com.android.chrome",
+            "com.sec.android.app.sbrowser",
+            "org.mozilla.firefox"
+        )
 
         private val AD_MARKERS = listOf(
             "skip ad",

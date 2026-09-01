@@ -15,18 +15,23 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     private var pendingStop = false
 
     private val resumeRunnable = Runnable {
-        if (adActive || pendingStop) return@Runnable
+        if (!CaptureSession.isActive(this) || adActive || pendingStop) return@Runnable
         sendCaptureAction(PlaybackCaptureService.ACTION_RESUME)
     }
 
     private val stoppedRunnable = Runnable {
-        if (!pendingStop || adActive || !hasSeenPlaying) return@Runnable
+        if (!CaptureSession.isActive(this) || !pendingStop || adActive || !hasSeenPlaying) return@Runnable
         pendingStop = false
         stopAndReturnToPie()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (!CaptureSession.isActive(this)) {
+            resetState()
+            return
+        }
         if (event?.packageName?.toString() != YOUTUBE_PACKAGE) return
+
         val root = rootInActiveWindow ?: return
         val snapshot = buildString {
             collectText(root, this, 0)
@@ -64,9 +69,6 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             return
         }
 
-        // In YouTube the visible control changes from Pause to Play when the user
-        // stops/pauses playback. Only treat that as the end after we have actually
-        // observed playback, so opening a video before it starts cannot end capture.
         if (hasSeenPlaying && showsPlayControl) {
             pendingStop = true
             handler.removeCallbacks(resumeRunnable)
@@ -86,17 +88,24 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
-        handler.removeCallbacks(resumeRunnable)
-        handler.removeCallbacks(stoppedRunnable)
+        resetState()
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(resumeRunnable)
-        handler.removeCallbacks(stoppedRunnable)
+        resetState()
         super.onDestroy()
     }
 
+    private fun resetState() {
+        handler.removeCallbacks(resumeRunnable)
+        handler.removeCallbacks(stoppedRunnable)
+        adActive = false
+        hasSeenPlaying = false
+        pendingStop = false
+    }
+
     private fun sendCaptureAction(action: String) {
+        if (!CaptureSession.isActive(this)) return
         try {
             startService(Intent(this, PlaybackCaptureService::class.java).setAction(action))
         } catch (_: Exception) {
@@ -105,9 +114,10 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     }
 
     private fun stopAndReturnToPie() {
+        val pieReturn = CaptureSession.returnUrl(this) ?: return
         try {
             val uri = Uri.parse("pie-recorder://capture/stop").buildUpon()
-                .appendQueryParameter("return", PIE_URL)
+                .appendQueryParameter("return", pieReturn)
                 .build()
             startActivity(Intent(Intent.ACTION_VIEW, uri).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -130,7 +140,6 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private const val YOUTUBE_PACKAGE = "com.google.android.youtube"
         private const val RESUME_STABILITY_MS = 1800L
         private const val STOP_STABILITY_MS = 1500L
-        private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
 
         private val AD_MARKERS = listOf(
             "skip ad",

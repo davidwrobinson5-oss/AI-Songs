@@ -10,6 +10,8 @@ export const maxDuration = 60;
 const MAX_BYTES = 45 * 1024 * 1024;
 const MAX_YOUTUBE_SECONDS = 15 * 60;
 
+type OutputSelection={stems?:boolean;fullSheet?:boolean;partSheets?:boolean;chords?:boolean};
+
 function isYouTubeHost(hostname:string){
   const host=hostname.toLowerCase();
   return host==='youtube.com'||host.endsWith('.youtube.com')||host==='youtu.be'||host.endsWith('.youtu.be');
@@ -58,14 +60,28 @@ async function fetchYouTubeAudio(rawUrl:string){
   if(!id)throw new Error('YOUTUBE_INVALID_URL');
 
   const youtube=await Innertube.create({generate_session_locally:true});
-  const info=await youtube.getInfo(id);
-  const duration=Number(info.basic_info.duration||0);
-  if(duration&&duration>MAX_YOUTUBE_SECONDS)throw new Error('YOUTUBE_TOO_LONG');
+  const clients:(string|undefined)[]=[undefined,'MWEB','ANDROID','IOS','TV_EMBEDDED'];
+  let lastError:unknown;
 
-  const stream=await info.download({type:'audio',quality:'best'});
-  const bytes=await readStreamLimited(stream);
-  const title=String(info.basic_info.title||'YouTube audio').slice(0,120);
-  return {blob:new Blob([bytes],{type:'audio/mp4'}),sourceLabel:title};
+  for(const client of clients){
+    try{
+      const info=await youtube.getInfo(id,client?{client:client as any}:undefined);
+      const duration=Number(info.basic_info.duration||0);
+      if(duration&&duration>MAX_YOUTUBE_SECONDS)throw new Error('YOUTUBE_TOO_LONG');
+      const stream=await info.download({type:'audio',quality:'best'});
+      const bytes=await readStreamLimited(stream);
+      const title=String(info.basic_info.title||'YouTube audio').slice(0,120);
+      return {blob:new Blob([bytes],{type:'audio/mp4'}),sourceLabel:title};
+    }catch(error){
+      if(error instanceof Error&&error.message==='YOUTUBE_TOO_LONG')throw error;
+      lastError=error;
+      console.warn('YouTube audio client attempt failed',{client:client||'default',message:error instanceof Error?error.message:String(error)});
+    }
+  }
+
+  const message=lastError instanceof Error?lastError.message:'';
+  if(/login required/i.test(message))throw new Error('YOUTUBE_LOGIN_REQUIRED');
+  throw lastError instanceof Error?lastError:new Error('YOUTUBE_FETCH_FAILED');
 }
 
 async function fetchDirectMedia(rawUrl:string){
@@ -76,7 +92,7 @@ async function fetchDirectMedia(rawUrl:string){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),30_000);
   try{
-    const response=await fetch(url,{method:'GET',redirect:'follow',cache:'no-store',signal:controller.signal,headers:{'User-Agent':'PieMusicAnalyzer/2.1'}});
+    const response=await fetch(url,{method:'GET',redirect:'follow',cache:'no-store',signal:controller.signal,headers:{'User-Agent':'PieMusicAnalyzer/2.2'}});
     if(!response.ok)throw new Error('LINK_FETCH_FAILED');
     const finalUrl=new URL(response.url||url.toString());
     if(isPrivateHost(finalUrl.hostname))throw new Error('PRIVATE_LINK_BLOCKED');
@@ -107,7 +123,17 @@ export async function POST(req:Request){
 
   let stagedPath='';
   try{
-    const body=await req.json() as {url?:string;stagedPath?:string;name?:string;type?:string};
+    const body=await req.json() as {url?:string;stagedPath?:string;name?:string;type?:string;outputs?:OutputSelection};
+    const outputs:OutputSelection={
+      stems:Boolean(body.outputs?.stems),
+      fullSheet:Boolean(body.outputs?.fullSheet),
+      partSheets:Boolean(body.outputs?.partSheets),
+      chords:Boolean(body.outputs?.chords),
+    };
+    if(!outputs.stems&&!outputs.fullSheet&&!outputs.partSheets&&!outputs.chords){
+      return NextResponse.json({error:'Choose at least one output: stems, sheet music, individual part sheets, or chords.'},{status:400});
+    }
+
     stagedPath=String(body.stagedPath||'');
     let blob:Blob;
     let sourceLabel=String(body.name||'Uploaded media').slice(0,120);
@@ -129,17 +155,19 @@ export async function POST(req:Request){
       }
     }
 
-    const [full,chords,separation]=await Promise.all([
-      createTranscription(blob,'universal',sourceLabel),
-      createChordRecognition(blob),
-      createSourceSeparation(blob),
-    ]);
+    const jobs:Record<string,string>={};
+    const pending:Promise<void>[]=[];
+    if(outputs.fullSheet)pending.push(createTranscription(blob,'universal',sourceLabel).then(id=>{jobs.full=id;}));
+    if(outputs.chords)pending.push(createChordRecognition(blob).then(id=>{jobs.chords=id;}));
+    if(outputs.stems||outputs.partSheets)pending.push(createSourceSeparation(blob).then(id=>{jobs.separation=id;}));
+    await Promise.all(pending);
 
-    return NextResponse.json({jobs:{full,chords,separation},sourceLabel},{headers:{'Cache-Control':'no-store'}});
+    return NextResponse.json({jobs,outputs,sourceLabel},{headers:{'Cache-Control':'no-store'}});
   }catch(error){
     const message=error instanceof Error?error.message:'';
     if(message==='YOUTUBE_INVALID_URL')return NextResponse.json({error:'That YouTube link is not recognized.'},{status:400});
-    if(message==='YOUTUBE_TOO_LONG')return NextResponse.json({error:'Use a YouTube source under 15 minutes for this first version.'},{status:413});
+    if(message==='YOUTUBE_TOO_LONG')return NextResponse.json({error:'Use a YouTube source under 15 minutes for this version.'},{status:413});
+    if(message==='YOUTUBE_LOGIN_REQUIRED')return NextResponse.json({error:'YouTube is requiring a signed-in playback session for this video. Pie tried several playback clients but YouTube still blocked the server request.'},{status:409});
     if(message==='LINK_NOT_MEDIA')return NextResponse.json({error:'That URL is a webpage, not a direct audio/video file. YouTube links are supported; other sites need a direct media URL.'},{status:415});
     if(message==='LINK_TOO_LARGE')return NextResponse.json({error:'That media source is too large. Use audio/video under 45 MB.'},{status:413});
     if(message==='LINK_HTTPS_ONLY'||message==='PRIVATE_LINK_BLOCKED')return NextResponse.json({error:'That link cannot be fetched safely.'},{status:400});

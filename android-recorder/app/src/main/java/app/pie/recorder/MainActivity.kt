@@ -44,8 +44,6 @@ class MainActivity : Activity() {
         override fun onReceive(context: Context?, intent: Intent?) {
             savedPath = intent?.getStringExtra(PlaybackCaptureService.EXTRA_PATH)
             if (savedPath != null && autoProcessAfterSave) {
-                // Start the upload first, then immediately put the user back in Pie.
-                // OkHttp keeps the request running after this transparent activity closes.
                 processRecording(returnOnCompletion = false)
                 returnedToPieAfterStop = true
                 returnToPie("processing")
@@ -144,6 +142,12 @@ class MainActivity : Activity() {
             .setAction(PlaybackCaptureService.ACTION_START)
             .putExtra(PlaybackCaptureService.EXTRA_RESULT_CODE, resultCode)
             .putExtra(PlaybackCaptureService.EXTRA_RESULT_DATA, data)
+            .putExtra(PlaybackCaptureService.EXTRA_RETURN_URL, returnUrl)
+            .putExtra(PlaybackCaptureService.EXTRA_SOURCE_URL, pendingSourceUrl)
+            .putExtra(PlaybackCaptureService.EXTRA_STEMS, wantsStems)
+            .putExtra(PlaybackCaptureService.EXTRA_FULL_SHEET, wantsFullSheet)
+            .putExtra(PlaybackCaptureService.EXTRA_PART_SHEETS, wantsPartSheets)
+            .putExtra(PlaybackCaptureService.EXTRA_CHORDS, wantsChords)
         startForegroundService(service)
 
         val raw = pendingSourceUrl?.trim().orEmpty()

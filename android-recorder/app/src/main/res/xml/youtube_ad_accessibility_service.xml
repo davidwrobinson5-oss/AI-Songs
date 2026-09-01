@@ -5,4 +5,4 @@
     android:accessibilityFlags="flagReportViewIds|flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
     android:notificationTimeout="120"
-    android:packageNames="com.google.android.youtube" />
+    android:packageNames="com.google.android.youtube,com.android.systemui" />

@@ -79,34 +79,53 @@ class MainActivity : Activity() {
     private fun handleIntent(intent: Intent?) {
         val data = intent?.data
         if (data?.scheme != "pie-recorder" || data.host != "capture") {
-            openPie("https://ai-songs-git-main-drobinhood1.vercel.app")
+            finish()
             return
         }
 
-        returnUrl = data.getQueryParameter("return")
+        val requestedReturn = data.getQueryParameter("return")
+        val action = data.pathSegments.firstOrNull()?.lowercase()
+
+        if (action == "stop") {
+            if (!CaptureSession.isActive(this)) {
+                finish()
+                return
+            }
+            returnUrl = CaptureSession.returnUrl(this)
+            autoProcessAfterSave = true
+            returnedToPieAfterStop = false
+            startService(
+                Intent(this, PlaybackCaptureService::class.java)
+                    .setAction(PlaybackCaptureService.ACTION_STOP)
+            )
+            return
+        }
+
+        // A new recorder session is accepted only when Pie supplies an approved HTTPS
+        // return address. Direct/manual launches and non-Pie callers are ignored.
+        if (!CaptureSession.isValidPieUrl(requestedReturn)) {
+            finish()
+            return
+        }
+
+        returnUrl = requestedReturn
+        CaptureSession.begin(this, requestedReturn!!)
         pendingSourceUrl = data.getQueryParameter("url")
         wantsStems = data.getQueryParameter("stems")?.toBooleanStrictOrNull() ?: true
         wantsFullSheet = data.getQueryParameter("fullSheet")?.toBooleanStrictOrNull() ?: true
         wantsPartSheets = data.getQueryParameter("partSheets")?.toBooleanStrictOrNull() ?: true
         wantsChords = data.getQueryParameter("chords")?.toBooleanStrictOrNull() ?: true
 
-        when (data.pathSegments.firstOrNull()?.lowercase()) {
-            "stop" -> {
-                autoProcessAfterSave = true
-                returnedToPieAfterStop = false
-                startService(
-                    Intent(this, PlaybackCaptureService::class.java)
-                        .setAction(PlaybackCaptureService.ACTION_STOP)
-                )
-            }
-            else -> {
-                autoProcessAfterSave = false
-                beginCapture()
-            }
-        }
+        autoProcessAfterSave = false
+        beginCapture()
     }
 
     private fun beginCapture() {
+        if (!CaptureSession.isActive(this)) {
+            finish()
+            return
+        }
+
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), audioPermissionRequest)
             return
@@ -125,7 +144,10 @@ class MainActivity : Activity() {
         if (requestCode != audioPermissionRequest) return
 
         if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) beginCapture()
-        else returnToPie("audioPermissionDenied")
+        else {
+            CaptureSession.end(this)
+            returnToPie("audioPermissionDenied")
+        }
     }
 
     @Deprecated("Deprecated in Android SDK but retained for MediaProjection compatibility")
@@ -134,7 +156,13 @@ class MainActivity : Activity() {
         if (requestCode != projectionRequest) return
 
         if (resultCode != RESULT_OK || data == null) {
+            CaptureSession.end(this)
             returnToPie("captureCanceled")
+            return
+        }
+
+        if (!CaptureSession.isActive(this)) {
+            finish()
             return
         }
 
@@ -156,6 +184,7 @@ class MainActivity : Activity() {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(raw)))
                 finish()
             } catch (_: Exception) {
+                CaptureSession.end(this)
                 returnToPie("sourceOpenFailed")
             }
         } else {
@@ -207,7 +236,7 @@ class MainActivity : Activity() {
     }
 
     private fun returnToPie(result: String) {
-        val base = returnUrl?.takeIf { it.startsWith("https://") }
+        val base = returnUrl?.takeIf(CaptureSession::isValidPieUrl)
             ?: "https://ai-songs-git-main-drobinhood1.vercel.app"
         val uri = Uri.parse(base).buildUpon()
             .appendQueryParameter("pieCapture", result)

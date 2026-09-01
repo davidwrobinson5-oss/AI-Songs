@@ -27,10 +27,11 @@ export default function PlaybackRecorderCard(){
       }
 
       const startedAt=Number(sessionStorage.getItem(CAPTURE_STARTED_KEY)||0);
-      if(startedAt>0 && Date.now()-startedAt>2500 && document.visibilityState==='visible'){
-        setRecording(false);
-        sessionStorage.removeItem(CAPTURE_STARTED_KEY);
-        setStatus('Recording session finished.');
+      if(startedAt>0){
+        // Becoming visible again is not proof that Android stopped recording. Keep the
+        // capture active until Android explicitly returns a completion result.
+        setRecording(true);
+        setStatus('Capture started. Waiting for Android to confirm that recording finished.');
       }
     };
 
@@ -95,7 +96,7 @@ export default function PlaybackRecorderCard(){
     />
     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
       <button className="secondary" type="button" onClick={openSource}>Open URL / Choose App</button>
-      {!recording?<button className="primary" type="button" onClick={()=>setConfirming(true)}>● Record</button>:<button className="primary" type="button" disabled aria-disabled="true">● Recording — stops automatically</button>}
+      {!recording?<button className="primary" type="button" onClick={()=>setConfirming(true)}>● Record</button>:<button className="primary" type="button" disabled aria-disabled="true">● Recording — awaiting Android finish</button>}
     </div>
     <small style={{display:'block',marginTop:10}}>Pie keeps the helper invisible. Android still requires its own secure “Share one app” permission sheet, and Android controls that sheet’s colors and buttons.</small>
     {status&&<div className="statusBox" style={{marginTop:12}}>{status}</div>}

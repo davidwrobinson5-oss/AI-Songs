@@ -45,9 +45,10 @@ class PlaybackCaptureService : Service() {
         const val EXTRA_AUTO_STOP_REQUESTED = "autoStopRequested"
         const val CHANNEL_ID = "pie_capture"
 
-        private const val SILENCE_THRESHOLD = 16
-        private const val YOUTUBE_END_SILENCE_MS = 1800L
+        private const val SILENCE_THRESHOLD = 96
+        private const val YOUTUBE_END_SILENCE_MS = 2200L
         private const val OTHER_END_SILENCE_MS = 3200L
+        private const val MEDIA_INACTIVE_STOP_MS = 1200L
         private const val MIN_ACTIVE_CAPTURE_MS = 2500L
         private const val SPLICE_FADE_MS = 18
         private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
@@ -153,6 +154,7 @@ class PlaybackCaptureService : Service() {
 
         val silenceTimeout = if (isYouTubeSource(sourceUrl)) YOUTUBE_END_SILENCE_MS else OTHER_END_SILENCE_MS
         val fadeSamples = sampleRate * channels * SPLICE_FADE_MS / 1000
+        val audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
         worker = Thread {
             var autoFinished = false
@@ -164,6 +166,7 @@ class PlaybackCaptureService : Service() {
                 val startedAt = SystemClock.elapsedRealtime()
                 var heardAudio = false
                 var lastSignalAt = startedAt
+                var mediaInactiveSince = 0L
                 var wasPaused = false
                 var fadeInRemaining = 0
 
@@ -184,8 +187,25 @@ class PlaybackCaptureService : Service() {
                             wasPaused = true
                         }
                         lastSignalAt = now
+                        mediaInactiveSince = 0L
                         if (read <= 0) try { Thread.sleep(20) } catch (_: InterruptedException) {}
                         continue
+                    }
+
+                    // Android exposes whether the media stream is actually active. This
+                    // catches YouTube's paused state even on UI variants where the
+                    // Accessibility tree does not expose a reliable Play/Pause label.
+                    if (heardAudio && now - startedAt >= MIN_ACTIVE_CAPTURE_MS) {
+                        if (audioManager.isMusicActive) {
+                            mediaInactiveSince = 0L
+                        } else {
+                            if (mediaInactiveSince == 0L) mediaInactiveSince = now
+                            if (now - mediaInactiveSince >= MEDIA_INACTIVE_STOP_MS) {
+                                autoFinished = true
+                                recording.set(false)
+                                break
+                            }
+                        }
                     }
 
                     if (read <= 0) {
@@ -248,9 +268,8 @@ class PlaybackCaptureService : Service() {
             sendBroadcast(Intent(ACTION_SAVED).setPackage(packageName).putExtra(EXTRA_PATH, file.absolutePath))
 
             if (autoFinished) {
-                // The Accessibility service owns the return-to-Pie navigation so there
-                // is exactly one browser transition. Reopening Pie here caused a second
-                // browser context and, on Samsung/Brave, could bounce back to YouTube.
+                // Accessibility owns the one return-to-Pie navigation. The recorder
+                // only finalizes and uploads so it cannot open a competing browser task.
                 uploadRecording(file)
             } else {
                 stopForeground(STOP_FOREGROUND_REMOVE)

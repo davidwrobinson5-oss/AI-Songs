@@ -14,6 +14,8 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.view.View
 import okhttp3.Call
@@ -32,6 +34,7 @@ class MainActivity : Activity() {
     private val audioPermissionRequest = 7002
     private val accessibilitySettingsRequest = 7003
     private val client = OkHttpClient()
+    private val handler = Handler(Looper.getMainLooper())
 
     private var savedPath: String? = null
     private var returnUrl: String? = null
@@ -42,6 +45,7 @@ class MainActivity : Activity() {
     private var wantsFullSheet = true
     private var wantsPartSheets = true
     private var wantsChords = true
+    private var connectionChecks = 0
 
     private val savedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -97,10 +101,7 @@ class MainActivity : Activity() {
             returnUrl = CaptureSession.returnUrl(this)
             autoProcessAfterSave = true
             returnedToPieAfterStop = false
-            startService(
-                Intent(this, PlaybackCaptureService::class.java)
-                    .setAction(PlaybackCaptureService.ACTION_STOP)
-            )
+            startService(Intent(this, PlaybackCaptureService::class.java).setAction(PlaybackCaptureService.ACTION_STOP))
             return
         }
 
@@ -116,7 +117,6 @@ class MainActivity : Activity() {
         wantsFullSheet = data.getQueryParameter("fullSheet")?.toBooleanStrictOrNull() ?: true
         wantsPartSheets = data.getQueryParameter("partSheets")?.toBooleanStrictOrNull() ?: true
         wantsChords = data.getQueryParameter("chords")?.toBooleanStrictOrNull() ?: true
-
         autoProcessAfterSave = false
         beginCapture()
     }
@@ -127,19 +127,21 @@ class MainActivity : Activity() {
             return
         }
 
-        // Auto-return cannot work without the accessibility service. Previous builds
-        // allowed capture to start anyway, which made a disabled service look like a
-        // broken recorder. Require it up front so we never enter a session that cannot
-        // return from YouTube automatically.
         if (!isReturnAccessibilityEnabled()) {
-            try {
-                startActivityForResult(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), accessibilitySettingsRequest)
-            } catch (_: Exception) {
-                CaptureSession.end(this)
-                finish()
+            openAccessibilitySettings()
+            return
+        }
+
+        if (!YouTubeAdAccessibilityService.isConnected) {
+            if (connectionChecks++ < 8) {
+                handler.postDelayed({ beginCapture() }, 250L)
+            } else {
+                connectionChecks = 0
+                openAccessibilitySettings()
             }
             return
         }
+        connectionChecks = 0
 
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), audioPermissionRequest)
@@ -150,13 +152,18 @@ class MainActivity : Activity() {
         startActivityForResult(manager.createScreenCaptureIntent(), projectionRequest)
     }
 
+    private fun openAccessibilitySettings() {
+        try {
+            startActivityForResult(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), accessibilitySettingsRequest)
+        } catch (_: Exception) {
+            CaptureSession.end(this)
+            finish()
+        }
+    }
+
     private fun isReturnAccessibilityEnabled(): Boolean {
         val expected = ComponentName(this, YouTubeAdAccessibilityService::class.java)
-        val enabled = Settings.Secure.getString(
-            contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
-        ).orEmpty()
-
+        val enabled = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
         for (entry in enabled.split(':')) {
             val component = ComponentName.unflattenFromString(entry) ?: continue
             if (component == expected) return true
@@ -164,14 +171,9 @@ class MainActivity : Activity() {
         return false
     }
 
-    override fun onRequestPermissionsResult(
-        requestCode: Int,
-        permissions: Array<out String>,
-        grantResults: IntArray
-    ) {
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode != audioPermissionRequest) return
-
         if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) beginCapture()
         else {
             CaptureSession.end(this)
@@ -184,9 +186,9 @@ class MainActivity : Activity() {
         super.onActivityResult(requestCode, resultCode, data)
 
         if (requestCode == accessibilitySettingsRequest) {
-            if (isReturnAccessibilityEnabled()) {
-                beginCapture()
-            } else {
+            connectionChecks = 0
+            if (isReturnAccessibilityEnabled()) beginCapture()
+            else {
                 CaptureSession.end(this)
                 finish()
             }
@@ -194,15 +196,14 @@ class MainActivity : Activity() {
         }
 
         if (requestCode != projectionRequest) return
-
         if (resultCode != RESULT_OK || data == null) {
             CaptureSession.end(this)
             returnToPie("captureCanceled")
             return
         }
-
-        if (!CaptureSession.isActive(this)) {
-            finish()
+        if (!CaptureSession.isActive(this) || !YouTubeAdAccessibilityService.isConnected) {
+            CaptureSession.end(this)
+            openAccessibilitySettings()
             return
         }
 
@@ -257,30 +258,22 @@ class MainActivity : Activity() {
 
         client.newCall(request).enqueue(object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                if (returnOnCompletion && !returnedToPieAfterStop) {
-                    runOnUiThread { returnToPie("uploadFailed") }
-                }
+                if (returnOnCompletion && !returnedToPieAfterStop) runOnUiThread { returnToPie("uploadFailed") }
             }
 
             override fun onResponse(call: Call, response: Response) {
                 val success = response.isSuccessful
                 response.body?.close()
                 if (returnOnCompletion && !returnedToPieAfterStop) {
-                    runOnUiThread {
-                        if (success) returnToPie("accepted")
-                        else returnToPie("processingFailed")
-                    }
+                    runOnUiThread { returnToPie(if (success) "accepted" else "processingFailed") }
                 }
             }
         })
     }
 
     private fun returnToPie(result: String) {
-        val base = returnUrl?.takeIf(CaptureSession::isValidPieUrl)
-            ?: "https://ai-songs-git-main-drobinhood1.vercel.app"
-        val uri = Uri.parse(base).buildUpon()
-            .appendQueryParameter("pieCapture", result)
-            .build()
+        val base = returnUrl?.takeIf(CaptureSession::isValidPieUrl) ?: "https://ai-songs-git-main-drobinhood1.vercel.app"
+        val uri = Uri.parse(base).buildUpon().appendQueryParameter("pieCapture", result).build()
         openPie(uri.toString())
     }
 
@@ -288,13 +281,13 @@ class MainActivity : Activity() {
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         } catch (_: Exception) {
-            // No fallback UI: the recorder bridge stays invisible.
         } finally {
             finish()
         }
     }
 
     override fun onDestroy() {
+        handler.removeCallbacksAndMessages(null)
         try { unregisterReceiver(savedReceiver) } catch (_: Exception) {}
         super.onDestroy()
     }

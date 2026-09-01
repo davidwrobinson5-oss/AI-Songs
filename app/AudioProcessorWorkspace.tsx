@@ -5,6 +5,20 @@ import { stagePieFile } from './stagedUpload';
 
 type Jobs = Partial<Record<'full'|'chords'|'separation'|'lead'|'drums'|'bass'|'guitar'|'keys', string>>;
 type Statuses = Record<string,string>;
+type SavedSession = {
+  id:string;
+  sourceName:string;
+  createdAt:number;
+  updatedAt:number;
+  jobs:Jobs;
+  statuses:Statuses;
+  chords:Array<[number,number,string]>;
+  status:string;
+  stemStarted:boolean;
+};
+
+const STORAGE_KEY='pie-sheets-stems-library-v1';
+const ACTIVE_KEY='pie-sheets-stems-active-v1';
 
 const STEMS = [
   ['vocals','Vocals'],
@@ -24,6 +38,13 @@ const SHEETS = [
   ['keys','Keys / Piano'],
 ] as const;
 
+function readLibrary():SavedSession[]{
+  try{
+    const parsed=JSON.parse(localStorage.getItem(STORAGE_KEY)||'[]');
+    return Array.isArray(parsed)?parsed.filter(item=>item&&typeof item.id==='string'&&typeof item.sourceName==='string'):[];
+  }catch{return []}
+}
+
 export default function AudioProcessorWorkspace(){
   const [jobs,setJobs]=useState<Jobs>({});
   const [statuses,setStatuses]=useState<Statuses>({});
@@ -32,6 +53,52 @@ export default function AudioProcessorWorkspace(){
   const [busy,setBusy]=useState(false);
   const [stemStarted,setStemStarted]=useState(false);
   const [sourceName,setSourceName]=useState('');
+  const [sessionId,setSessionId]=useState('');
+  const [library,setLibrary]=useState<SavedSession[]>([]);
+  const [hydrated,setHydrated]=useState(false);
+
+  function restoreSession(item:SavedSession){
+    setSessionId(item.id);
+    setSourceName(item.sourceName);
+    setJobs(item.jobs||{});
+    setStatuses(item.statuses||{});
+    setChords(Array.isArray(item.chords)?item.chords:[]);
+    setStatus(item.status||'Saved transcription restored.');
+    setStemStarted(Boolean(item.stemStarted));
+    localStorage.setItem(ACTIVE_KEY,item.id);
+  }
+
+  useEffect(()=>{
+    const saved=readLibrary();
+    setLibrary(saved);
+    const activeId=localStorage.getItem(ACTIVE_KEY)||'';
+    const active=saved.find(item=>item.id===activeId)||saved[0];
+    if(active)restoreSession(active);
+    setHydrated(true);
+  },[]);
+
+  useEffect(()=>{
+    if(!hydrated||!sessionId||!sourceName)return;
+    const now=Date.now();
+    setLibrary(prev=>{
+      const existing=prev.find(item=>item.id===sessionId);
+      const entry:SavedSession={
+        id:sessionId,
+        sourceName,
+        createdAt:existing?.createdAt||now,
+        updatedAt:now,
+        jobs,
+        statuses,
+        chords,
+        status,
+        stemStarted,
+      };
+      const next=[entry,...prev.filter(item=>item.id!==sessionId)].sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,20);
+      localStorage.setItem(STORAGE_KEY,JSON.stringify(next));
+      localStorage.setItem(ACTIVE_KEY,sessionId);
+      return next;
+    });
+  },[hydrated,sessionId,sourceName,jobs,statuses,chords,status,stemStarted]);
 
   async function startStem(stem:string,separationJobId:string){
     const response=await fetch('/api/sheets/transcribe',{
@@ -47,10 +114,12 @@ export default function AudioProcessorWorkspace(){
 
   async function processFile(file:File){
     if(busy)return;
+    const nextSessionId=crypto.randomUUID();
+    setSessionId(nextSessionId);
     setBusy(true);
     setJobs({});setStatuses({});setChords([]);setStemStarted(false);setSourceName(file.name);
+    setStatus('Uploading audio… 0%');
     try{
-      setStatus('Uploading audio… 0%');
       const stagedPath=await stagePieFile(file,(percent)=>setStatus(`Uploading audio… ${percent}%`));
       setStatus('Upload complete. Starting sheet music, chords, and stem separation…');
       const response=await fetch('/api/sheets/process-upload',{
@@ -125,6 +194,23 @@ export default function AudioProcessorWorkspace(){
     return()=>{cancelled=true;clearInterval(timer)};
   },[jobs,stemStarted]);
 
+  function deleteSession(id:string){
+    setLibrary(prev=>{
+      const next=prev.filter(item=>item.id!==id);
+      localStorage.setItem(STORAGE_KEY,JSON.stringify(next));
+      if(id===sessionId){
+        const replacement=next[0];
+        if(replacement)restoreSession(replacement);
+        else{
+          localStorage.removeItem(ACTIVE_KEY);
+          setSessionId('');setSourceName('');setJobs({});setStatuses({});setChords([]);setStemStarted(false);
+          setStatus('Choose an audio file to create sheet music and stems.');
+        }
+      }
+      return next;
+    });
+  }
+
   const separationReady=Boolean(jobs.separation&&statuses.separation==='COMPLETED');
   const hasStarted=Object.keys(jobs).length>0;
   const progress=useMemo(()=>Object.entries(jobs).map(([key,id])=>({key,id,status:statuses[key]||'QUEUED'})),[jobs,statuses]);
@@ -133,7 +219,7 @@ export default function AudioProcessorWorkspace(){
     <section className="panel" style={{padding:20}}>
       <p className="eyebrow">AUDIO IMPORT</p>
       <h2 style={{marginTop:4}}>Audio → Sheets & Stems</h2>
-      <p className="sub">Upload the WAV or MP3 here. Progress, transcription, and downloads stay on this Sheets screen.</p>
+      <p className="sub">Upload the WAV or MP3 here. Progress, transcription, and downloads stay on this Sheets screen and the job is saved when you switch screens.</p>
       <label className="primary" style={{display:'inline-block',cursor:'pointer',marginTop:10}}>
         {busy?'Uploading…':'Upload Audio'}
         <input hidden type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.flac" disabled={busy} onChange={event=>{const file=event.target.files?.[0];if(file)void processFile(file);event.currentTarget.value='';}}/>
@@ -141,6 +227,19 @@ export default function AudioProcessorWorkspace(){
       <div className="statusBox" style={{marginTop:14}}>{status}</div>
       {sourceName&&<small style={{display:'block',marginTop:8}}>Source: {sourceName}</small>}
     </section>
+
+    {library.length>0&&<section className="panel" style={{padding:20,marginTop:16}}>
+      <p className="eyebrow">SAVED SHEETS & STEMS</p>
+      <h2>Recent audio jobs</h2>
+      <p className="sub">Saved on this device so switching between Music, Songs, Mix, Voice, and Sheets does not erase the job.</p>
+      <div style={{display:'grid',gap:10}}>{library.map(item=><div className="statusBox" key={item.id} style={{display:'grid',gap:8}}>
+        <div><strong>{item.sourceName}</strong><small style={{display:'block',marginTop:4}}>{new Date(item.updatedAt).toLocaleString()}</small></div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <button className="secondary" onClick={()=>restoreSession(item)} disabled={item.id===sessionId}>Open</button>
+          <button className="secondary" onClick={()=>deleteSession(item.id)}>Delete</button>
+        </div>
+      </div>)}</div>
+    </section>}
 
     {hasStarted&&<section className="panel" style={{padding:20,marginTop:16}}>
       <p className="eyebrow">LIVE JOB STATUS</p>

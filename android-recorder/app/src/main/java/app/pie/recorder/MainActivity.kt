@@ -3,6 +3,7 @@ package app.pie.recorder
 import android.Manifest
 import android.app.Activity
 import android.content.BroadcastReceiver
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -13,6 +14,7 @@ import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import okhttp3.Call
 import okhttp3.Callback
@@ -28,6 +30,7 @@ import java.io.IOException
 class MainActivity : Activity() {
     private val projectionRequest = 7001
     private val audioPermissionRequest = 7002
+    private val accessibilitySettingsRequest = 7003
     private val client = OkHttpClient()
 
     private var savedPath: String? = null
@@ -101,8 +104,6 @@ class MainActivity : Activity() {
             return
         }
 
-        // A new recorder session is accepted only when Pie supplies an approved HTTPS
-        // return address. Direct/manual launches and non-Pie callers are ignored.
         if (!CaptureSession.isValidPieUrl(requestedReturn)) {
             finish()
             return
@@ -126,6 +127,20 @@ class MainActivity : Activity() {
             return
         }
 
+        // Auto-return cannot work without the accessibility service. Previous builds
+        // allowed capture to start anyway, which made a disabled service look like a
+        // broken recorder. Require it up front so we never enter a session that cannot
+        // return from YouTube automatically.
+        if (!isReturnAccessibilityEnabled()) {
+            try {
+                startActivityForResult(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS), accessibilitySettingsRequest)
+            } catch (_: Exception) {
+                CaptureSession.end(this)
+                finish()
+            }
+            return
+        }
+
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), audioPermissionRequest)
             return
@@ -133,6 +148,20 @@ class MainActivity : Activity() {
 
         val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         startActivityForResult(manager.createScreenCaptureIntent(), projectionRequest)
+    }
+
+    private fun isReturnAccessibilityEnabled(): Boolean {
+        val expected = ComponentName(this, YouTubeAdAccessibilityService::class.java)
+        val enabled = Settings.Secure.getString(
+            contentResolver,
+            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ).orEmpty()
+
+        for (entry in enabled.split(':')) {
+            val component = ComponentName.unflattenFromString(entry) ?: continue
+            if (component == expected) return true
+        }
+        return false
     }
 
     override fun onRequestPermissionsResult(
@@ -150,9 +179,20 @@ class MainActivity : Activity() {
         }
     }
 
-    @Deprecated("Deprecated in Android SDK but retained for MediaProjection compatibility")
+    @Deprecated("Deprecated in Android SDK but retained for MediaProjection/settings compatibility")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+
+        if (requestCode == accessibilitySettingsRequest) {
+            if (isReturnAccessibilityEnabled()) {
+                beginCapture()
+            } else {
+                CaptureSession.end(this)
+                finish()
+            }
+            return
+        }
+
         if (requestCode != projectionRequest) return
 
         if (resultCode != RESULT_OK || data == null) {

@@ -1,0 +1,1 @@
+Redeploy marker after configuring KLANGIO_API_KEY in Vercel production.

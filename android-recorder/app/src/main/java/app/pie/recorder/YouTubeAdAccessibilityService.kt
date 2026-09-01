@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -25,15 +26,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             if (intent?.action != PlaybackCaptureService.ACTION_AUTO_FINISHED) return
             if (returnTriggered) return
             returnTriggered = true
-
-            // Audio-silence completion used to launch the Pie URL again, which could
-            // land in a different Brave/custom-tab authentication context. Always
-            // unwind back to the browser surface that actually launched the capture.
-            // The delay also lets any already-started browser intent settle first so
-            // one Back action closes it and reveals the original authenticated Pie tab.
-            handler.postDelayed({
-                try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) {}
-            }, AUTO_FINISH_RETURN_DELAY_MS)
+            returnFromYouTube(intent.getStringExtra(PlaybackCaptureService.EXTRA_RETURN_URL), AUTO_FINISH_RETURN_DELAY_MS)
         }
     }
 
@@ -61,6 +54,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        isConnected = true
         registerAutoFinishedReceiver()
     }
 
@@ -151,6 +145,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        isConnected = false
         resetState()
         if (autoFinishedReceiverRegistered) {
             try { unregisterReceiver(autoFinishedReceiver) } catch (_: Exception) {}
@@ -294,11 +289,45 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
     private fun stopAndReturnToPie() {
         if (!CaptureSession.isActive(this) || returnTriggered) return
+        val returnUrl = CaptureSession.returnUrl(this)
         returnTriggered = true
         sendCaptureAction(PlaybackCaptureService.ACTION_AUTO_STOP)
+        returnFromYouTube(returnUrl, RETURN_BACK_DELAY_MS)
+    }
+
+    private fun returnFromYouTube(returnUrl: String?, backDelayMs: Long) {
         handler.postDelayed({
             try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) {}
-        }, RETURN_BACK_DELAY_MS)
+            verifyReturnedFromYouTube(returnUrl, 0)
+        }, backDelayMs)
+    }
+
+    private fun verifyReturnedFromYouTube(returnUrl: String?, attempt: Int) {
+        handler.postDelayed({
+            val activePackage = try { rootInActiveWindow?.packageName?.toString() } catch (_: Exception) { null }
+            if (!activePackage.isNullOrBlank() && activePackage != YOUTUBE_PACKAGE) return@postDelayed
+
+            if (attempt < RETURN_VERIFY_ATTEMPTS - 1) {
+                verifyReturnedFromYouTube(returnUrl, attempt + 1)
+            } else {
+                openPieFallback(returnUrl)
+            }
+        }, RETURN_VERIFY_INTERVAL_MS)
+    }
+
+    private fun openPieFallback(returnUrl: String?) {
+        val base = returnUrl?.takeIf(CaptureSession::isValidPieUrl) ?: PIE_URL
+        val uri = Uri.parse(base).buildUpon()
+            .appendQueryParameter("pieCapture", "processing")
+            .build()
+        try {
+            startActivity(
+                Intent(Intent.ACTION_VIEW, uri)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            )
+        } catch (_: Exception) {
+            // If Android blocks the fallback launch, the notification still remains available.
+        }
     }
 
     private fun collectText(node: AccessibilityNodeInfo?, out: StringBuilder, depth: Int) {
@@ -313,13 +342,20 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     private enum class PlayerState { PLAYING, STOPPED, ENDED, UNKNOWN }
 
     companion object {
+        @Volatile
+        var isConnected: Boolean = false
+            private set
+
         private const val YOUTUBE_PACKAGE = "com.google.android.youtube"
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
         private const val RESUME_STABILITY_MS = 1800L
         private const val STOP_STABILITY_MS = 900L
         private const val MONITOR_INTERVAL_MS = 500L
         private const val RETURN_BACK_DELAY_MS = 180L
-        private const val AUTO_FINISH_RETURN_DELAY_MS = 650L
+        private const val AUTO_FINISH_RETURN_DELAY_MS = 180L
+        private const val RETURN_VERIFY_INTERVAL_MS = 350L
+        private const val RETURN_VERIFY_ATTEMPTS = 3
+        private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
 
         private val AD_MARKERS = listOf(
             "skip ad",

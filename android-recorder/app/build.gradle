@@ -7,12 +7,15 @@ android {
     namespace 'app.pie.recorder'
     compileSdk 35
 
+    def ciRunNumber = System.getenv('GITHUB_RUN_NUMBER')
+    def buildNumber = ciRunNumber ? ciRunNumber.toInteger() : 1
+
     defaultConfig {
         applicationId 'app.pie.recorder'
         minSdk 29
         targetSdk 35
-        versionCode 1
-        versionName '0.1.0'
+        versionCode buildNumber
+        versionName "0.1.${buildNumber}"
     }
 
     buildTypes {

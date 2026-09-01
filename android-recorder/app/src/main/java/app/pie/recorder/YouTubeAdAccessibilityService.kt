@@ -21,6 +21,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     private var monitorRunning = false
     private var returnTriggered = false
     private var autoFinishedReceiverRegistered = false
+    private var lastBrowserPackage: String? = null
 
     private val autoFinishedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -60,13 +61,18 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val eventPackage = event?.packageName?.toString()
+        if (!eventPackage.isNullOrBlank() && KNOWN_BROWSER_PACKAGES.contains(eventPackage)) {
+            lastBrowserPackage = eventPackage
+        }
+
         if (!CaptureSession.isActive(this)) {
             resetState()
             return
         }
 
         ensureMonitor()
-        val packageName = event?.packageName?.toString() ?: return
+        val packageName = eventPackage ?: return
 
         if (packageName == SYSTEM_UI_PACKAGE) {
             if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
@@ -297,7 +303,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     }
 
     private fun returnFromYouTube(returnUrl: String?, backDelayMs: Long) {
-        val expectedBrowser = resolveBrowserPackage(returnUrl)
+        val expectedBrowser = lastBrowserPackage ?: resolveBrowserPackage(returnUrl)
         handler.postDelayed({
             try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) {}
             verifyReturnedFromYouTube(returnUrl, expectedBrowser, 0)
@@ -310,8 +316,6 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             if (isExpectedBrowser(activePackage, expectedBrowser)) return@postDelayed
 
             if (attempt < RETURN_VERIFY_ATTEMPTS - 1) {
-                // One Android Back can merely close YouTube's player/chrome instead of
-                // leaving the app. Retry Back only while YouTube is still foregrounded.
                 if (activePackage == YOUTUBE_PACKAGE || activePackage.isNullOrBlank()) {
                     try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) {}
                 }
@@ -335,32 +339,45 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     private fun isExpectedBrowser(activePackage: String?, expectedBrowser: String?): Boolean {
         if (activePackage.isNullOrBlank()) return false
         if (!expectedBrowser.isNullOrBlank() && activePackage == expectedBrowser) return true
-        return KNOWN_BROWSER_PACKAGES.contains(activePackage)
+        return expectedBrowser.isNullOrBlank() && KNOWN_BROWSER_PACKAGES.contains(activePackage)
     }
 
     private fun bringExistingBrowserToFront(returnUrl: String?, expectedBrowser: String?) {
-        val resolved = expectedBrowser ?: resolveBrowserPackage(returnUrl)
-        val candidates = buildList {
-            if (!resolved.isNullOrBlank()) add(resolved)
-            addAll(KNOWN_BROWSER_PACKAGES)
-        }.distinct()
+        val resolved = expectedBrowser ?: lastBrowserPackage ?: resolveBrowserPackage(returnUrl)
+        try { performGlobalAction(GLOBAL_ACTION_HOME) } catch (_: Exception) {}
 
-        for (packageName in candidates) {
-            try {
-                val launch = packageManager.getLaunchIntentForPackage(packageName) ?: continue
-                launch.addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP
-                )
-                startActivity(launch)
-                return
-            } catch (_: Exception) {
-                // Try the next installed browser without opening a URL/new tab.
+        handler.postDelayed({
+            val candidates = buildList {
+                if (!resolved.isNullOrBlank()) add(resolved)
+                if (!lastBrowserPackage.isNullOrBlank()) add(lastBrowserPackage!!)
+                addAll(KNOWN_BROWSER_PACKAGES)
+            }.distinct()
+
+            var launched = false
+            for (packageName in candidates) {
+                try {
+                    val launch = packageManager.getLaunchIntentForPackage(packageName) ?: continue
+                    launch.addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                            Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                    )
+                    startActivity(launch)
+                    launched = true
+                    break
+                } catch (_: Exception) {
+                    // Try the next installed browser without opening a URL/new tab.
+                }
             }
-        }
 
-        try { performGlobalAction(GLOBAL_ACTION_RECENTS) } catch (_: Exception) {}
+            handler.postDelayed({
+                val activePackage = try { rootInActiveWindow?.packageName?.toString() } catch (_: Exception) { null }
+                if (!isExpectedBrowser(activePackage, resolved)) {
+                    try { performGlobalAction(GLOBAL_ACTION_RECENTS) } catch (_: Exception) {}
+                }
+            }, if (launched) BROWSER_VERIFY_DELAY_MS else 0L)
+        }, HOME_TO_BROWSER_DELAY_MS)
     }
 
     private fun collectText(node: AccessibilityNodeInfo?, out: StringBuilder, depth: Int) {
@@ -388,6 +405,8 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private const val AUTO_FINISH_RETURN_DELAY_MS = 180L
         private const val RETURN_VERIFY_INTERVAL_MS = 450L
         private const val RETURN_VERIFY_ATTEMPTS = 4
+        private const val HOME_TO_BROWSER_DELAY_MS = 300L
+        private const val BROWSER_VERIFY_DELAY_MS = 700L
         private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
 
         private val KNOWN_BROWSER_PACKAGES = listOf(

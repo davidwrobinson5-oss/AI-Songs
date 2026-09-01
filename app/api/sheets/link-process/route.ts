@@ -52,7 +52,7 @@ async function readStreamLimited(stream:ReadableStream<Uint8Array>){
   return merged;
 }
 
-async function fetchAuthorizedYouTubeAudio(rawUrl:string){
+async function fetchYouTubeAudio(rawUrl:string){
   const parsed=new URL(rawUrl);
   const id=youtubeVideoId(parsed);
   if(!id)throw new Error('YOUTUBE_INVALID_URL');
@@ -107,7 +107,7 @@ export async function POST(req:Request){
 
   let stagedPath='';
   try{
-    const body=await req.json() as {url?:string;stagedPath?:string;name?:string;type?:string;authorized?:boolean};
+    const body=await req.json() as {url?:string;stagedPath?:string;name?:string;type?:string};
     stagedPath=String(body.stagedPath||'');
     let blob:Blob;
     let sourceLabel=String(body.name||'Uploaded media').slice(0,120);
@@ -119,8 +119,7 @@ export async function POST(req:Request){
       if(!rawUrl)return NextResponse.json({error:'Paste a music link first.'},{status:400});
       const parsed=new URL(rawUrl);
       if(isYouTubeHost(parsed.hostname)){
-        if(body.authorized!==true)return NextResponse.json({error:'Confirm that you own this source or have permission to process its audio.'},{status:403});
-        const result=await fetchAuthorizedYouTubeAudio(rawUrl);
+        const result=await fetchYouTubeAudio(rawUrl);
         blob=result.blob;
         sourceLabel=result.sourceLabel;
       }else{
@@ -140,8 +139,8 @@ export async function POST(req:Request){
   }catch(error){
     const message=error instanceof Error?error.message:'';
     if(message==='YOUTUBE_INVALID_URL')return NextResponse.json({error:'That YouTube link is not recognized.'},{status:400});
-    if(message==='YOUTUBE_TOO_LONG')return NextResponse.json({error:'Use an authorized YouTube source under 15 minutes for this first version.'},{status:413});
-    if(message==='LINK_NOT_MEDIA')return NextResponse.json({error:'That URL is a webpage, not a direct audio/video file. YouTube links are supported when you confirm authorization; other sites need a direct media URL.'},{status:415});
+    if(message==='YOUTUBE_TOO_LONG')return NextResponse.json({error:'Use a YouTube source under 15 minutes for this first version.'},{status:413});
+    if(message==='LINK_NOT_MEDIA')return NextResponse.json({error:'That URL is a webpage, not a direct audio/video file. YouTube links are supported; other sites need a direct media URL.'},{status:415});
     if(message==='LINK_TOO_LARGE')return NextResponse.json({error:'That media source is too large. Use audio/video under 45 MB.'},{status:413});
     if(message==='LINK_HTTPS_ONLY'||message==='PRIVATE_LINK_BLOCKED')return NextResponse.json({error:'That link cannot be fetched safely.'},{status:400});
     if(message==='KLANGIO_NOT_CONFIGURED')return NextResponse.json({error:'Sheet and stem processing is not configured yet.'},{status:503});

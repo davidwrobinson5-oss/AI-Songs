@@ -18,6 +18,7 @@
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "tus-js-client": "4.3.1",
+    "youtube-dl-exec": "3.1.13",
     "youtubei.js": "18.0.0"
   },
   "devDependencies": {

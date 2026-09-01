@@ -22,11 +22,14 @@ import java.io.IOException
 import java.io.RandomAccessFile
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.abs
+import kotlin.math.min
 
 class PlaybackCaptureService : Service() {
     companion object {
         const val ACTION_START = "app.pie.recorder.START"
         const val ACTION_STOP = "app.pie.recorder.STOP"
+        const val ACTION_PAUSE = "app.pie.recorder.PAUSE"
+        const val ACTION_RESUME = "app.pie.recorder.RESUME"
         const val ACTION_SAVED = "app.pie.recorder.SAVED"
         const val EXTRA_RESULT_CODE = "resultCode"
         const val EXTRA_RESULT_DATA = "resultData"
@@ -42,12 +45,14 @@ class PlaybackCaptureService : Service() {
         private const val SILENCE_THRESHOLD = 16
         private const val END_SILENCE_MS = 4000L
         private const val MIN_ACTIVE_CAPTURE_MS = 5000L
+        private const val SPLICE_FADE_MS = 18
         private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
     }
 
     private var audioRecord: AudioRecord? = null
     private var worker: Thread? = null
     private val recording = AtomicBoolean(false)
+    private val paused = AtomicBoolean(false)
     private var outputFile: File? = null
     private val client = OkHttpClient()
 
@@ -72,6 +77,14 @@ class PlaybackCaptureService : Service() {
         when (intent?.action) {
             ACTION_START -> startCapture(intent)
             ACTION_STOP -> stopCapture()
+            ACTION_PAUSE -> {
+                paused.set(true)
+                if (recording.get()) showRecordingNotification(true)
+            }
+            ACTION_RESUME -> {
+                paused.set(false)
+                if (recording.get()) showRecordingNotification(false)
+            }
         }
         return START_NOT_STICKY
     }
@@ -85,26 +98,9 @@ class PlaybackCaptureService : Service() {
         wantsFullSheet = intent.getBooleanExtra(EXTRA_FULL_SHEET, true)
         wantsPartSheets = intent.getBooleanExtra(EXTRA_PART_SHEETS, true)
         wantsChords = intent.getBooleanExtra(EXTRA_CHORDS, true)
+        paused.set(false)
 
-        val stopUri = Uri.parse("pie-recorder://capture/stop").buildUpon()
-            .appendQueryParameter("return", returnUrl ?: PIE_URL)
-            .build()
-        val stopIntent = Intent(Intent.ACTION_VIEW, stopUri, this, MainActivity::class.java)
-        val stopPendingIntent = PendingIntent.getActivity(
-            this,
-            45,
-            stopIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
-        val notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle("Pie is recording playback audio")
-            .setContentText("When finished, Pie will return for processing")
-            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
-            .setOngoing(true)
-            .addAction(android.R.drawable.ic_media_pause, "Stop & return to Pie", stopPendingIntent)
-            .build()
-        startForeground(44, notification)
+        showRecordingNotification(false)
 
         val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, Activity.RESULT_CANCELED)
         val resultData = if (Build.VERSION.SDK_INT >= 33) {
@@ -124,6 +120,7 @@ class PlaybackCaptureService : Service() {
             .build()
 
         val sampleRate = 32000
+        val channels = 2
         val format = AudioFormat.Builder()
             .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
             .setSampleRate(sampleRate)
@@ -144,50 +141,72 @@ class PlaybackCaptureService : Service() {
         recording.set(true)
 
         val autoEndEnabled = isYouTubeSource(sourceUrl)
+        val fadeSamples = sampleRate * channels * SPLICE_FADE_MS / 1000
 
         worker = Thread {
             var autoFinished = false
             RandomAccessFile(file, "rw").use { wav ->
-                writeHeader(wav, 0, sampleRate, 2)
+                writeHeader(wav, 0, sampleRate, channels)
                 audioRecord?.startRecording()
                 val buffer = ByteArray(bufferBytes)
                 var pcmBytes = 0L
                 val startedAt = SystemClock.elapsedRealtime()
                 var heardAudio = false
                 var lastSignalAt = startedAt
+                var wasPaused = false
+                var fadeInRemaining = 0
 
                 while (recording.get()) {
                     val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
-                    if (read > 0) {
-                        wav.write(buffer, 0, read)
-                        pcmBytes += read
+                    if (read <= 0) continue
 
-                        val now = SystemClock.elapsedRealtime()
-                        if (hasPlaybackSignal(buffer, read)) {
-                            heardAudio = true
-                            lastSignalAt = now
-                        } else if (
-                            autoEndEnabled &&
-                            heardAudio &&
-                            now - startedAt >= MIN_ACTIVE_CAPTURE_MS &&
-                            now - lastSignalAt >= END_SILENCE_MS
-                        ) {
-                            autoFinished = true
-                            recording.set(false)
+                    val isPaused = paused.get()
+                    if (isPaused) {
+                        if (!wasPaused) {
+                            applyFadeOutToTail(wav, pcmBytes, sampleRate, channels)
+                            wasPaused = true
                         }
+                        // Keep consuming the selected app's audio so capture stays alive,
+                        // but do not write ad audio into the Pie recording.
+                        continue
+                    }
+
+                    if (wasPaused) {
+                        wasPaused = false
+                        fadeInRemaining = fadeSamples
+                        lastSignalAt = SystemClock.elapsedRealtime()
+                    }
+
+                    if (fadeInRemaining > 0) {
+                        fadeInRemaining = applyFadeIn(buffer, read, fadeSamples, fadeInRemaining)
+                    }
+
+                    wav.write(buffer, 0, read)
+                    pcmBytes += read
+
+                    val now = SystemClock.elapsedRealtime()
+                    if (hasPlaybackSignal(buffer, read)) {
+                        heardAudio = true
+                        lastSignalAt = now
+                    } else if (
+                        autoEndEnabled &&
+                        heardAudio &&
+                        now - startedAt >= MIN_ACTIVE_CAPTURE_MS &&
+                        now - lastSignalAt >= END_SILENCE_MS
+                    ) {
+                        autoFinished = true
+                        recording.set(false)
                     }
                 }
 
                 try { audioRecord?.stop() } catch (_: Exception) {}
-                writeHeader(wav, pcmBytes, sampleRate, 2)
+                writeHeader(wav, pcmBytes, sampleRate, channels)
             }
 
             projection.stop()
             sendBroadcast(Intent(ACTION_SAVED).setPackage(packageName).putExtra(EXTRA_PATH, file.absolutePath))
 
             if (autoFinished) {
-                // Put the user back in Pie as soon as the YouTube playback ends, while
-                // this foreground service continues the upload in the background.
                 openPie("processing")
                 uploadRecording(file)
             } else {
@@ -195,6 +214,112 @@ class PlaybackCaptureService : Service() {
                 stopSelf()
             }
         }.also { it.start() }
+    }
+
+    private fun showRecordingNotification(isPaused: Boolean) {
+        val pauseResumeIntent = Intent(this, PlaybackCaptureService::class.java)
+            .setAction(if (isPaused) ACTION_RESUME else ACTION_PAUSE)
+        val pauseResumePending = PendingIntent.getService(
+            this,
+            44,
+            pauseResumeIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val stopUri = Uri.parse("pie-recorder://capture/stop").buildUpon()
+            .appendQueryParameter("return", returnUrl ?: PIE_URL)
+            .build()
+        val stopIntent = Intent(Intent.ACTION_VIEW, stopUri, this, MainActivity::class.java)
+        val stopPendingIntent = PendingIntent.getActivity(
+            this,
+            45,
+            stopIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle(if (isPaused) "Pie capture paused for ad" else "Pie is recording playback audio")
+            .setContentText(
+                if (isPaused) "Tap Resume when the song returns"
+                else "Ad starts? Tap Pause for ad — Pie will stitch the song smoothly"
+            )
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setOngoing(true)
+            .addAction(
+                if (isPaused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+                if (isPaused) "Resume song" else "Pause for ad",
+                pauseResumePending
+            )
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Stop & return to Pie", stopPendingIntent)
+            .build()
+
+        if (recording.get()) {
+            getSystemService(NotificationManager::class.java).notify(44, notification)
+        } else {
+            startForeground(44, notification)
+        }
+    }
+
+    private fun applyFadeOutToTail(
+        wav: RandomAccessFile,
+        pcmBytes: Long,
+        sampleRate: Int,
+        channels: Int
+    ) {
+        if (pcmBytes < 4) return
+        val requestedSamples = sampleRate * channels * SPLICE_FADE_MS / 1000
+        val availableSamples = (pcmBytes / 2L).toInt()
+        val sampleCount = min(requestedSamples, availableSamples)
+        if (sampleCount <= 1) return
+
+        val byteCount = sampleCount * 2
+        val start = 44L + pcmBytes - byteCount
+        val tail = ByteArray(byteCount)
+        wav.seek(start)
+        wav.readFully(tail)
+
+        for (i in 0 until sampleCount) {
+            val offset = i * 2
+            val sample = decodePcm16(tail, offset)
+            val gain = (sampleCount - 1 - i).toFloat() / (sampleCount - 1).toFloat()
+            encodePcm16(tail, offset, (sample * gain).toInt())
+        }
+
+        wav.seek(start)
+        wav.write(tail)
+        wav.seek(44L + pcmBytes)
+    }
+
+    private fun applyFadeIn(
+        buffer: ByteArray,
+        length: Int,
+        totalFadeSamples: Int,
+        remainingSamples: Int
+    ): Int {
+        if (totalFadeSamples <= 1 || remainingSamples <= 0) return 0
+        var remaining = remainingSamples
+        var offset = 0
+        while (offset + 1 < length && remaining > 0) {
+            val processed = totalFadeSamples - remaining
+            val gain = processed.toFloat() / (totalFadeSamples - 1).toFloat()
+            val sample = decodePcm16(buffer, offset)
+            encodePcm16(buffer, offset, (sample * gain).toInt())
+            remaining--
+            offset += 2
+        }
+        return remaining
+    }
+
+    private fun decodePcm16(data: ByteArray, offset: Int): Int {
+        val lo = data[offset].toInt() and 0xff
+        val hi = data[offset + 1].toInt()
+        return ((hi shl 8) or lo).toShort().toInt()
+    }
+
+    private fun encodePcm16(data: ByteArray, offset: Int, value: Int) {
+        val sample = value.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+        data[offset] = (sample and 0xff).toByte()
+        data[offset + 1] = ((sample shr 8) and 0xff).toByte()
     }
 
     private fun hasPlaybackSignal(buffer: ByteArray, length: Int): Boolean {
@@ -304,6 +429,7 @@ class PlaybackCaptureService : Service() {
 
     override fun onDestroy() {
         recording.set(false)
+        paused.set(false)
         try { audioRecord?.release() } catch (_: Exception) {}
         super.onDestroy()
     }

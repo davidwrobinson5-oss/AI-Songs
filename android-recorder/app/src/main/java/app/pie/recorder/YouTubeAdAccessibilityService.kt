@@ -310,6 +310,11 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             if (isExpectedBrowser(activePackage, expectedBrowser)) return@postDelayed
 
             if (attempt < RETURN_VERIFY_ATTEMPTS - 1) {
+                // One Android Back can merely close YouTube's player/chrome instead of
+                // leaving the app. Retry Back only while YouTube is still foregrounded.
+                if (activePackage == YOUTUBE_PACKAGE || activePackage.isNullOrBlank()) {
+                    try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) {}
+                }
                 verifyReturnedFromYouTube(returnUrl, expectedBrowser, attempt + 1)
             } else {
                 bringExistingBrowserToFront(returnUrl, expectedBrowser)
@@ -355,8 +360,6 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Last resort: show Recents instead of opening Pie by URL. Opening the return
-        // URL created a fresh Brave tab/session and forced the user back to the login page.
         try { performGlobalAction(GLOBAL_ACTION_RECENTS) } catch (_: Exception) {}
     }
 
@@ -383,8 +386,8 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private const val MONITOR_INTERVAL_MS = 500L
         private const val RETURN_BACK_DELAY_MS = 180L
         private const val AUTO_FINISH_RETURN_DELAY_MS = 180L
-        private const val RETURN_VERIFY_INTERVAL_MS = 350L
-        private const val RETURN_VERIFY_ATTEMPTS = 3
+        private const val RETURN_VERIFY_INTERVAL_MS = 450L
+        private const val RETURN_VERIFY_ATTEMPTS = 4
         private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
 
         private val KNOWN_BROWSER_PACKAGES = listOf(

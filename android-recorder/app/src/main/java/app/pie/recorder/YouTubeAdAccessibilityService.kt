@@ -2,7 +2,6 @@ package app.pie.recorder
 
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
@@ -46,9 +45,6 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         ensureMonitor()
         val packageName = event?.packageName?.toString() ?: return
 
-        // Samsung/Android media controls can generate System UI accessibility events
-        // instead of YouTube events. While a Pie session is active, a Pause/Stop click
-        // there is also treated as the user's request to finish the capture.
         if (packageName == SYSTEM_UI_PACKAGE) {
             if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
                 val clicked = clickedSnapshot(event)
@@ -93,9 +89,6 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             handler.removeCallbacks(stoppedRunnable)
         }
 
-        // On some Samsung/YouTube versions, the Pause button click event has no label.
-        // The monitor below re-checks the actual player control after the UI settles.
-        // If a label is available, finish immediately without waiting for that poll.
         if (userTappedStop) {
             hasSeenPlaying = true
             scheduleStop()
@@ -232,7 +225,6 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
         scan(root, 0)
 
-        // Prefer Pause if both Pause and unrelated recommendation Play controls exist.
         return when {
             hasPause -> PlayerState.PLAYING
             hasReplay -> PlayerState.ENDED
@@ -246,23 +238,21 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         try {
             startService(Intent(this, PlaybackCaptureService::class.java).setAction(action))
         } catch (_: Exception) {
-            // Recorder may not be active yet; later YouTube events will retry automatically.
+            // Recorder may not be active yet; later events will retry.
         }
     }
 
     private fun stopAndReturnToPie() {
-        val pieReturn = CaptureSession.returnUrl(this) ?: return
-        try {
-            val uri = Uri.parse("pie-recorder://capture/stop").buildUpon()
-                .appendQueryParameter("return", pieReturn)
-                .build()
-            startActivity(Intent(this, MainActivity::class.java).apply {
-                data = uri
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            })
-        } catch (_: Exception) {
-            sendCaptureAction(PlaybackCaptureService.ACTION_STOP)
-        }
+        if (!CaptureSession.isActive(this)) return
+
+        // Do not depend on Android allowing a background Activity launch. Ask the
+        // recorder service to finalize, upload, and open Pie, then use Accessibility's
+        // user-equivalent Back action to immediately leave YouTube. Pie is the screen
+        // directly underneath because the capture was launched from Pie.
+        sendCaptureAction(PlaybackCaptureService.ACTION_AUTO_STOP)
+        handler.postDelayed({
+            try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) {}
+        }, RETURN_BACK_DELAY_MS)
     }
 
     private fun collectText(node: AccessibilityNodeInfo?, out: StringBuilder, depth: Int) {
@@ -282,6 +272,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private const val RESUME_STABILITY_MS = 1800L
         private const val STOP_STABILITY_MS = 900L
         private const val MONITOR_INTERVAL_MS = 500L
+        private const val RETURN_BACK_DELAY_MS = 180L
 
         private val AD_MARKERS = listOf(
             "skip ad",

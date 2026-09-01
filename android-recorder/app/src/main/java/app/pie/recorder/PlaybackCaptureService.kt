@@ -28,6 +28,7 @@ class PlaybackCaptureService : Service() {
     companion object {
         const val ACTION_START = "app.pie.recorder.START"
         const val ACTION_STOP = "app.pie.recorder.STOP"
+        const val ACTION_AUTO_STOP = "app.pie.recorder.AUTO_STOP"
         const val ACTION_PAUSE = "app.pie.recorder.PAUSE"
         const val ACTION_RESUME = "app.pie.recorder.RESUME"
         const val ACTION_SAVED = "app.pie.recorder.SAVED"
@@ -53,6 +54,7 @@ class PlaybackCaptureService : Service() {
     private var worker: Thread? = null
     private val recording = AtomicBoolean(false)
     private val paused = AtomicBoolean(false)
+    private val autoStopRequested = AtomicBoolean(false)
     private var outputFile: File? = null
     private val client = OkHttpClient()
 
@@ -77,6 +79,11 @@ class PlaybackCaptureService : Service() {
         when (intent?.action) {
             ACTION_START -> startCapture(intent)
             ACTION_STOP -> stopCapture()
+            ACTION_AUTO_STOP -> {
+                autoStopRequested.set(true)
+                paused.set(false)
+                stopCapture()
+            }
             ACTION_PAUSE -> {
                 paused.set(true)
                 if (recording.get()) showRecordingNotification(true)
@@ -99,6 +106,7 @@ class PlaybackCaptureService : Service() {
         wantsPartSheets = intent.getBooleanExtra(EXTRA_PART_SHEETS, true)
         wantsChords = intent.getBooleanExtra(EXTRA_CHORDS, true)
         paused.set(false)
+        autoStopRequested.set(false)
 
         showRecordingNotification(false)
 
@@ -166,8 +174,6 @@ class PlaybackCaptureService : Service() {
                             applyFadeOutToTail(wav, pcmBytes, sampleRate, channels)
                             wasPaused = true
                         }
-                        // Keep consuming the selected app's audio so capture stays alive,
-                        // but do not write ad audio into the Pie recording.
                         continue
                     }
 
@@ -199,6 +205,7 @@ class PlaybackCaptureService : Service() {
                     }
                 }
 
+                if (autoStopRequested.get()) autoFinished = true
                 try { audioRecord?.stop() } catch (_: Exception) {}
                 writeHeader(wav, pcmBytes, sampleRate, channels)
             }
@@ -397,8 +404,8 @@ class PlaybackCaptureService : Service() {
             }
             startActivity(intent)
         } catch (_: Exception) {
-            // Android may restrict background app switching. The completion notification
-            // remains available as a user-initiated fallback.
+            // Android may restrict background app switching. The AccessibilityService
+            // also navigates back to Pie when it observes a YouTube stop event.
         }
     }
 
@@ -430,6 +437,7 @@ class PlaybackCaptureService : Service() {
     override fun onDestroy() {
         recording.set(false)
         paused.set(false)
+        autoStopRequested.set(false)
         try { audioRecord?.release() } catch (_: Exception) {}
         super.onDestroy()
     }

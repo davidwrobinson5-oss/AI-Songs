@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { stagePieFile } from './stagedUpload';
-import PlaybackRecorderCard from './PlaybackRecorderCard';
 
 type Jobs = Partial<Record<'full'|'chords'|'separation'|'lead'|'drums'|'bass'|'guitar'|'keys', string>>;
 type Statuses = Record<string,string>;
@@ -217,7 +216,6 @@ export default function AudioProcessorWorkspace(){
   const progress=useMemo(()=>Object.entries(jobs).map(([key,id])=>({key,id,status:statuses[key]||'QUEUED'})),[jobs,statuses]);
 
   return <div style={{maxWidth:980,margin:'0 auto'}}>
-    <PlaybackRecorderCard />
     <section className="panel" style={{padding:20}}>
       <p className="eyebrow">AUDIO IMPORT</p>
       <h2 style={{marginTop:4}}>Audio → Sheets & Stems</h2>

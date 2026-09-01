@@ -39,10 +39,19 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             event.contentDescription?.let { append(' ').append(it) }
         }.lowercase()
 
+        val clickedSnapshot = buildString {
+            event.text.forEach { append(' ').append(it) }
+            event.contentDescription?.let { append(' ').append(it) }
+            event.source?.text?.let { append(' ').append(it) }
+            event.source?.contentDescription?.let { append(' ').append(it) }
+        }.lowercase()
+
         val nowAd = AD_MARKERS.any { snapshot.contains(it) }
         val ended = END_MARKERS.any { snapshot.contains(it) } && !nowAd
         val showsPauseControl = PLAYING_MARKERS.any { snapshot.contains(it) } && !nowAd
         val showsPlayControl = STOPPED_MARKERS.any { snapshot.contains(it) } && !nowAd
+        val userTappedPause = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
+            PAUSE_CLICK_MARKERS.any { clickedSnapshot.contains(it) } && !nowAd
 
         if (nowAd) {
             pendingStop = false
@@ -59,6 +68,17 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             hasSeenPlaying = true
             pendingStop = false
             handler.removeCallbacks(stoppedRunnable)
+        }
+
+        // YouTube often reports the clicked control as "Pause" even before the UI has
+        // updated to show "Play". Treat that tap itself as the user's stop signal.
+        if (userTappedPause) {
+            hasSeenPlaying = true
+            pendingStop = true
+            handler.removeCallbacks(resumeRunnable)
+            handler.removeCallbacks(stoppedRunnable)
+            handler.postDelayed(stoppedRunnable, STOP_STABILITY_MS)
+            return
         }
 
         if (ended) {
@@ -119,7 +139,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             val uri = Uri.parse("pie-recorder://capture/stop").buildUpon()
                 .appendQueryParameter("return", pieReturn)
                 .build()
-            startActivity(Intent(Intent.ACTION_VIEW, uri).apply {
+            startActivity(Intent(Intent.ACTION_VIEW, uri, this, MainActivity::class.java).apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             })
         } catch (_: Exception) {
@@ -139,7 +159,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     companion object {
         private const val YOUTUBE_PACKAGE = "com.google.android.youtube"
         private const val RESUME_STABILITY_MS = 1800L
-        private const val STOP_STABILITY_MS = 1500L
+        private const val STOP_STABILITY_MS = 900L
 
         private val AD_MARKERS = listOf(
             "skip ad",
@@ -153,6 +173,11 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         )
 
         private val PLAYING_MARKERS = listOf(
+            "pause video",
+            "pause"
+        )
+
+        private val PAUSE_CLICK_MARKERS = listOf(
             "pause video",
             "pause"
         )

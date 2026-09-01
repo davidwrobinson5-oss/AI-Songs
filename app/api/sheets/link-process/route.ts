@@ -60,30 +60,57 @@ async function readStreamLimited(stream:ReadableStream<Uint8Array>){
 
 async function fetchYouTubeViaYtDlp(rawUrl:string){
   const dir=await mkdtemp(join(tmpdir(),'pie-ytdlp-'));
-  try{
-    const template=join(dir,'source.%(ext)s');
-    await youtubedl(rawUrl,{
-      format:'bestaudio[filesize<45M]/bestaudio',
-      output:template,
-      noPlaylist:true,
-      noWarnings:true,
-      restrictFilenames:true,
-      maxFilesize:'45M',
-      socketTimeout:20,
-      retries:1,
-    },{timeout:45_000,killSignal:'SIGKILL'});
+  const template=join(dir,'source.%(ext)s');
 
-    const names=(await readdir(dir)).filter(name=>name.startsWith('source.'));
-    if(!names.length)throw new Error('YTDLP_NO_AUDIO');
-    const path=join(dir,names[0]);
-    const info=await stat(path);
-    if(!info.size||info.size>MAX_BYTES)throw new Error('LINK_TOO_LARGE');
-    const bytes=await readFile(path);
-    const ext=names[0].split('.').pop()?.toLowerCase()||'';
-    const type=ext==='m4a'||ext==='mp4'?'audio/mp4':ext==='webm'?'audio/webm':ext==='mp3'?'audio/mpeg':'application/octet-stream';
-    return {blob:new Blob([bytes],{type}),sourceLabel:'YouTube audio'};
-  }catch(error){
-    console.warn('yt-dlp YouTube fallback failed',error instanceof Error?error.message:String(error));
+  const clearOutput=async()=>{
+    const names=await readdir(dir).catch(()=>[] as string[]);
+    await Promise.all(names.filter(name=>name.startsWith('source.')).map(name=>rm(join(dir,name),{force:true}).catch(()=>{})));
+  };
+
+  const runAttempt=async(label:string,flags:Record<string,unknown>)=>{
+    await clearOutput();
+    try{
+      await youtubedl(rawUrl,{
+        output:template,
+        noPlaylist:true,
+        noWarnings:true,
+        restrictFilenames:true,
+        maxFilesize:'45M',
+        socketTimeout:20,
+        retries:1,
+        ...flags,
+      } as any,{timeout:45_000,killSignal:'SIGKILL'});
+      const names=(await readdir(dir)).filter(name=>name.startsWith('source.'));
+      if(!names.length)throw new Error('YTDLP_NO_AUDIO');
+      const path=join(dir,names[0]);
+      const info=await stat(path);
+      if(!info.size||info.size>MAX_BYTES)throw new Error('LINK_TOO_LARGE');
+      const bytes=await readFile(path);
+      const ext=names[0].split('.').pop()?.toLowerCase()||'';
+      const type=ext==='m4a'||ext==='mp4'?'audio/mp4':ext==='webm'?'audio/webm':ext==='mp3'?'audio/mpeg':'application/octet-stream';
+      console.info('yt-dlp YouTube fallback succeeded',{label,ext,size:info.size});
+      return {blob:new Blob([bytes],{type}),sourceLabel:'YouTube audio'};
+    }catch(error:any){
+      console.warn('yt-dlp attempt failed',{label,message:error?.message||String(error),stderr:String(error?.stderr||'').slice(0,1200)});
+      throw error;
+    }
+  };
+
+  try{
+    try{
+      return await runAttempt('web_safari_hls',{
+        extractorArgs:'youtube:player_client=web_safari',
+        format:'bestaudio[protocol^=m3u8][filesize<45M]/bestaudio[protocol^=m3u8]/bestaudio[filesize<45M]/bestaudio',
+        hlsPreferNative:true,
+      });
+    }catch{}
+
+    try{
+      return await runAttempt('generic',{
+        format:'bestaudio[filesize<45M]/bestaudio',
+      });
+    }catch{}
+
     throw new Error('YOUTUBE_FETCH_BLOCKED');
   }finally{
     await rm(dir,{recursive:true,force:true}).catch(()=>{});
@@ -113,7 +140,7 @@ async function fetchYouTubeAudio(rawUrl:string){
     }
   }
 
-  console.warn('YouTube.js clients exhausted; trying yt-dlp fallback.');
+  console.warn('YouTube.js clients exhausted; trying yt-dlp fallbacks.');
   return fetchYouTubeViaYtDlp(rawUrl);
 }
 
@@ -125,7 +152,7 @@ async function fetchDirectMedia(rawUrl:string){
   const controller=new AbortController();
   const timer=setTimeout(()=>controller.abort(),30_000);
   try{
-    const response=await fetch(url,{method:'GET',redirect:'follow',cache:'no-store',signal:controller.signal,headers:{'User-Agent':'PieMusicAnalyzer/2.3'}});
+    const response=await fetch(url,{method:'GET',redirect:'follow',cache:'no-store',signal:controller.signal,headers:{'User-Agent':'PieMusicAnalyzer/2.4'}});
     if(!response.ok)throw new Error('LINK_FETCH_FAILED');
     const finalUrl=new URL(response.url||url.toString());
     if(isPrivateHost(finalUrl.hostname))throw new Error('PRIVATE_LINK_BLOCKED');
@@ -200,7 +227,7 @@ export async function POST(req:Request){
     const message=error instanceof Error?error.message:'';
     if(message==='YOUTUBE_INVALID_URL')return NextResponse.json({error:'That YouTube link is not recognized.'},{status:400});
     if(message==='YOUTUBE_TOO_LONG')return NextResponse.json({error:'Use a YouTube source under 15 minutes for this version.'},{status:413});
-    if(message==='YOUTUBE_FETCH_BLOCKED')return NextResponse.json({error:'YouTube blocked both of Pie’s server extraction methods for this video. Try another YouTube source or upload the audio/video file.'},{status:409});
+    if(message==='YOUTUBE_FETCH_BLOCKED')return NextResponse.json({error:'YouTube blocked Pie’s available server playback paths for this video. A PO-token provider or uploaded audio/video is required for this source.'},{status:409});
     if(message==='LINK_NOT_MEDIA')return NextResponse.json({error:'That URL is a webpage, not a direct audio/video file. YouTube links are supported; other sites need a direct media URL.'},{status:415});
     if(message==='LINK_TOO_LARGE')return NextResponse.json({error:'That media source is too large. Use audio/video under 45 MB.'},{status:413});
     if(message==='LINK_HTTPS_ONLY'||message==='PRIVATE_LINK_BLOCKED')return NextResponse.json({error:'That link cannot be fetched safely.'},{status:400});

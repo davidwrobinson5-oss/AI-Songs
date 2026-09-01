@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.*
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.drawable.ColorDrawable
 import android.media.projection.MediaProjectionManager
 import android.net.Uri
 import android.os.Build
@@ -30,16 +31,18 @@ class MainActivity : Activity() {
     private var savedPath: String? = null
     private var launchedFromPie = false
     private var returnUrl: String? = null
+    private var pendingSourceUrl: String? = null
+    private var autoProcessAfterSave = false
     private val client = OkHttpClient()
 
     private val savedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             savedPath = intent?.getStringExtra(PlaybackCaptureService.EXTRA_PATH)
             runOnUiThread {
-                if (savedPath != null && launchedFromPie) processRecording(true)
-                else {
+                if (savedPath != null && autoProcessAfterSave) processRecording(true)
+                else if (::status.isInitialized) {
                     status.text = if (savedPath != null) "Recording saved. Ready to process." else "Recording stopped."
-                    process.isEnabled = savedPath != null
+                    if (::process.isInitialized) process.isEnabled = savedPath != null
                 }
             }
         }
@@ -60,14 +63,35 @@ class MainActivity : Activity() {
         handlePieIntent(intent)
     }
 
+    private fun makeTransparentBridge() {
+        window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+        window.decorView.setBackgroundColor(Color.TRANSPARENT)
+        window.setDimAmount(0f)
+        if (::status.isInitialized) status.text = ""
+    }
+
     private fun handlePieIntent(intent: Intent?) {
         val data = intent?.data ?: return
         if (data.scheme != "pie-recorder" || data.host != "capture") return
         launchedFromPie = true
+        makeTransparentBridge()
         returnUrl = data.getQueryParameter("return")
-        data.getQueryParameter("url")?.let { url.setText(it) }
-        status.text = "Pie is starting playback capture…"
-        beginCapture()
+        pendingSourceUrl = data.getQueryParameter("url")
+        pendingSourceUrl?.let { url.setText(it) }
+        stems.isChecked = data.getQueryParameter("stems")?.toBooleanStrictOrNull() ?: true
+        fullSheet.isChecked = data.getQueryParameter("fullSheet")?.toBooleanStrictOrNull() ?: true
+        partSheets.isChecked = data.getQueryParameter("partSheets")?.toBooleanStrictOrNull() ?: true
+        chords.isChecked = data.getQueryParameter("chords")?.toBooleanStrictOrNull() ?: true
+        when (data.pathSegments.firstOrNull()?.lowercase()) {
+            "stop" -> {
+                autoProcessAfterSave = true
+                startService(Intent(this, PlaybackCaptureService::class.java).setAction(PlaybackCaptureService.ACTION_STOP))
+            }
+            else -> {
+                autoProcessAfterSave = false
+                beginCapture()
+            }
+        }
     }
 
     private fun buildUi() {
@@ -82,7 +106,7 @@ class MainActivity : Activity() {
         root.addView(TextView(this).apply{text="What do you want to create?";textSize=19f;setTextColor(Color.WHITE);setPadding(0,dp(22),0,dp(8))})
         stems=choice("Stems",true,root);fullSheet=choice("Full Sheet Music",true,root);partSheets=choice("Individual Part Sheets",true,root);chords=choice("Chords",true,root)
         root.addView(Button(this).apply{text="● Record & Open Source";setOnClickListener{beginCapture()}},buttonParams(dp(12)))
-        root.addView(Button(this).apply{text="■ Stop & Send to Pie";setOnClickListener{startService(Intent(this@MainActivity,PlaybackCaptureService::class.java).setAction(PlaybackCaptureService.ACTION_STOP));status.text="Stopping and saving WAV…"}},buttonParams(dp(8)))
+        root.addView(Button(this).apply{text="■ Stop & Send to Pie";setOnClickListener{autoProcessAfterSave=true;startService(Intent(this@MainActivity,PlaybackCaptureService::class.java).setAction(PlaybackCaptureService.ACTION_STOP));status.text="Stopping and saving WAV…"}},buttonParams(dp(8)))
         process=Button(this).apply{text="Process Recording in Pie";isEnabled=false;setOnClickListener{processRecording(false)}};root.addView(process,buttonParams(dp(8)))
         status=TextView(this).apply{text="Ready. Android will ask for screen/audio capture permission when you start.";textSize=16f;setTextColor(Color.rgb(210,205,235));setPadding(0,dp(18),0,0)};root.addView(status);setContentView(scroll)
     }
@@ -96,32 +120,36 @@ class MainActivity : Activity() {
         startActivityForResult(manager.createScreenCaptureIntent(),projectionRequest)
     }
 
-    override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==audioPermissionRequest&&grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED)beginCapture() else if(requestCode==audioPermissionRequest)status.text="Audio recording permission is required."}
+    override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray){super.onRequestPermissionsResult(requestCode,permissions,grantResults);if(requestCode==audioPermissionRequest&&grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED)beginCapture() else if(requestCode==audioPermissionRequest&&::status.isInitialized)status.text="Audio recording permission is required."}
 
     @Deprecated("Deprecated in Android SDK but retained for MediaProjection compatibility")
     override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?){
         super.onActivityResult(requestCode,resultCode,data)
-        if(requestCode!=projectionRequest||resultCode!=RESULT_OK||data==null){if(requestCode==projectionRequest)status.text="Capture permission was not granted.";return}
+        if(requestCode!=projectionRequest||resultCode!=RESULT_OK||data==null){if(requestCode==projectionRequest){if(::status.isInitialized)status.text="Capture permission was not granted.";if(launchedFromPie)returnToPie(false)};return}
         val service=Intent(this,PlaybackCaptureService::class.java).setAction(PlaybackCaptureService.ACTION_START).putExtra(PlaybackCaptureService.EXTRA_RESULT_CODE,resultCode).putExtra(PlaybackCaptureService.EXTRA_RESULT_DATA,data)
-        startForegroundService(service);status.text="Recording system playback… return to Pie Recorder and tap Stop & Send when finished."
-        val raw=url.text.toString().trim();if(raw.isNotEmpty())try{startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(raw)))}catch(_:Exception){status.text="Recording started. Could not open that URL automatically."}
+        startForegroundService(service)
+        val raw=(pendingSourceUrl?:url.text.toString()).trim()
+        if(raw.isNotEmpty())try{startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(raw)))}catch(_:Exception){if(::status.isInitialized)status.text="Recording started. Could not open that URL automatically."}
+        else if(launchedFromPie)returnToPie(false)
     }
 
     private fun processRecording(autoReturn:Boolean=false){
-        val path=savedPath?:return;val file=File(path);if(!file.exists()){status.text="The saved WAV could not be found.";return}
-        if(!stems.isChecked&&!fullSheet.isChecked&&!partSheets.isChecked&&!chords.isChecked){status.text="Choose at least one output first.";return}
-        process.isEnabled=false;status.text="Uploading WAV to Pie and starting processing…"
+        val path=savedPath?:return;val file=File(path);if(!file.exists()){if(::status.isInitialized)status.text="The saved WAV could not be found.";return}
+        if(!stems.isChecked&&!fullSheet.isChecked&&!partSheets.isChecked&&!chords.isChecked){if(::status.isInitialized)status.text="Choose at least one output first.";return}
+        if(::process.isInitialized)process.isEnabled=false
+        if(::status.isInitialized)status.text="Uploading WAV to Pie and starting processing…"
         val body=MultipartBody.Builder().setType(MultipartBody.FORM).addFormDataPart("file",file.name,file.asRequestBody("audio/wav".toMediaType())).addFormDataPart("title","Android playback recording").addFormDataPart("stems",stems.isChecked.toString()).addFormDataPart("fullSheet",fullSheet.isChecked.toString()).addFormDataPart("partSheets",partSheets.isChecked.toString()).addFormDataPart("chords",chords.isChecked.toString()).build()
-        val request=Request.Builder().url("https://ai-songs-drobinhood-1.vercel.app/api/sheets/mobile-process").post(body).build()
+        val request=Request.Builder().url("https://ai-songs-git-main-drobinhood1.vercel.app/api/sheets/mobile-process").post(body).build()
         client.newCall(request).enqueue(object:Callback{
-            override fun onFailure(call:Call,e:IOException)=runOnUiThread{status.text="Upload failed: ${e.message}";process.isEnabled=true}
-            override fun onResponse(call:Call,response:Response){response.body?.close();runOnUiThread{if(response.isSuccessful){status.text="Recording sent to Pie. Processing has started.";if(autoReturn)returnToPie()}else status.text="Pie could not process the recording (${response.code}).";process.isEnabled=true}}
+            override fun onFailure(call:Call,e:IOException)=runOnUiThread{if(::status.isInitialized)status.text="Upload failed: ${e.message}";if(::process.isInitialized)process.isEnabled=true}
+            override fun onResponse(call:Call,response:Response){response.body?.close();runOnUiThread{if(response.isSuccessful){if(::status.isInitialized)status.text="Recording sent to Pie. Processing has started.";if(autoReturn)returnToPie(true)}else if(::status.isInitialized)status.text="Pie could not process the recording (${response.code}).";if(::process.isInitialized)process.isEnabled=true}}
         })
     }
 
-    private fun returnToPie(){
-        val target=returnUrl?.takeIf{it.startsWith("https://")}?:"https://ai-songs-drobinhood-1.vercel.app"
-        try{startActivity(Intent(Intent.ACTION_VIEW,Uri.parse(target)));finish()}catch(_:Exception){status.text="Recording was sent to Pie. Return to the Pie browser tab."}
+    private fun returnToPie(processed:Boolean){
+        val base=returnUrl?.takeIf{it.startsWith("https://")}?:"https://ai-songs-git-main-drobinhood1.vercel.app"
+        val uri=Uri.parse(base).buildUpon().apply{if(processed)appendQueryParameter("pieCapture","accepted")}.build()
+        try{startActivity(Intent(Intent.ACTION_VIEW,uri));finish()}catch(_:Exception){if(::status.isInitialized)status.text="Return to the Pie browser tab."}
     }
 
     override fun onDestroy(){try{unregisterReceiver(savedReceiver)}catch(_:Exception){};super.onDestroy()}

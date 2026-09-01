@@ -299,31 +299,14 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         val returnUrl = CaptureSession.returnUrl(this)
         returnTriggered = true
         sendCaptureAction(PlaybackCaptureService.ACTION_AUTO_STOP)
-        returnFromYouTube(returnUrl, RETURN_BACK_DELAY_MS)
+        returnFromYouTube(returnUrl, RETURN_DIRECT_DELAY_MS)
     }
 
-    private fun returnFromYouTube(returnUrl: String?, backDelayMs: Long) {
+    private fun returnFromYouTube(returnUrl: String?, delayMs: Long) {
         val expectedBrowser = lastBrowserPackage ?: resolveBrowserPackage(returnUrl)
         handler.postDelayed({
-            try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) {}
-            verifyReturnedFromYouTube(returnUrl, expectedBrowser, 0)
-        }, backDelayMs)
-    }
-
-    private fun verifyReturnedFromYouTube(returnUrl: String?, expectedBrowser: String?, attempt: Int) {
-        handler.postDelayed({
-            val activePackage = try { rootInActiveWindow?.packageName?.toString() } catch (_: Exception) { null }
-            if (isExpectedBrowser(activePackage, expectedBrowser)) return@postDelayed
-
-            if (attempt < RETURN_VERIFY_ATTEMPTS - 1) {
-                if (activePackage == YOUTUBE_PACKAGE || activePackage.isNullOrBlank()) {
-                    try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) {}
-                }
-                verifyReturnedFromYouTube(returnUrl, expectedBrowser, attempt + 1)
-            } else {
-                bringExistingBrowserToFront(returnUrl, expectedBrowser)
-            }
-        }, RETURN_VERIFY_INTERVAL_MS)
+            bringExistingBrowserToFront(returnUrl, expectedBrowser)
+        }, delayMs)
     }
 
     private fun resolveBrowserPackage(returnUrl: String?): String? {
@@ -344,40 +327,38 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
     private fun bringExistingBrowserToFront(returnUrl: String?, expectedBrowser: String?) {
         val resolved = expectedBrowser ?: lastBrowserPackage ?: resolveBrowserPackage(returnUrl)
-        try { performGlobalAction(GLOBAL_ACTION_HOME) } catch (_: Exception) {}
+        val candidates = buildList {
+            if (!resolved.isNullOrBlank()) add(resolved)
+            if (!lastBrowserPackage.isNullOrBlank()) add(lastBrowserPackage!!)
+            addAll(KNOWN_BROWSER_PACKAGES)
+        }.distinct()
+
+        var launched = false
+        for (packageName in candidates) {
+            try {
+                val launch = packageManager.getLaunchIntentForPackage(packageName) ?: continue
+                launch.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                )
+                startActivity(launch)
+                launched = true
+                break
+            } catch (_: Exception) {
+                // Try the next installed browser without opening a URL/new tab.
+            }
+        }
 
         handler.postDelayed({
-            val candidates = buildList {
-                if (!resolved.isNullOrBlank()) add(resolved)
-                if (!lastBrowserPackage.isNullOrBlank()) add(lastBrowserPackage!!)
-                addAll(KNOWN_BROWSER_PACKAGES)
-            }.distinct()
-
-            var launched = false
-            for (packageName in candidates) {
-                try {
-                    val launch = packageManager.getLaunchIntentForPackage(packageName) ?: continue
-                    launch.addFlags(
-                        Intent.FLAG_ACTIVITY_NEW_TASK or
-                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                            Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                            Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
-                    )
-                    startActivity(launch)
-                    launched = true
-                    break
-                } catch (_: Exception) {
-                    // Try the next installed browser without opening a URL/new tab.
-                }
+            val activePackage = try { rootInActiveWindow?.packageName?.toString() } catch (_: Exception) { null }
+            if (!launched || !isExpectedBrowser(activePackage, resolved)) {
+                // A single Recents fallback is less disruptive than walking backward
+                // through YouTube's entire activity stack.
+                try { performGlobalAction(GLOBAL_ACTION_RECENTS) } catch (_: Exception) {}
             }
-
-            handler.postDelayed({
-                val activePackage = try { rootInActiveWindow?.packageName?.toString() } catch (_: Exception) { null }
-                if (!isExpectedBrowser(activePackage, resolved)) {
-                    try { performGlobalAction(GLOBAL_ACTION_RECENTS) } catch (_: Exception) {}
-                }
-            }, if (launched) BROWSER_VERIFY_DELAY_MS else 0L)
-        }, HOME_TO_BROWSER_DELAY_MS)
+        }, BROWSER_VERIFY_DELAY_MS)
     }
 
     private fun collectText(node: AccessibilityNodeInfo?, out: StringBuilder, depth: Int) {
@@ -401,12 +382,9 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private const val RESUME_STABILITY_MS = 1800L
         private const val STOP_STABILITY_MS = 900L
         private const val MONITOR_INTERVAL_MS = 500L
-        private const val RETURN_BACK_DELAY_MS = 180L
-        private const val AUTO_FINISH_RETURN_DELAY_MS = 180L
-        private const val RETURN_VERIFY_INTERVAL_MS = 450L
-        private const val RETURN_VERIFY_ATTEMPTS = 4
-        private const val HOME_TO_BROWSER_DELAY_MS = 300L
-        private const val BROWSER_VERIFY_DELAY_MS = 700L
+        private const val RETURN_DIRECT_DELAY_MS = 120L
+        private const val AUTO_FINISH_RETURN_DELAY_MS = 120L
+        private const val BROWSER_VERIFY_DELAY_MS = 650L
         private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
 
         private val KNOWN_BROWSER_PACKAGES = listOf(

@@ -13,6 +13,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     private var adActive = false
     private var hasSeenPlaying = false
     private var pendingStop = false
+    private var monitorRunning = false
 
     private val resumeRunnable = Runnable {
         if (!CaptureSession.isActive(this) || adActive || pendingStop) return@Runnable
@@ -25,12 +26,41 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         stopAndReturnToPie()
     }
 
+    private val monitorRunnable = object : Runnable {
+        override fun run() {
+            if (!CaptureSession.isActive(this@YouTubeAdAccessibilityService)) {
+                monitorRunning = false
+                return
+            }
+            inspectCurrentYouTubeWindow()
+            handler.postDelayed(this, MONITOR_INTERVAL_MS)
+        }
+    }
+
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (!CaptureSession.isActive(this)) {
             resetState()
             return
         }
-        if (event?.packageName?.toString() != YOUTUBE_PACKAGE) return
+
+        ensureMonitor()
+        val packageName = event?.packageName?.toString() ?: return
+
+        // Samsung/Android media controls can generate System UI accessibility events
+        // instead of YouTube events. While a Pie session is active, a Pause/Stop click
+        // there is also treated as the user's request to finish the capture.
+        if (packageName == SYSTEM_UI_PACKAGE) {
+            if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+                val clicked = clickedSnapshot(event)
+                if (SYSTEM_STOP_CLICK_MARKERS.any { clicked.contains(it) }) {
+                    hasSeenPlaying = true
+                    scheduleStop()
+                }
+            }
+            return
+        }
+
+        if (packageName != YOUTUBE_PACKAGE) return
 
         val root = rootInActiveWindow ?: return
         val snapshot = buildString {
@@ -39,19 +69,11 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             event.contentDescription?.let { append(' ').append(it) }
         }.lowercase()
 
-        val clickedSnapshot = buildString {
-            event.text.forEach { append(' ').append(it) }
-            event.contentDescription?.let { append(' ').append(it) }
-            event.source?.text?.let { append(' ').append(it) }
-            event.source?.contentDescription?.let { append(' ').append(it) }
-        }.lowercase()
-
+        val clicked = clickedSnapshot(event)
         val nowAd = AD_MARKERS.any { snapshot.contains(it) }
-        val ended = END_MARKERS.any { snapshot.contains(it) } && !nowAd
-        val showsPauseControl = PLAYING_MARKERS.any { snapshot.contains(it) } && !nowAd
-        val showsPlayControl = STOPPED_MARKERS.any { snapshot.contains(it) } && !nowAd
-        val userTappedPause = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
-            PAUSE_CLICK_MARKERS.any { clickedSnapshot.contains(it) } && !nowAd
+        val endedByText = END_MARKERS.any { snapshot.contains(it) } && !nowAd
+        val userTappedStop = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
+            USER_STOP_CLICK_MARKERS.any { clicked.contains(it) } && !nowAd
 
         if (nowAd) {
             pendingStop = false
@@ -64,24 +86,23 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (showsPauseControl) {
+        val state = playbackState(root)
+        if (state == PlayerState.PLAYING) {
             hasSeenPlaying = true
             pendingStop = false
             handler.removeCallbacks(stoppedRunnable)
         }
 
-        // YouTube often reports the clicked control as "Pause" even before the UI has
-        // updated to show "Play". Treat that tap itself as the user's stop signal.
-        if (userTappedPause) {
+        // On some Samsung/YouTube versions, the Pause button click event has no label.
+        // The monitor below re-checks the actual player control after the UI settles.
+        // If a label is available, finish immediately without waiting for that poll.
+        if (userTappedStop) {
             hasSeenPlaying = true
-            pendingStop = true
-            handler.removeCallbacks(resumeRunnable)
-            handler.removeCallbacks(stoppedRunnable)
-            handler.postDelayed(stoppedRunnable, STOP_STABILITY_MS)
+            scheduleStop()
             return
         }
 
-        if (ended) {
+        if (endedByText || state == PlayerState.ENDED) {
             pendingStop = false
             handler.removeCallbacks(stoppedRunnable)
             handler.removeCallbacks(resumeRunnable)
@@ -89,11 +110,8 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (hasSeenPlaying && showsPlayControl) {
-            pendingStop = true
-            handler.removeCallbacks(resumeRunnable)
-            handler.removeCallbacks(stoppedRunnable)
-            handler.postDelayed(stoppedRunnable, STOP_STABILITY_MS)
+        if (hasSeenPlaying && state == PlayerState.STOPPED) {
+            scheduleStop()
             return
         }
 
@@ -116,12 +134,111 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
+    private fun ensureMonitor() {
+        if (monitorRunning) return
+        monitorRunning = true
+        handler.post(monitorRunnable)
+    }
+
+    private fun inspectCurrentYouTubeWindow() {
+        if (adActive || !CaptureSession.isActive(this)) return
+        val root = rootInActiveWindow ?: return
+        if (root.packageName?.toString() != YOUTUBE_PACKAGE) return
+
+        when (playbackState(root)) {
+            PlayerState.PLAYING -> {
+                hasSeenPlaying = true
+                pendingStop = false
+                handler.removeCallbacks(stoppedRunnable)
+            }
+            PlayerState.STOPPED -> {
+                if (hasSeenPlaying) scheduleStop()
+            }
+            PlayerState.ENDED -> {
+                if (hasSeenPlaying) {
+                    pendingStop = false
+                    handler.removeCallbacks(stoppedRunnable)
+                    stopAndReturnToPie()
+                }
+            }
+            PlayerState.UNKNOWN -> Unit
+        }
+    }
+
+    private fun scheduleStop() {
+        if (!CaptureSession.isActive(this) || adActive) return
+        pendingStop = true
+        handler.removeCallbacks(resumeRunnable)
+        handler.removeCallbacks(stoppedRunnable)
+        handler.postDelayed(stoppedRunnable, STOP_STABILITY_MS)
+    }
+
     private fun resetState() {
         handler.removeCallbacks(resumeRunnable)
         handler.removeCallbacks(stoppedRunnable)
+        handler.removeCallbacks(monitorRunnable)
+        monitorRunning = false
         adActive = false
         hasSeenPlaying = false
         pendingStop = false
+    }
+
+    private fun clickedSnapshot(event: AccessibilityEvent): String = buildString {
+        event.text.forEach { append(' ').append(it) }
+        event.contentDescription?.let { append(' ').append(it) }
+        collectLineage(event.source, this, 0)
+    }.lowercase()
+
+    private fun collectLineage(node: AccessibilityNodeInfo?, out: StringBuilder, depth: Int) {
+        if (node == null || depth > 6) return
+        node.text?.let { out.append(' ').append(it) }
+        node.contentDescription?.let { out.append(' ').append(it) }
+        node.viewIdResourceName?.let { out.append(' ').append(it) }
+        collectLineage(node.parent, out, depth + 1)
+    }
+
+    private fun playbackState(root: AccessibilityNodeInfo): PlayerState {
+        var hasPause = false
+        var hasPlay = false
+        var hasReplay = false
+
+        fun scan(node: AccessibilityNodeInfo?, depth: Int) {
+            if (node == null || depth > 20) return
+
+            val label = buildString {
+                node.text?.let { append(it).append(' ') }
+                node.contentDescription?.let { append(it) }
+            }.trim().lowercase()
+            val viewId = node.viewIdResourceName.orEmpty().lowercase()
+            val looksLikePlayerControl = node.isClickable ||
+                viewId.contains("play_pause") ||
+                viewId.contains("player_control") ||
+                viewId.contains("playpause")
+
+            if (looksLikePlayerControl) {
+                if (PAUSE_CONTROL_LABELS.any { label == it || label.startsWith("$it ") }) {
+                    hasPause = true
+                }
+                if (REPLAY_CONTROL_LABELS.any { label == it || label.startsWith("$it ") }) {
+                    hasReplay = true
+                }
+                if (PLAY_CONTROL_LABELS.any { label == it || label.startsWith("$it ") }) {
+                    hasPlay = true
+                }
+            }
+
+            for (i in 0 until node.childCount) scan(node.getChild(i), depth + 1)
+        }
+
+        scan(root, 0)
+
+        // Prefer Pause if both Pause and unrelated recommendation Play controls exist.
+        return when {
+            hasPause -> PlayerState.PLAYING
+            hasReplay -> PlayerState.ENDED
+            hasPlay -> PlayerState.STOPPED
+            else -> PlayerState.UNKNOWN
+        }
     }
 
     private fun sendCaptureAction(action: String) {
@@ -139,7 +256,8 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             val uri = Uri.parse("pie-recorder://capture/stop").buildUpon()
                 .appendQueryParameter("return", pieReturn)
                 .build()
-            startActivity(Intent(Intent.ACTION_VIEW, uri, this, MainActivity::class.java).apply {
+            startActivity(Intent(this, MainActivity::class.java).apply {
+                data = uri
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
             })
         } catch (_: Exception) {
@@ -156,10 +274,14 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         }
     }
 
+    private enum class PlayerState { PLAYING, STOPPED, ENDED, UNKNOWN }
+
     companion object {
         private const val YOUTUBE_PACKAGE = "com.google.android.youtube"
+        private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
         private const val RESUME_STABILITY_MS = 1800L
         private const val STOP_STABILITY_MS = 900L
+        private const val MONITOR_INTERVAL_MS = 500L
 
         private val AD_MARKERS = listOf(
             "skip ad",
@@ -172,19 +294,32 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             "about this ad"
         )
 
-        private val PLAYING_MARKERS = listOf(
+        private val USER_STOP_CLICK_MARKERS = listOf(
             "pause video",
-            "pause"
+            "pause",
+            "stop video",
+            "stop"
         )
 
-        private val PAUSE_CLICK_MARKERS = listOf(
-            "pause video",
-            "pause"
+        private val SYSTEM_STOP_CLICK_MARKERS = listOf(
+            "pause",
+            "stop"
         )
 
-        private val STOPPED_MARKERS = listOf(
-            "play video",
-            "play"
+        private val PAUSE_CONTROL_LABELS = listOf(
+            "pause",
+            "pause video"
+        )
+
+        private val PLAY_CONTROL_LABELS = listOf(
+            "play",
+            "play video"
+        )
+
+        private val REPLAY_CONTROL_LABELS = listOf(
+            "replay",
+            "replay video",
+            "watch again"
         )
 
         private val END_MARKERS = listOf(

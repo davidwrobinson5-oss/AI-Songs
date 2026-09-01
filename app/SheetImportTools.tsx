@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { stagePieFile } from './stagedUpload';
+import PlaybackRecorderCard from './PlaybackRecorderCard';
 
 type ScoreNote = { midi:number; startBeat:number; durationBeats:number; velocity:number };
 type ScorePart = { name:string; instrument:string; isVocal:boolean; choirRole?:string; lyrics?:string; notes:ScoreNote[] };
@@ -254,6 +255,8 @@ export default function SheetImportTools(){
       </div>}
       {renders.length>0&&<div className="renderedPartList">{renders.map(item=><div className="sheetSourceCard" key={item.key}><strong>{item.label}</strong><small>Production render</small><audio controls preload="metadata" src={item.url}/><a className="primary" href={item.url} download={`${(score?.title||'song').replace(/[^a-z0-9]+/gi,'-')}-${item.label.replace(/[^a-z0-9]+/gi,'-')}.${item.extension}`}>Download {item.extension.toUpperCase()}</a></div>)}</div>}
     </div>
+
+    <PlaybackRecorderCard />
 
     <div className="sheetSourceCard">
       <p className="eyebrow">Link → Stems</p><h2>Analyze Music Link</h2>

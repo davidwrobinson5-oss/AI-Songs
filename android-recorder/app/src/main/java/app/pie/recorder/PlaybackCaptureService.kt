@@ -170,9 +170,6 @@ class PlaybackCaptureService : Service() {
                     val now = SystemClock.elapsedRealtime()
                     val isPaused = paused.get()
 
-                    // Non-blocking reads are essential here. On several Samsung devices,
-                    // a blocking AudioRecord.read() can wait forever after YouTube is paused,
-                    // so the old silence timer never got a chance to fire.
                     val read = audioRecord?.read(
                         buffer,
                         0,
@@ -185,8 +182,6 @@ class PlaybackCaptureService : Service() {
                             applyFadeOutToTail(wav, pcmBytes, sampleRate, channels)
                             wasPaused = true
                         }
-                        // Ad filtering intentionally pauses capture. Keep the end watchdog
-                        // alive so an ad pause is never mistaken for the user stopping playback.
                         lastSignalAt = now
                         if (read <= 0) try { Thread.sleep(20) } catch (_: InterruptedException) {}
                         continue
@@ -241,7 +236,6 @@ class PlaybackCaptureService : Service() {
             projection.stop()
 
             if (autoFinished) {
-                // Tell the accessibility bridge before ACTION_SAVED clears the Pie session.
                 sendBroadcast(
                     Intent(ACTION_AUTO_FINISHED)
                         .setPackage(packageName)
@@ -252,7 +246,12 @@ class PlaybackCaptureService : Service() {
             sendBroadcast(Intent(ACTION_SAVED).setPackage(packageName).putExtra(EXTRA_PATH, file.absolutePath))
 
             if (autoFinished) {
-                openPie("processing")
+                // When Accessibility saw the YouTube stop, it already returned the user
+                // to the exact Pie tab they started from. Do NOT open the URL again here:
+                // doing so can create a second browser/custom-tab context with a separate
+                // authentication session. Silence-only fallback still opens Pie because
+                // there was no Accessibility return action in that path.
+                if (!autoStopRequested.get()) openPie("processing")
                 uploadRecording(file)
             } else {
                 stopForeground(STOP_FOREGROUND_REMOVE)

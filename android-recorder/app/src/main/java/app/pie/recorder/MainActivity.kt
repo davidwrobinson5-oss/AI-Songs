@@ -39,6 +39,8 @@ class MainActivity : Activity() {
     private var savedPath: String? = null
     private var returnUrl: String? = null
     private var pendingSourceUrl: String? = null
+    private var captureId: String? = null
+    private var captureSecret: String? = null
     private var autoProcessAfterSave = false
     private var returnedToPieAfterStop = false
     private var wantsStems = true
@@ -110,7 +112,16 @@ class MainActivity : Activity() {
             return
         }
 
+        val requestedCaptureId = data.getQueryParameter("captureId")?.trim().orEmpty()
+        val requestedCaptureSecret = data.getQueryParameter("captureSecret")?.trim().orEmpty()
+        if (requestedCaptureId.isBlank() || requestedCaptureSecret.length < 32) {
+            finish()
+            return
+        }
+
         returnUrl = requestedReturn
+        captureId = requestedCaptureId
+        captureSecret = requestedCaptureSecret
         CaptureSession.begin(this, requestedReturn!!)
         pendingSourceUrl = data.getQueryParameter("url")
         wantsStems = data.getQueryParameter("stems")?.toBooleanStrictOrNull() ?: true
@@ -213,6 +224,8 @@ class MainActivity : Activity() {
             .putExtra(PlaybackCaptureService.EXTRA_RESULT_DATA, data)
             .putExtra(PlaybackCaptureService.EXTRA_RETURN_URL, returnUrl)
             .putExtra(PlaybackCaptureService.EXTRA_SOURCE_URL, pendingSourceUrl)
+            .putExtra(PlaybackCaptureService.EXTRA_CAPTURE_ID, captureId)
+            .putExtra(PlaybackCaptureService.EXTRA_CAPTURE_SECRET, captureSecret)
             .putExtra(PlaybackCaptureService.EXTRA_STEMS, wantsStems)
             .putExtra(PlaybackCaptureService.EXTRA_FULL_SHEET, wantsFullSheet)
             .putExtra(PlaybackCaptureService.EXTRA_PART_SHEETS, wantsPartSheets)

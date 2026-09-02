@@ -112,7 +112,6 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
         val clicked = clickedSnapshot(event)
         val nowAd = AD_MARKERS.any { snapshot.contains(it) }
-        val endedByText = END_MARKERS.any { snapshot.contains(it) } && !nowAd
         val userTappedStop = event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED &&
             USER_STOP_CLICK_MARKERS.any { clicked.contains(it) } && !nowAd
 
@@ -154,11 +153,11 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (endedByText || state == PlayerState.ENDED) {
+        if (state == PlayerState.ENDED) {
             pendingStop = false
             handler.removeCallbacks(stoppedRunnable)
             handler.removeCallbacks(resumeRunnable)
-            RecorderDiagnostics.record(this, "youtube_ended_accessibility_auto_stop")
+            if (!returnTriggered) RecorderDiagnostics.record(this, "youtube_ended_accessibility_auto_stop")
             stopAndReturnToPie()
             return
         }
@@ -268,7 +267,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
                 if (hasSeenPlaying) {
                     pendingStop = false
                     handler.removeCallbacks(stoppedRunnable)
-                    RecorderDiagnostics.record(this, "youtube_monitor_detected_end")
+                    if (!returnTriggered) RecorderDiagnostics.record(this, "youtube_monitor_detected_end")
                     stopAndReturnToPie()
                 }
             }
@@ -412,15 +411,21 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         RecorderDiagnostics.record(this, "return_existing_browser_only expected=${expectedBrowser ?: "unknown"}")
 
         handler.postDelayed({
-            val active = activePackage()
-            RecorderDiagnostics.record(this, "return_begin active=${active ?: "null"}")
+            val before = activePackage()
+            RecorderDiagnostics.record(this, "return_begin active=${before ?: "null"}")
 
-            if (isExpectedBrowser(active, expectedBrowser)) {
-                RecorderDiagnostics.record(this, "existing_browser_already_foreground pieVisible=${activeWindowLooksLikePie()}")
-                return@postDelayed
-            }
+            val backAccepted = try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) { false }
+            RecorderDiagnostics.record(this, "return_back_action accepted=$backAccepted before=${before ?: "null"}")
 
-            openRecentsAndSelectBrowser(expectedBrowser, 0)
+            handler.postDelayed({
+                val active = activePackage()
+                RecorderDiagnostics.record(this, "return_back_verify active=${active ?: "null"}")
+                if (isExpectedBrowser(active, expectedBrowser)) {
+                    handleBrowserForeground(expectedBrowser, "youtube_back")
+                } else {
+                    openRecentsAndSelectBrowser(expectedBrowser, 0)
+                }
+            }, BACK_RETURN_VERIFY_DELAY_MS)
         }, delayMs)
     }
 
@@ -440,7 +445,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             RecorderDiagnostics.record(this, "recents_scan attempt=$attempt active=${active ?: "null"}")
 
             if (isExpectedBrowser(active, expectedBrowser)) {
-                RecorderDiagnostics.record(this, "browser_already_foreground_after_recents=${active ?: "unknown"} pieVisible=${activeWindowLooksLikePie()}")
+                handleBrowserForeground(expectedBrowser, "recents_already_foreground")
                 return@postDelayed
             }
 
@@ -511,11 +516,44 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         handler.postDelayed({
             val active = activePackage()
             val success = isExpectedBrowser(active, expectedBrowser)
+            RecorderDiagnostics.record(this, "browser_return_verify success=$success active=${active ?: "null"}")
+            if (success) handleBrowserForeground(expectedBrowser, "recents_click")
+        }, BROWSER_VERIFY_DELAY_MS)
+    }
+
+    private fun handleBrowserForeground(expectedBrowser: String?, source: String) {
+        val active = activePackage()
+        if (!isExpectedBrowser(active, expectedBrowser)) {
+            RecorderDiagnostics.record(this, "browser_foreground_lost source=$source active=${active ?: "null"}")
+            return
+        }
+
+        val pieVisible = activeWindowLooksLikePie()
+        val tabOverview = browserTabOverviewVisible()
+        RecorderDiagnostics.record(
+            this,
+            "browser_foreground source=$source active=$active pieVisible=$pieVisible tabOverview=$tabOverview noUrlLaunch=true"
+        )
+
+        if (pieVisible || !tabOverview) return
+
+        val accepted = try { performGlobalAction(GLOBAL_ACTION_BACK) } catch (_: Exception) { false }
+        RecorderDiagnostics.record(this, "browser_tab_overview_back accepted=$accepted")
+        if (!accepted) return
+
+        handler.postDelayed({
             RecorderDiagnostics.record(
                 this,
-                "browser_return_verify success=$success active=${active ?: "null"} pieVisible=${activeWindowLooksLikePie()} noUrlLaunch=true"
+                "browser_tab_overview_back_verify active=${activePackage() ?: "null"} pieVisible=${activeWindowLooksLikePie()} tabOverview=${browserTabOverviewVisible()}"
             )
-        }, BROWSER_VERIFY_DELAY_MS)
+        }, TAB_OVERVIEW_BACK_VERIFY_MS)
+    }
+
+    private fun browserTabOverviewVisible(): Boolean {
+        val root = try { rootInActiveWindow } catch (_: Exception) { null } ?: return false
+        if (root.packageName?.toString() != BRAVE_PACKAGE) return false
+        val snapshot = buildString { collectText(root, this, 0) }.lowercase()
+        return BRAVE_TAB_OVERVIEW_MARKERS.any { snapshot.contains(it) }
     }
 
     private fun openPieInBrowser(expectedBrowser: String?, pieUrl: String) {
@@ -619,6 +657,8 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private const val AD_END_MONITOR_STABILITY_MS = 750L
         private const val RETURN_DELAY_MS = 120L
         private const val AUTO_FINISH_RETURN_DELAY_MS = 120L
+        private const val BACK_RETURN_VERIFY_DELAY_MS = 450L
+        private const val TAB_OVERVIEW_BACK_VERIFY_MS = 450L
         private const val RECENTS_OPEN_DELAY_MS = 260L
         private const val RECENTS_RESCAN_DELAY_MS = 220L
         private const val RECENTS_SCAN_ATTEMPTS = 3
@@ -641,6 +681,10 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             "in the kitchen"
         )
 
+        private val BRAVE_TAB_OVERVIEW_MARKERS = listOf(
+            "search your tabs"
+        )
+
         private val AD_MARKERS = listOf(
             "skip ad", "skip ads", "visit advertiser", "advertisement",
             "ad 1 of", "ad 2 of", "about this ad"
@@ -651,6 +695,5 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private val PAUSE_CONTROL_LABELS = listOf("pause", "pause video")
         private val PLAY_CONTROL_LABELS = listOf("play", "play video")
         private val REPLAY_CONTROL_LABELS = listOf("replay", "replay video", "watch again")
-        private val END_MARKERS = listOf("replay video", "watch again", "replay")
     }
 }

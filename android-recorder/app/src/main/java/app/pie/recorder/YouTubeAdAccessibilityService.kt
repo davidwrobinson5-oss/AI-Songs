@@ -37,7 +37,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
                 return
             }
             returnTriggered = true
-            returnFromYouTube(intent.getStringExtra(PlaybackCaptureService.EXTRA_RETURN_URL), AUTO_FINISH_RETURN_DELAY_MS)
+            returnFromYouTube(AUTO_FINISH_RETURN_DELAY_MS)
         }
     }
 
@@ -326,12 +326,10 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     private fun rememberedBrowserPackage(): String? {
         val stored = getSharedPreferences(BROWSER_PREFS, Context.MODE_PRIVATE)
             .getString(KEY_BROWSER_PACKAGE, null)
-        return stored?.takeIf { KNOWN_BROWSER_PACKAGES.contains(it) && isPackageInstalled(it) }
+        return stored?.takeIf { KNOWN_BROWSER_PACKAGES.contains(it) }
     }
 
-    private fun preferredInstalledBrowser(): String? {
-        return KNOWN_BROWSER_PACKAGES.firstOrNull(::isPackageInstalled)
-    }
+    private fun preferredInstalledBrowser(): String? = BRAVE_PACKAGE
 
     private fun isPackageInstalled(packageName: String): Boolean = try {
         packageManager.getPackageInfo(packageName, 0)
@@ -403,43 +401,36 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
     private fun stopAndReturnToPie() {
         if (!CaptureSession.isActive(this) || returnTriggered) return
-        val returnUrl = CaptureSession.returnUrl(this)
         returnTriggered = true
         RecorderDiagnostics.record(this, "stop_and_return_requested browser=${lastBrowserPackage ?: rememberedBrowserPackage() ?: "unknown"}")
         sendCaptureAction(PlaybackCaptureService.ACTION_AUTO_STOP)
-        returnFromYouTube(returnUrl, RETURN_DELAY_MS)
+        returnFromYouTube(RETURN_DELAY_MS)
     }
 
-    private fun returnFromYouTube(returnUrl: String?, delayMs: Long) {
-        val pieUrl = returnUrl?.takeIf(CaptureSession::isValidPieUrl) ?: PIE_URL
-        val expectedBrowser = lastBrowserPackage ?: rememberedBrowserPackage() ?: preferredInstalledBrowser() ?: resolveBrowserPackage(pieUrl)
-        RecorderDiagnostics.record(this, "return_expected_browser=${expectedBrowser ?: "unknown"} url=$pieUrl")
+    private fun returnFromYouTube(delayMs: Long) {
+        val expectedBrowser = lastBrowserPackage ?: rememberedBrowserPackage() ?: preferredInstalledBrowser()
+        RecorderDiagnostics.record(this, "return_existing_browser_only expected=${expectedBrowser ?: "unknown"}")
 
         handler.postDelayed({
             val active = activePackage()
             RecorderDiagnostics.record(this, "return_begin active=${active ?: "null"}")
 
             if (isExpectedBrowser(active, expectedBrowser)) {
-                if (activeWindowLooksLikePie()) {
-                    RecorderDiagnostics.record(this, "pie_already_foreground")
-                } else {
-                    RecorderDiagnostics.record(this, "browser_foreground_wrong_page_open_exact_pie")
-                    openPieInBrowser(expectedBrowser, pieUrl)
-                }
+                RecorderDiagnostics.record(this, "existing_browser_already_foreground pieVisible=${activeWindowLooksLikePie()}")
                 return@postDelayed
             }
 
-            openRecentsAndSelectBrowser(expectedBrowser, pieUrl, 0)
+            openRecentsAndSelectBrowser(expectedBrowser, 0)
         }, delayMs)
     }
 
-    private fun openRecentsAndSelectBrowser(expectedBrowser: String?, pieUrl: String, attempt: Int) {
+    private fun openRecentsAndSelectBrowser(expectedBrowser: String?, attempt: Int) {
         if (attempt == 0) {
             val before = activePackage()
             val accepted = try { performGlobalAction(GLOBAL_ACTION_RECENTS) } catch (_: Exception) { false }
             RecorderDiagnostics.record(this, "recents_action accepted=$accepted before=${before ?: "null"}")
             if (!accepted) {
-                openPieInBrowser(expectedBrowser, pieUrl)
+                RecorderDiagnostics.record(this, "recents_action_failed_no_url_fallback")
                 return
             }
         }
@@ -449,23 +440,21 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             RecorderDiagnostics.record(this, "recents_scan attempt=$attempt active=${active ?: "null"}")
 
             if (isExpectedBrowser(active, expectedBrowser)) {
-                RecorderDiagnostics.record(this, "browser_already_foreground_after_recents=${active ?: "unknown"}")
-                if (!activeWindowLooksLikePie()) openPieInBrowser(expectedBrowser, pieUrl)
+                RecorderDiagnostics.record(this, "browser_already_foreground_after_recents=${active ?: "unknown"} pieVisible=${activeWindowLooksLikePie()}")
                 return@postDelayed
             }
 
             val clicked = findAndClickBrowserTask(expectedBrowser)
             RecorderDiagnostics.record(this, "recents_browser_click attempt=$attempt clicked=$clicked")
             if (clicked) {
-                verifyBrowserReturn(expectedBrowser, pieUrl)
+                verifyBrowserReturn(expectedBrowser)
                 return@postDelayed
             }
 
             if (attempt < RECENTS_SCAN_ATTEMPTS - 1) {
-                openRecentsAndSelectBrowser(expectedBrowser, pieUrl, attempt + 1)
+                openRecentsAndSelectBrowser(expectedBrowser, attempt + 1)
             } else {
-                RecorderDiagnostics.record(this, "recents_browser_not_found_open_exact_pie")
-                openPieInBrowser(expectedBrowser, pieUrl)
+                RecorderDiagnostics.record(this, "recents_browser_not_found_no_url_fallback")
             }
         }, if (attempt == 0) RECENTS_OPEN_DELAY_MS else RECENTS_RESCAN_DELAY_MS)
     }
@@ -518,21 +507,14 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun verifyBrowserReturn(expectedBrowser: String?, pieUrl: String) {
+    private fun verifyBrowserReturn(expectedBrowser: String?) {
         handler.postDelayed({
             val active = activePackage()
             val success = isExpectedBrowser(active, expectedBrowser)
-            RecorderDiagnostics.record(this, "browser_return_verify success=$success active=${active ?: "null"}")
-            if (success) {
-                if (activeWindowLooksLikePie()) {
-                    RecorderDiagnostics.record(this, "browser_return_pie_visible")
-                } else {
-                    RecorderDiagnostics.record(this, "browser_return_wrong_page_open_exact_pie")
-                    openPieInBrowser(expectedBrowser, pieUrl)
-                }
-            } else {
-                openPieInBrowser(expectedBrowser, pieUrl)
-            }
+            RecorderDiagnostics.record(
+                this,
+                "browser_return_verify success=$success active=${active ?: "null"} pieVisible=${activeWindowLooksLikePie()} noUrlLaunch=true"
+            )
         }, BROWSER_VERIFY_DELAY_MS)
     }
 
@@ -628,6 +610,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
         private const val YOUTUBE_PACKAGE = "com.google.android.youtube"
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+        private const val BRAVE_PACKAGE = "com.brave.browser"
         private const val BROWSER_PREFS = "pie_browser_return"
         private const val KEY_BROWSER_PACKAGE = "browser_package"
         private const val RESUME_STABILITY_MS = 1800L
@@ -643,7 +626,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
 
         private val KNOWN_BROWSER_PACKAGES = listOf(
-            "com.brave.browser",
+            BRAVE_PACKAGE,
             "com.android.chrome",
             "com.sec.android.app.sbrowser",
             "org.mozilla.firefox"

@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.provider.Browser
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
@@ -328,22 +329,41 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         returnTriggered = true
         RecorderDiagnostics.record(this, "stop_and_return_requested browser=${lastBrowserPackage ?: "unknown"}")
         sendCaptureAction(PlaybackCaptureService.ACTION_AUTO_STOP)
-        returnFromYouTube(returnUrl, RETURN_RECENTS_DELAY_MS)
+        returnFromYouTube(returnUrl, RETURN_DELAY_MS)
     }
 
     private fun returnFromYouTube(returnUrl: String?, delayMs: Long) {
-        val expectedBrowser = lastBrowserPackage ?: resolveBrowserPackage(returnUrl)
-        RecorderDiagnostics.record(this, "return_expected_browser=${expectedBrowser ?: "unknown"}")
+        val pieUrl = returnUrl?.takeIf(CaptureSession::isValidPieUrl) ?: PIE_URL
+        val expectedBrowser = lastBrowserPackage ?: resolveBrowserPackage(pieUrl)
+        RecorderDiagnostics.record(this, "return_expected_browser=${expectedBrowser ?: "unknown"} url=$pieUrl")
+
         handler.postDelayed({
-            openRecentsAndSelectBrowser(expectedBrowser, 0)
+            val active = activePackage()
+            RecorderDiagnostics.record(this, "return_begin active=${active ?: "null"}")
+
+            if (isExpectedBrowser(active, expectedBrowser)) {
+                if (activeWindowLooksLikePie()) {
+                    RecorderDiagnostics.record(this, "pie_already_foreground")
+                } else {
+                    RecorderDiagnostics.record(this, "browser_foreground_wrong_page_open_exact_pie")
+                    openPieInBrowser(expectedBrowser, pieUrl)
+                }
+                return@postDelayed
+            }
+
+            openRecentsAndSelectBrowser(expectedBrowser, pieUrl, 0)
         }, delayMs)
     }
 
-    private fun openRecentsAndSelectBrowser(expectedBrowser: String?, attempt: Int) {
+    private fun openRecentsAndSelectBrowser(expectedBrowser: String?, pieUrl: String, attempt: Int) {
         if (attempt == 0) {
             val before = activePackage()
             val accepted = try { performGlobalAction(GLOBAL_ACTION_RECENTS) } catch (_: Exception) { false }
             RecorderDiagnostics.record(this, "recents_action accepted=$accepted before=${before ?: "null"}")
+            if (!accepted) {
+                openPieInBrowser(expectedBrowser, pieUrl)
+                return
+            }
         }
 
         handler.postDelayed({
@@ -351,22 +371,23 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             RecorderDiagnostics.record(this, "recents_scan attempt=$attempt active=${active ?: "null"}")
 
             if (isExpectedBrowser(active, expectedBrowser)) {
-                RecorderDiagnostics.record(this, "browser_already_foreground=${active ?: "unknown"}")
+                RecorderDiagnostics.record(this, "browser_already_foreground_after_recents=${active ?: "unknown"}")
+                if (!activeWindowLooksLikePie()) openPieInBrowser(expectedBrowser, pieUrl)
                 return@postDelayed
             }
 
             val clicked = findAndClickBrowserTask(expectedBrowser)
             RecorderDiagnostics.record(this, "recents_browser_click attempt=$attempt clicked=$clicked")
             if (clicked) {
-                verifyBrowserReturn(expectedBrowser)
+                verifyBrowserReturn(expectedBrowser, pieUrl)
                 return@postDelayed
             }
 
             if (attempt < RECENTS_SCAN_ATTEMPTS - 1) {
-                openRecentsAndSelectBrowser(expectedBrowser, attempt + 1)
+                openRecentsAndSelectBrowser(expectedBrowser, pieUrl, attempt + 1)
             } else {
-                RecorderDiagnostics.record(this, "recents_browser_not_found_fallback_launcher")
-                launchExistingBrowserTask(expectedBrowser)
+                RecorderDiagnostics.record(this, "recents_browser_not_found_open_exact_pie")
+                openPieInBrowser(expectedBrowser, pieUrl)
             }
         }, if (attempt == 0) RECENTS_OPEN_DELAY_MS else RECENTS_RESCAN_DELAY_MS)
     }
@@ -419,16 +440,26 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         return false
     }
 
-    private fun verifyBrowserReturn(expectedBrowser: String?) {
+    private fun verifyBrowserReturn(expectedBrowser: String?, pieUrl: String) {
         handler.postDelayed({
             val active = activePackage()
             val success = isExpectedBrowser(active, expectedBrowser)
             RecorderDiagnostics.record(this, "browser_return_verify success=$success active=${active ?: "null"}")
-            if (!success) launchExistingBrowserTask(expectedBrowser)
+            if (success) {
+                if (activeWindowLooksLikePie()) {
+                    RecorderDiagnostics.record(this, "browser_return_pie_visible")
+                } else {
+                    RecorderDiagnostics.record(this, "browser_return_wrong_page_open_exact_pie")
+                    openPieInBrowser(expectedBrowser, pieUrl)
+                }
+            } else {
+                openPieInBrowser(expectedBrowser, pieUrl)
+            }
         }, BROWSER_VERIFY_DELAY_MS)
     }
 
-    private fun launchExistingBrowserTask(expectedBrowser: String?) {
+    private fun openPieInBrowser(expectedBrowser: String?, pieUrl: String) {
+        val target = pieUrl.takeIf(CaptureSession::isValidPieUrl) ?: PIE_URL
         val candidates = buildList {
             if (!expectedBrowser.isNullOrBlank()) add(expectedBrowser)
             if (!lastBrowserPackage.isNullOrBlank()) add(lastBrowserPackage!!)
@@ -437,24 +468,37 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
         for (packageName in candidates) {
             try {
-                val launch = packageManager.getLaunchIntentForPackage(packageName) ?: continue
-                launch.addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
-                )
-                startActivity(launch)
-                RecorderDiagnostics.record(this, "browser_launcher_attempt package=$packageName")
+                packageManager.getPackageInfo(packageName, 0)
+                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(target))
+                    .setPackage(packageName)
+                    .addCategory(Intent.CATEGORY_BROWSABLE)
+                    .putExtra(Browser.EXTRA_APPLICATION_ID, packageName)
+                    .putExtra(Browser.EXTRA_CREATE_NEW_TAB, false)
+                    .addFlags(
+                        Intent.FLAG_ACTIVITY_NEW_TASK or
+                            Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                            Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    )
+                startActivity(intent)
+                RecorderDiagnostics.record(this, "pie_url_launch_attempt package=$packageName url=$target")
                 handler.postDelayed({
-                    RecorderDiagnostics.record(this, "browser_launcher_result active=${activePackage() ?: "null"}")
+                    RecorderDiagnostics.record(
+                        this,
+                        "pie_url_launch_result active=${activePackage() ?: "null"} pieVisible=${activeWindowLooksLikePie()}"
+                    )
                 }, BROWSER_VERIFY_DELAY_MS)
                 return
             } catch (e: Exception) {
-                RecorderDiagnostics.record(this, "browser_launcher_failed package=$packageName error=${e.javaClass.simpleName}")
+                RecorderDiagnostics.record(this, "pie_url_launch_failed package=$packageName error=${e.javaClass.simpleName}")
             }
         }
-        RecorderDiagnostics.record(this, "browser_return_all_methods_failed")
+        RecorderDiagnostics.record(this, "pie_url_launch_all_methods_failed")
+    }
+
+    private fun activeWindowLooksLikePie(): Boolean {
+        val root = try { rootInActiveWindow } catch (_: Exception) { null } ?: return false
+        val snapshot = buildString { collectText(root, this, 0) }.lowercase()
+        return PIE_WINDOW_MARKERS.any { snapshot.contains(it) }
     }
 
     private fun resolveBrowserPackage(returnUrl: String?): String? {
@@ -491,6 +535,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         if (node == null || depth > 18) return
         node.text?.let { out.append(' ').append(it) }
         node.contentDescription?.let { out.append(' ').append(it) }
+        node.viewIdResourceName?.let { out.append(' ').append(it) }
         for (i in 0 until node.childCount) collectText(node.getChild(i), out, depth + 1)
     }
 
@@ -506,12 +551,12 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private const val RESUME_STABILITY_MS = 1800L
         private const val STOP_STABILITY_MS = 900L
         private const val MONITOR_INTERVAL_MS = 500L
-        private const val RETURN_RECENTS_DELAY_MS = 120L
+        private const val RETURN_DELAY_MS = 120L
         private const val AUTO_FINISH_RETURN_DELAY_MS = 120L
         private const val RECENTS_OPEN_DELAY_MS = 260L
         private const val RECENTS_RESCAN_DELAY_MS = 220L
-        private const val RECENTS_SCAN_ATTEMPTS = 4
-        private const val BROWSER_VERIFY_DELAY_MS = 550L
+        private const val RECENTS_SCAN_ATTEMPTS = 3
+        private const val BROWSER_VERIFY_DELAY_MS = 650L
         private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
 
         private val KNOWN_BROWSER_PACKAGES = listOf(
@@ -519,6 +564,15 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             "com.android.chrome",
             "com.sec.android.app.sbrowser",
             "org.mozilla.firefox"
+        )
+
+        private val PIE_WINDOW_MARKERS = listOf(
+            "ai-songs-git-main-drobinhood1.vercel.app",
+            "pieinears.ai",
+            "analyze music",
+            "record playback",
+            "record audio",
+            "in the kitchen"
         )
 
         private val AD_MARKERS = listOf(

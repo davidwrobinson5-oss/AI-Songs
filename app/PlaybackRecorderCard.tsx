@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 
 const CAPTURE_STARTED_KEY='pieCaptureStartedAt';
+const CAPTURE_ID_KEY='pieCaptureSessionId';
 
 export default function PlaybackRecorderCard(){
   const [sourceUrl,setSourceUrl]=useState('');
@@ -11,16 +12,56 @@ export default function PlaybackRecorderCard(){
   const [recording,setRecording]=useState(false);
 
   useEffect(()=>{
+    let stopped=false;
+    let timer:number|undefined;
+
+    const finish=(message:string)=>{
+      setStatus(message);
+      setRecording(false);
+      sessionStorage.removeItem(CAPTURE_STARTED_KEY);
+      sessionStorage.removeItem(CAPTURE_ID_KEY);
+    };
+
+    const checkCapture=async()=>{
+      const id=sessionStorage.getItem(CAPTURE_ID_KEY)||'';
+      if(!id||stopped)return;
+      try{
+        const res=await fetch('/api/capture-session',{
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({action:'status',id}),
+          credentials:'same-origin',
+          cache:'no-store',
+        });
+        const data=await res.json().catch(()=>({}));
+        if(!res.ok){
+          if(res.status===404) finish('Recording session could not be found. Please try again.');
+          return;
+        }
+        const captureStatus=String(data?.status||'');
+        if(captureStatus==='accepted') finish('Recording sent to Pie. Processing has started.');
+        else if(captureStatus==='processingFailed') finish('Recording finished, but processing needs attention.');
+        else if(captureStatus==='uploadFailed') finish('Recording finished, but upload to Pie failed.');
+        else if(captureStatus==='uploading'){
+          setRecording(true);
+          setStatus('Recording finished. Uploading to Pie…');
+        }else{
+          setRecording(true);
+          setStatus('Capture started. Waiting for Android to finish recording.');
+        }
+      }catch{
+        // Keep the session alive and retry; a temporary network change should not lose the capture.
+      }
+    };
+
     const reconcileReturn=()=>{
       const current=new URL(window.location.href);
       const result=current.searchParams.get('pieCapture');
       if(result){
-        if(result==='accepted') setStatus('Recording sent to Pie. Processing has started.');
+        if(result==='accepted') finish('Recording sent to Pie. Processing has started.');
         else if(result==='processing') setStatus('Recording finished. Pie is processing it.');
-        else if(result==='processingFailed') setStatus('Recording finished, but processing needs attention.');
-        else setStatus('Recording session finished.');
-        setRecording(false);
-        sessionStorage.removeItem(CAPTURE_STARTED_KEY);
+        else if(result==='processingFailed') finish('Recording finished, but processing needs attention.');
+        else finish('Recording session finished.');
         current.searchParams.delete('pieCapture');
         window.history.replaceState({},'',current.toString());
         return;
@@ -28,18 +69,19 @@ export default function PlaybackRecorderCard(){
 
       const startedAt=Number(sessionStorage.getItem(CAPTURE_STARTED_KEY)||0);
       if(startedAt>0){
-        // Becoming visible again is not proof that Android stopped recording. Keep the
-        // capture active until Android explicitly returns a completion result.
         setRecording(true);
-        setStatus('Capture started. Waiting for Android to confirm that recording finished.');
+        void checkCapture();
       }
     };
 
     reconcileReturn();
+    timer=window.setInterval(()=>{void checkCapture();},1500);
     window.addEventListener('pageshow',reconcileReturn);
     window.addEventListener('focus',reconcileReturn);
     document.addEventListener('visibilitychange',reconcileReturn);
     return()=>{
+      stopped=true;
+      if(timer!==undefined)window.clearInterval(timer);
       window.removeEventListener('pageshow',reconcileReturn);
       window.removeEventListener('focus',reconcileReturn);
       document.removeEventListener('visibilitychange',reconcileReturn);
@@ -59,7 +101,7 @@ export default function PlaybackRecorderCard(){
     }
   }
 
-  function startRecorder(){
+  async function startRecorder(){
     const value=sourceUrl.trim();
     if(!value){setStatus('Paste the song or source URL first.');setConfirming(false);return;}
     try{
@@ -68,18 +110,42 @@ export default function PlaybackRecorderCard(){
     }catch{
       setStatus('Enter a valid web URL.');setConfirming(false);return;
     }
-    const params=new URLSearchParams();
-    params.set('url',value);
-    params.set('return',window.location.href);
-    params.set('stems','true');
-    params.set('fullSheet','true');
-    params.set('partSheets','true');
-    params.set('chords','true');
+
     setConfirming(false);
     setRecording(true);
-    sessionStorage.setItem(CAPTURE_STARTED_KEY,String(Date.now()));
-    setStatus('Android will place its required app-sharing permission over Pie. Choose only the music app you want to capture.');
-    window.location.href=`pie-recorder://capture/start?${params.toString()}`;
+    setStatus('Preparing secure Pie capture…');
+
+    try{
+      const res=await fetch('/api/capture-session',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({action:'create'}),
+        credentials:'same-origin',
+        cache:'no-store',
+      });
+      const data=await res.json().catch(()=>({}));
+      if(!res.ok||!data?.id||!data?.secret)throw new Error(data?.error||'Could not create capture session.');
+
+      const params=new URLSearchParams();
+      params.set('url',value);
+      params.set('return',window.location.href);
+      params.set('captureId',String(data.id));
+      params.set('captureSecret',String(data.secret));
+      params.set('stems','true');
+      params.set('fullSheet','true');
+      params.set('partSheets','true');
+      params.set('chords','true');
+
+      sessionStorage.setItem(CAPTURE_STARTED_KEY,String(Date.now()));
+      sessionStorage.setItem(CAPTURE_ID_KEY,String(data.id));
+      setStatus('Android will place its required app-sharing permission over Pie. Choose only the music app you want to capture.');
+      window.location.href=`pie-recorder://capture/start?${params.toString()}`;
+    }catch(error){
+      setRecording(false);
+      sessionStorage.removeItem(CAPTURE_STARTED_KEY);
+      sessionStorage.removeItem(CAPTURE_ID_KEY);
+      setStatus(error instanceof Error?error.message:'Could not start Pie capture.');
+    }
   }
 
   return <section className="panel" style={{padding:20,marginBottom:16,position:'relative',overflow:'hidden'}}>
@@ -109,7 +175,7 @@ export default function PlaybackRecorderCard(){
         <p style={{margin:0,opacity:.85,lineHeight:1.5}}>Next, Android will place its secure permission sheet over Pie. Keep <strong>Share one app</strong> selected and choose only the app playing your song.</p>
         <div style={{display:'flex',gap:10,marginTop:18}}>
           <button className="secondary" type="button" onClick={()=>setConfirming(false)} style={{flex:1}}>Cancel</button>
-          <button className="primary" type="button" onClick={startRecorder} style={{flex:1}}>Continue</button>
+          <button className="primary" type="button" onClick={()=>{void startRecorder();}} style={{flex:1}}>Continue</button>
         </div>
       </div>
     </div>}

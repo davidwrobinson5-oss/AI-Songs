@@ -25,6 +25,8 @@ jobs:
         run: python android-recorder/patch_upload_status.py
       - name: Apply exact Pie tab restore patch
         run: python .github/scripts/patch_browser_return.py
+      - name: Fix Kotlin regex escaping
+        run: python .github/scripts/fix_browser_regex.py
       - name: Build debug APK
         run: gradle -p android-recorder assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4

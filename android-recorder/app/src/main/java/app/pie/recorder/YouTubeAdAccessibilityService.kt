@@ -22,11 +22,16 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     private var returnTriggered = false
     private var autoFinishedReceiverRegistered = false
     private var lastBrowserPackage: String? = null
+    private var lastLoggedPlayerState: PlayerState? = null
 
     private val autoFinishedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != PlaybackCaptureService.ACTION_AUTO_FINISHED) return
-            if (returnTriggered) return
+            RecorderDiagnostics.record(this@YouTubeAdAccessibilityService, "accessibility_received_auto_finished")
+            if (returnTriggered) {
+                RecorderDiagnostics.record(this@YouTubeAdAccessibilityService, "auto_finished_return_already_triggered")
+                return
+            }
             returnTriggered = true
             returnFromYouTube(intent.getStringExtra(PlaybackCaptureService.EXTRA_RETURN_URL), AUTO_FINISH_RETURN_DELAY_MS)
         }
@@ -40,6 +45,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     private val stoppedRunnable = Runnable {
         if (!CaptureSession.isActive(this) || !pendingStop || adActive || !hasSeenPlaying) return@Runnable
         pendingStop = false
+        RecorderDiagnostics.record(this, "youtube_stop_stable_accessibility_auto_stop")
         stopAndReturnToPie()
     }
 
@@ -57,13 +63,17 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         isConnected = true
+        RecorderDiagnostics.record(this, "accessibility_service_connected")
         registerAutoFinishedReceiver()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val eventPackage = event?.packageName?.toString()
         if (!eventPackage.isNullOrBlank() && KNOWN_BROWSER_PACKAGES.contains(eventPackage)) {
-            lastBrowserPackage = eventPackage
+            if (lastBrowserPackage != eventPackage) {
+                lastBrowserPackage = eventPackage
+                RecorderDiagnostics.record(this, "remember_browser=$eventPackage")
+            }
         }
 
         if (!CaptureSession.isActive(this)) {
@@ -79,6 +89,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
                 val clicked = clickedSnapshot(event)
                 if (SYSTEM_STOP_CLICK_MARKERS.any { clicked.contains(it) }) {
                     hasSeenPlaying = true
+                    RecorderDiagnostics.record(this, "system_ui_stop_clicked")
                     scheduleStop()
                 }
             }
@@ -106,12 +117,14 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             handler.removeCallbacks(resumeRunnable)
             if (!adActive) {
                 adActive = true
+                RecorderDiagnostics.record(this, "youtube_ad_detected_capture_pause")
                 sendCaptureAction(PlaybackCaptureService.ACTION_PAUSE)
             }
             return
         }
 
         val state = playbackState(root)
+        logPlayerState(state)
         if (state == PlayerState.PLAYING) {
             hasSeenPlaying = true
             pendingStop = false
@@ -120,6 +133,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
         if (userTappedStop) {
             hasSeenPlaying = true
+            RecorderDiagnostics.record(this, "youtube_pause_or_stop_clicked")
             scheduleStop()
             return
         }
@@ -128,6 +142,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             pendingStop = false
             handler.removeCallbacks(stoppedRunnable)
             handler.removeCallbacks(resumeRunnable)
+            RecorderDiagnostics.record(this, "youtube_ended_accessibility_auto_stop")
             stopAndReturnToPie()
             return
         }
@@ -139,6 +154,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
         if (adActive) {
             adActive = false
+            RecorderDiagnostics.record(this, "youtube_ad_ended_capture_resume_pending")
             handler.removeCallbacks(resumeRunnable)
             handler.postDelayed(resumeRunnable, RESUME_STABILITY_MS)
         } else if (!pendingStop) {
@@ -148,11 +164,13 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     }
 
     override fun onInterrupt() {
+        RecorderDiagnostics.record(this, "accessibility_interrupted")
         resetState()
     }
 
     override fun onDestroy() {
         isConnected = false
+        RecorderDiagnostics.record(this, "accessibility_destroyed")
         resetState()
         if (autoFinishedReceiverRegistered) {
             try { unregisterReceiver(autoFinishedReceiver) } catch (_: Exception) {}
@@ -172,8 +190,10 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
                 registerReceiver(autoFinishedReceiver, filter)
             }
             autoFinishedReceiverRegistered = true
-        } catch (_: Exception) {
+            RecorderDiagnostics.record(this, "auto_finished_receiver_registered")
+        } catch (e: Exception) {
             autoFinishedReceiverRegistered = false
+            RecorderDiagnostics.record(this, "auto_finished_receiver_register_failed=${e.javaClass.simpleName}")
         }
     }
 
@@ -181,6 +201,8 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         if (monitorRunning) return
         monitorRunning = true
         returnTriggered = false
+        lastLoggedPlayerState = null
+        RecorderDiagnostics.record(this, "youtube_monitor_started")
         handler.post(monitorRunnable)
     }
 
@@ -189,7 +211,9 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         val root = rootInActiveWindow ?: return
         if (root.packageName?.toString() != YOUTUBE_PACKAGE) return
 
-        when (playbackState(root)) {
+        val state = playbackState(root)
+        logPlayerState(state)
+        when (state) {
             PlayerState.PLAYING -> {
                 hasSeenPlaying = true
                 pendingStop = false
@@ -202,10 +226,18 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
                 if (hasSeenPlaying) {
                     pendingStop = false
                     handler.removeCallbacks(stoppedRunnable)
+                    RecorderDiagnostics.record(this, "youtube_monitor_detected_end")
                     stopAndReturnToPie()
                 }
             }
             PlayerState.UNKNOWN -> Unit
+        }
+    }
+
+    private fun logPlayerState(state: PlayerState) {
+        if (state != lastLoggedPlayerState) {
+            lastLoggedPlayerState = state
+            RecorderDiagnostics.record(this, "youtube_player_state=${state.name}")
         }
     }
 
@@ -226,6 +258,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         hasSeenPlaying = false
         pendingStop = false
         returnTriggered = false
+        lastLoggedPlayerState = null
     }
 
     private fun clickedSnapshot(event: AccessibilityEvent): String = buildString {
@@ -261,15 +294,9 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
                 viewId.contains("playpause")
 
             if (looksLikePlayerControl) {
-                if (PAUSE_CONTROL_LABELS.any { label == it || label.startsWith("$it ") }) {
-                    hasPause = true
-                }
-                if (REPLAY_CONTROL_LABELS.any { label == it || label.startsWith("$it ") }) {
-                    hasReplay = true
-                }
-                if (PLAY_CONTROL_LABELS.any { label == it || label.startsWith("$it ") }) {
-                    hasPlay = true
-                }
+                if (PAUSE_CONTROL_LABELS.any { label == it || label.startsWith("$it ") }) hasPause = true
+                if (REPLAY_CONTROL_LABELS.any { label == it || label.startsWith("$it ") }) hasReplay = true
+                if (PLAY_CONTROL_LABELS.any { label == it || label.startsWith("$it ") }) hasPlay = true
             }
 
             for (i in 0 until node.childCount) scan(node.getChild(i), depth + 1)
@@ -287,10 +314,11 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
     private fun sendCaptureAction(action: String) {
         if (!CaptureSession.isActive(this)) return
+        RecorderDiagnostics.record(this, "send_capture_action=$action")
         try {
             startService(Intent(this, PlaybackCaptureService::class.java).setAction(action))
-        } catch (_: Exception) {
-            // Recorder may not be active yet; later events will retry.
+        } catch (e: Exception) {
+            RecorderDiagnostics.record(this, "send_capture_action_failed=${e.javaClass.simpleName}")
         }
     }
 
@@ -298,15 +326,135 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         if (!CaptureSession.isActive(this) || returnTriggered) return
         val returnUrl = CaptureSession.returnUrl(this)
         returnTriggered = true
+        RecorderDiagnostics.record(this, "stop_and_return_requested browser=${lastBrowserPackage ?: "unknown"}")
         sendCaptureAction(PlaybackCaptureService.ACTION_AUTO_STOP)
-        returnFromYouTube(returnUrl, RETURN_DIRECT_DELAY_MS)
+        returnFromYouTube(returnUrl, RETURN_RECENTS_DELAY_MS)
     }
 
     private fun returnFromYouTube(returnUrl: String?, delayMs: Long) {
         val expectedBrowser = lastBrowserPackage ?: resolveBrowserPackage(returnUrl)
+        RecorderDiagnostics.record(this, "return_expected_browser=${expectedBrowser ?: "unknown"}")
         handler.postDelayed({
-            bringExistingBrowserToFront(returnUrl, expectedBrowser)
+            openRecentsAndSelectBrowser(expectedBrowser, 0)
         }, delayMs)
+    }
+
+    private fun openRecentsAndSelectBrowser(expectedBrowser: String?, attempt: Int) {
+        if (attempt == 0) {
+            val before = activePackage()
+            val accepted = try { performGlobalAction(GLOBAL_ACTION_RECENTS) } catch (_: Exception) { false }
+            RecorderDiagnostics.record(this, "recents_action accepted=$accepted before=${before ?: "null"}")
+        }
+
+        handler.postDelayed({
+            val active = activePackage()
+            RecorderDiagnostics.record(this, "recents_scan attempt=$attempt active=${active ?: "null"}")
+
+            if (isExpectedBrowser(active, expectedBrowser)) {
+                RecorderDiagnostics.record(this, "browser_already_foreground=${active ?: "unknown"}")
+                return@postDelayed
+            }
+
+            val clicked = findAndClickBrowserTask(expectedBrowser)
+            RecorderDiagnostics.record(this, "recents_browser_click attempt=$attempt clicked=$clicked")
+            if (clicked) {
+                verifyBrowserReturn(expectedBrowser)
+                return@postDelayed
+            }
+
+            if (attempt < RECENTS_SCAN_ATTEMPTS - 1) {
+                openRecentsAndSelectBrowser(expectedBrowser, attempt + 1)
+            } else {
+                RecorderDiagnostics.record(this, "recents_browser_not_found_fallback_launcher")
+                launchExistingBrowserTask(expectedBrowser)
+            }
+        }, if (attempt == 0) RECENTS_OPEN_DELAY_MS else RECENTS_RESCAN_DELAY_MS)
+    }
+
+    private fun findAndClickBrowserTask(expectedBrowser: String?): Boolean {
+        val labels = browserLabels(expectedBrowser)
+        val windows = try { windows } catch (_: Exception) { emptyList() }
+
+        for (window in windows) {
+            val root = try { window.root } catch (_: Exception) { null } ?: continue
+            val match = findNodeMatchingAnyLabel(root, labels, 0) ?: continue
+            if (clickNodeOrParent(match)) return true
+        }
+
+        val root = try { rootInActiveWindow } catch (_: Exception) { null }
+        val match = findNodeMatchingAnyLabel(root, labels, 0)
+        return clickNodeOrParent(match)
+    }
+
+    private fun findNodeMatchingAnyLabel(
+        node: AccessibilityNodeInfo?,
+        labels: List<String>,
+        depth: Int
+    ): AccessibilityNodeInfo? {
+        if (node == null || depth > 24) return null
+        val haystack = buildString {
+            node.text?.let { append(it).append(' ') }
+            node.contentDescription?.let { append(it).append(' ') }
+            node.viewIdResourceName?.let { append(it).append(' ') }
+        }.lowercase()
+
+        if (labels.any { haystack.contains(it) }) return node
+        for (i in 0 until node.childCount) {
+            val found = findNodeMatchingAnyLabel(node.getChild(i), labels, depth + 1)
+            if (found != null) return found
+        }
+        return null
+    }
+
+    private fun clickNodeOrParent(node: AccessibilityNodeInfo?): Boolean {
+        var current = node
+        var depth = 0
+        while (current != null && depth < 8) {
+            if (current.isClickable) {
+                return try { current.performAction(AccessibilityNodeInfo.ACTION_CLICK) } catch (_: Exception) { false }
+            }
+            current = current.parent
+            depth++
+        }
+        return false
+    }
+
+    private fun verifyBrowserReturn(expectedBrowser: String?) {
+        handler.postDelayed({
+            val active = activePackage()
+            val success = isExpectedBrowser(active, expectedBrowser)
+            RecorderDiagnostics.record(this, "browser_return_verify success=$success active=${active ?: "null"}")
+            if (!success) launchExistingBrowserTask(expectedBrowser)
+        }, BROWSER_VERIFY_DELAY_MS)
+    }
+
+    private fun launchExistingBrowserTask(expectedBrowser: String?) {
+        val candidates = buildList {
+            if (!expectedBrowser.isNullOrBlank()) add(expectedBrowser)
+            if (!lastBrowserPackage.isNullOrBlank()) add(lastBrowserPackage!!)
+            addAll(KNOWN_BROWSER_PACKAGES)
+        }.distinct()
+
+        for (packageName in candidates) {
+            try {
+                val launch = packageManager.getLaunchIntentForPackage(packageName) ?: continue
+                launch.addFlags(
+                    Intent.FLAG_ACTIVITY_NEW_TASK or
+                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
+                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
+                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
+                )
+                startActivity(launch)
+                RecorderDiagnostics.record(this, "browser_launcher_attempt package=$packageName")
+                handler.postDelayed({
+                    RecorderDiagnostics.record(this, "browser_launcher_result active=${activePackage() ?: "null"}")
+                }, BROWSER_VERIFY_DELAY_MS)
+                return
+            } catch (e: Exception) {
+                RecorderDiagnostics.record(this, "browser_launcher_failed package=$packageName error=${e.javaClass.simpleName}")
+            }
+        }
+        RecorderDiagnostics.record(this, "browser_return_all_methods_failed")
     }
 
     private fun resolveBrowserPackage(returnUrl: String?): String? {
@@ -319,55 +467,31 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun browserLabels(packageName: String?): List<String> = when (packageName) {
+        "com.brave.browser" -> listOf("brave")
+        "com.android.chrome" -> listOf("chrome")
+        "com.sec.android.app.sbrowser" -> listOf("samsung internet", "internet")
+        "org.mozilla.firefox" -> listOf("firefox")
+        else -> listOf("brave", "chrome", "samsung internet", "firefox")
+    }
+
+    private fun activePackage(): String? = try {
+        rootInActiveWindow?.packageName?.toString()
+    } catch (_: Exception) {
+        null
+    }
+
     private fun isExpectedBrowser(activePackage: String?, expectedBrowser: String?): Boolean {
         if (activePackage.isNullOrBlank()) return false
         if (!expectedBrowser.isNullOrBlank() && activePackage == expectedBrowser) return true
         return expectedBrowser.isNullOrBlank() && KNOWN_BROWSER_PACKAGES.contains(activePackage)
     }
 
-    private fun bringExistingBrowserToFront(returnUrl: String?, expectedBrowser: String?) {
-        val resolved = expectedBrowser ?: lastBrowserPackage ?: resolveBrowserPackage(returnUrl)
-        val candidates = buildList {
-            if (!resolved.isNullOrBlank()) add(resolved)
-            if (!lastBrowserPackage.isNullOrBlank()) add(lastBrowserPackage!!)
-            addAll(KNOWN_BROWSER_PACKAGES)
-        }.distinct()
-
-        var launched = false
-        for (packageName in candidates) {
-            try {
-                val launch = packageManager.getLaunchIntentForPackage(packageName) ?: continue
-                launch.addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or
-                        Intent.FLAG_ACTIVITY_SINGLE_TOP or
-                        Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED
-                )
-                startActivity(launch)
-                launched = true
-                break
-            } catch (_: Exception) {
-                // Try the next installed browser without opening a URL/new tab.
-            }
-        }
-
-        handler.postDelayed({
-            val activePackage = try { rootInActiveWindow?.packageName?.toString() } catch (_: Exception) { null }
-            if (!launched || !isExpectedBrowser(activePackage, resolved)) {
-                // A single Recents fallback is less disruptive than walking backward
-                // through YouTube's entire activity stack.
-                try { performGlobalAction(GLOBAL_ACTION_RECENTS) } catch (_: Exception) {}
-            }
-        }, BROWSER_VERIFY_DELAY_MS)
-    }
-
     private fun collectText(node: AccessibilityNodeInfo?, out: StringBuilder, depth: Int) {
         if (node == null || depth > 18) return
         node.text?.let { out.append(' ').append(it) }
         node.contentDescription?.let { out.append(' ').append(it) }
-        for (i in 0 until node.childCount) {
-            collectText(node.getChild(i), out, depth + 1)
-        }
+        for (i in 0 until node.childCount) collectText(node.getChild(i), out, depth + 1)
     }
 
     private enum class PlayerState { PLAYING, STOPPED, ENDED, UNKNOWN }
@@ -382,9 +506,12 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private const val RESUME_STABILITY_MS = 1800L
         private const val STOP_STABILITY_MS = 900L
         private const val MONITOR_INTERVAL_MS = 500L
-        private const val RETURN_DIRECT_DELAY_MS = 120L
+        private const val RETURN_RECENTS_DELAY_MS = 120L
         private const val AUTO_FINISH_RETURN_DELAY_MS = 120L
-        private const val BROWSER_VERIFY_DELAY_MS = 650L
+        private const val RECENTS_OPEN_DELAY_MS = 260L
+        private const val RECENTS_RESCAN_DELAY_MS = 220L
+        private const val RECENTS_SCAN_ATTEMPTS = 4
+        private const val BROWSER_VERIFY_DELAY_MS = 550L
         private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"
 
         private val KNOWN_BROWSER_PACKAGES = listOf(
@@ -395,48 +522,15 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         )
 
         private val AD_MARKERS = listOf(
-            "skip ad",
-            "skip ads",
-            "visit advertiser",
-            "sponsored",
-            "advertisement",
-            "ad 1 of",
-            "ad 2 of",
-            "about this ad"
+            "skip ad", "skip ads", "visit advertiser", "sponsored", "advertisement",
+            "ad 1 of", "ad 2 of", "about this ad"
         )
 
-        private val USER_STOP_CLICK_MARKERS = listOf(
-            "pause video",
-            "pause",
-            "stop video",
-            "stop"
-        )
-
-        private val SYSTEM_STOP_CLICK_MARKERS = listOf(
-            "pause",
-            "stop"
-        )
-
-        private val PAUSE_CONTROL_LABELS = listOf(
-            "pause",
-            "pause video"
-        )
-
-        private val PLAY_CONTROL_LABELS = listOf(
-            "play",
-            "play video"
-        )
-
-        private val REPLAY_CONTROL_LABELS = listOf(
-            "replay",
-            "replay video",
-            "watch again"
-        )
-
-        private val END_MARKERS = listOf(
-            "replay video",
-            "watch again",
-            "replay"
-        )
+        private val USER_STOP_CLICK_MARKERS = listOf("pause video", "pause", "stop video", "stop")
+        private val SYSTEM_STOP_CLICK_MARKERS = listOf("pause", "stop")
+        private val PAUSE_CONTROL_LABELS = listOf("pause", "pause video")
+        private val PLAY_CONTROL_LABELS = listOf("play", "play video")
+        private val REPLAY_CONTROL_LABELS = listOf("replay", "replay video", "watch again")
+        private val END_MARKERS = listOf("replay video", "watch again", "replay")
     }
 }

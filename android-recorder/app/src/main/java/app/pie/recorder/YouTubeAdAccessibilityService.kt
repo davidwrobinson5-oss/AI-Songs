@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Browser
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -17,6 +18,8 @@ import android.view.accessibility.AccessibilityNodeInfo
 class YouTubeAdAccessibilityService : AccessibilityService() {
     private val handler = Handler(Looper.getMainLooper())
     private var adActive = false
+    private var adLastSeenAt = 0L
+    private var adClearCandidateSince = 0L
     private var hasSeenPlaying = false
     private var pendingStop = false
     private var monitorRunning = false
@@ -113,6 +116,13 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             USER_STOP_CLICK_MARKERS.any { clicked.contains(it) } && !nowAd
 
         if (nowAd) {
+            if (pendingStop && hasSeenPlaying) {
+                RecorderDiagnostics.record(this, "youtube_ad_marker_ignored_during_pending_stop")
+                return
+            }
+
+            adLastSeenAt = SystemClock.elapsedRealtime()
+            adClearCandidateSince = 0L
             pendingStop = false
             handler.removeCallbacks(stoppedRunnable)
             handler.removeCallbacks(resumeRunnable)
@@ -122,6 +132,10 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
                 sendCaptureAction(PlaybackCaptureService.ACTION_PAUSE)
             }
             return
+        }
+
+        if (adActive) {
+            clearAdStateAndScheduleResume("youtube_ad_ended_capture_resume_pending")
         }
 
         val state = playbackState(root)
@@ -153,12 +167,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
             return
         }
 
-        if (adActive) {
-            adActive = false
-            RecorderDiagnostics.record(this, "youtube_ad_ended_capture_resume_pending")
-            handler.removeCallbacks(resumeRunnable)
-            handler.postDelayed(resumeRunnable, RESUME_STABILITY_MS)
-        } else if (!pendingStop) {
+        if (!pendingStop) {
             handler.removeCallbacks(resumeRunnable)
             handler.postDelayed(resumeRunnable, RESUME_STABILITY_MS)
         }
@@ -208,9 +217,40 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     }
 
     private fun inspectCurrentYouTubeWindow() {
-        if (adActive || !CaptureSession.isActive(this)) return
+        if (!CaptureSession.isActive(this)) return
         val root = rootInActiveWindow ?: return
         if (root.packageName?.toString() != YOUTUBE_PACKAGE) return
+
+        val snapshot = buildString { collectText(root, this, 0) }.lowercase()
+        val nowAd = AD_MARKERS.any { snapshot.contains(it) }
+        val now = SystemClock.elapsedRealtime()
+
+        if (nowAd) {
+            adLastSeenAt = now
+            adClearCandidateSince = 0L
+            if (pendingStop && hasSeenPlaying) {
+                RecorderDiagnostics.record(this, "youtube_monitor_ad_marker_ignored_pending_stop")
+                return
+            }
+            pendingStop = false
+            handler.removeCallbacks(stoppedRunnable)
+            handler.removeCallbacks(resumeRunnable)
+            if (!adActive) {
+                adActive = true
+                RecorderDiagnostics.record(this, "youtube_monitor_ad_detected_capture_pause")
+                sendCaptureAction(PlaybackCaptureService.ACTION_PAUSE)
+            }
+            return
+        }
+
+        if (adActive) {
+            if (adClearCandidateSince == 0L) {
+                adClearCandidateSince = now
+                return
+            }
+            if (now - adClearCandidateSince < AD_END_MONITOR_STABILITY_MS) return
+            clearAdStateAndScheduleResume("youtube_ad_ended_monitor_resume_pending")
+        }
 
         val state = playbackState(root)
         logPlayerState(state)
@@ -235,6 +275,15 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         }
     }
 
+    private fun clearAdStateAndScheduleResume(reason: String) {
+        adActive = false
+        adLastSeenAt = 0L
+        adClearCandidateSince = 0L
+        RecorderDiagnostics.record(this, reason)
+        handler.removeCallbacks(resumeRunnable)
+        if (!pendingStop) handler.postDelayed(resumeRunnable, RESUME_STABILITY_MS)
+    }
+
     private fun logPlayerState(state: PlayerState) {
         if (state != lastLoggedPlayerState) {
             lastLoggedPlayerState = state
@@ -256,6 +305,8 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         handler.removeCallbacks(monitorRunnable)
         monitorRunning = false
         adActive = false
+        adLastSeenAt = 0L
+        adClearCandidateSince = 0L
         hasSeenPlaying = false
         pendingStop = false
         returnTriggered = false
@@ -551,6 +602,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         private const val RESUME_STABILITY_MS = 1800L
         private const val STOP_STABILITY_MS = 900L
         private const val MONITOR_INTERVAL_MS = 500L
+        private const val AD_END_MONITOR_STABILITY_MS = 750L
         private const val RETURN_DELAY_MS = 120L
         private const val AUTO_FINISH_RETURN_DELAY_MS = 120L
         private const val RECENTS_OPEN_DELAY_MS = 260L
@@ -576,7 +628,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         )
 
         private val AD_MARKERS = listOf(
-            "skip ad", "skip ads", "visit advertiser", "sponsored", "advertisement",
+            "skip ad", "skip ads", "visit advertiser", "advertisement",
             "ad 1 of", "ad 2 of", "about this ad"
         )
 

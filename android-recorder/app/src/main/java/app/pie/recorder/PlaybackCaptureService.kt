@@ -38,6 +38,8 @@ class PlaybackCaptureService : Service() {
         const val EXTRA_PATH = "path"
         const val EXTRA_RETURN_URL = "returnUrl"
         const val EXTRA_SOURCE_URL = "sourceUrl"
+        const val EXTRA_CAPTURE_ID = "captureId"
+        const val EXTRA_CAPTURE_SECRET = "captureSecret"
         const val EXTRA_STEMS = "stems"
         const val EXTRA_FULL_SHEET = "fullSheet"
         const val EXTRA_PART_SHEETS = "partSheets"
@@ -45,8 +47,6 @@ class PlaybackCaptureService : Service() {
         const val EXTRA_AUTO_STOP_REQUESTED = "autoStopRequested"
         const val CHANNEL_ID = "pie_capture"
 
-        // A single stray PCM sample used to count as active playback. YouTube can leave
-        // tiny digital noise after pause, so we now classify whole buffers instead.
         private const val SIGNAL_MEAN_ABS_THRESHOLD = 48L
         private const val SIGNAL_ACTIVE_SAMPLE_THRESHOLD = 220
         private const val SIGNAL_ACTIVE_SAMPLE_FRACTION = 250
@@ -68,6 +68,8 @@ class PlaybackCaptureService : Service() {
 
     private var returnUrl: String? = null
     private var sourceUrl: String? = null
+    private var captureId: String? = null
+    private var captureSecret: String? = null
     private var wantsStems = true
     private var wantsFullSheet = true
     private var wantsPartSheets = true
@@ -109,12 +111,19 @@ class PlaybackCaptureService : Service() {
 
         returnUrl = intent.getStringExtra(EXTRA_RETURN_URL)
         sourceUrl = intent.getStringExtra(EXTRA_SOURCE_URL)
+        captureId = intent.getStringExtra(EXTRA_CAPTURE_ID)?.trim()
+        captureSecret = intent.getStringExtra(EXTRA_CAPTURE_SECRET)?.trim()
         wantsStems = intent.getBooleanExtra(EXTRA_STEMS, true)
         wantsFullSheet = intent.getBooleanExtra(EXTRA_FULL_SHEET, true)
         wantsPartSheets = intent.getBooleanExtra(EXTRA_PART_SHEETS, true)
         wantsChords = intent.getBooleanExtra(EXTRA_CHORDS, true)
         paused.set(false)
         autoStopRequested.set(false)
+
+        if (captureId.isNullOrBlank() || captureSecret.orEmpty().length < 32) {
+            stopSelf()
+            return
+        }
 
         showRecordingNotification(false)
 
@@ -415,10 +424,21 @@ class PlaybackCaptureService : Service() {
     }
 
     private fun uploadRecording(file: File) {
+        val id = captureId?.takeIf { it.isNotBlank() } ?: run {
+            finishAutoUpload("uploadFailed")
+            return
+        }
+        val secret = captureSecret?.takeIf { it.length >= 32 } ?: run {
+            finishAutoUpload("uploadFailed")
+            return
+        }
+
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart("file", file.name, file.asRequestBody("audio/wav".toMediaType()))
             .addFormDataPart("title", "Android playback recording")
+            .addFormDataPart("captureId", id)
+            .addFormDataPart("captureSecret", secret)
             .addFormDataPart("stems", wantsStems.toString())
             .addFormDataPart("fullSheet", wantsFullSheet.toString())
             .addFormDataPart("partSheets", wantsPartSheets.toString())
@@ -492,6 +512,8 @@ class PlaybackCaptureService : Service() {
         recording.set(false)
         paused.set(false)
         autoStopRequested.set(false)
+        captureId = null
+        captureSecret = null
         try { audioRecord?.release() } catch (_: Exception) {}
         super.onDestroy()
     }

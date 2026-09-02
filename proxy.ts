@@ -38,6 +38,11 @@ function isLegacyVerifyRequest(pathname: string) {
   return pathname === '/api/auth/legacy-verify';
 }
 
+function isAndroidCaptureRequest(pathname: string) {
+  // This endpoint authenticates the helper with its one-time capture id + secret.
+  return pathname === '/api/sheets/mobile-process';
+}
+
 function isAudioUploadRequest(pathname: string) {
   return pathname === '/api/song-audio-upload';
 }
@@ -99,7 +104,7 @@ async function legacyProxy(req: NextRequest) {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req) || isLegacyVerifyRequest(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req) || isLegacyVerifyRequest(pathname) || isAndroidCaptureRequest(pathname)) return NextResponse.next();
 
   if (!authConfigured()) {
     if (isLoginRoute(pathname)) return NextResponse.next();
@@ -126,16 +131,13 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req) || isLegacyVerifyRequest(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req) || isLegacyVerifyRequest(pathname) || isAndroidCaptureRequest(pathname)) return NextResponse.next();
 
   const clerkAuth = await auth();
   const legacyValid = await legacySessionValid(req);
   const authenticated = clerkAuth.isAuthenticated || legacyValid;
 
   if (isLoginRoute(pathname)) {
-    // Let an existing Studio-password session open the Clerk sign-in screen so
-    // the browser's existing IndexedDB song library can be attached to an
-    // account without signing out or clearing any local songs first.
     if (isCloudConnectRequest(req) && !clerkAuth.isAuthenticated) return NextResponse.next();
 
     if (authenticated && pathname === '/login') {

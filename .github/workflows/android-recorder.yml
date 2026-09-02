@@ -20,6 +20,8 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Apply recorder upload diagnostics patch
+        run: python android-recorder/patch_upload_status.py
       - name: Build debug APK
         run: gradle -p android-recorder assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4

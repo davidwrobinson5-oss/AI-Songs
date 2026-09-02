@@ -1,0 +1,162 @@
+from pathlib import Path
+
+path = Path('android-recorder/app/src/main/java/app/pie/recorder/PlaybackCaptureService.kt')
+text = path.read_text()
+
+if 'RequestBody.Companion.toRequestBody' not in text:
+    text = text.replace(
+        'import okhttp3.RequestBody.Companion.asRequestBody\n',
+        'import okhttp3.RequestBody.Companion.asRequestBody\nimport okhttp3.RequestBody.Companion.toRequestBody\n',
+    )
+
+pie_constant = '        private const val PIE_URL = "https://ai-songs-git-main-drobinhood1.vercel.app"\n'
+if 'CAPTURE_STATUS_URL' not in text:
+    text = text.replace(
+        pie_constant,
+        pie_constant
+        + '        private const val CAPTURE_STATUS_URL = "https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-capture"\n'
+        + '        private const val SUPABASE_PUBLISHABLE_KEY = "sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg"\n',
+    )
+
+old_finish = '''            sendBroadcast(Intent(ACTION_SAVED).setPackage(packageName).putExtra(EXTRA_PATH, file.absolutePath))
+
+            if (autoFinished) {
+                uploadRecording(file)
+            } else {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+'''
+new_finish = '''            RecorderDiagnostics.record(this, "capture_file_ready autoFinished=$autoFinished bytes=${file.length()} captureIdPresent=${!captureId.isNullOrBlank()} secretPresent=${captureSecret.orEmpty().length >= 32}")
+            sendBroadcast(Intent(ACTION_SAVED).setPackage(packageName).putExtra(EXTRA_PATH, file.absolutePath))
+
+            if (autoFinished) {
+                try {
+                    uploadRecording(file)
+                } catch (e: Exception) {
+                    RecorderDiagnostics.record(this, "mobile_upload_start_exception=${e.javaClass.simpleName}:${e.message.orEmpty().take(120)}")
+                    val id = captureId.orEmpty()
+                    val secret = captureSecret.orEmpty()
+                    if (id.isNotBlank() && secret.length >= 32) reportCaptureStatus(id, secret, "uploadFailed")
+                    finishAutoUpload("uploadFailed")
+                }
+            } else {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopSelf()
+            }
+'''
+if 'capture_file_ready autoFinished=' not in text:
+    if old_finish not in text:
+        raise SystemExit('Could not locate capture completion block')
+    text = text.replace(old_finish, new_finish)
+
+start = text.index('    private fun uploadRecording(file: File) {')
+end = text.index('    private fun pieResultUri(result: String): Uri {')
+replacement = r'''    private fun uploadRecording(file: File) {
+        val id = captureId?.takeIf { it.isNotBlank() } ?: run {
+            RecorderDiagnostics.record(this, "mobile_upload_missing_capture_id")
+            finishAutoUpload("uploadFailed")
+            return
+        }
+        val secret = captureSecret?.takeIf { it.length >= 32 } ?: run {
+            RecorderDiagnostics.record(this, "mobile_upload_missing_capture_secret")
+            finishAutoUpload("uploadFailed")
+            return
+        }
+
+        RecorderDiagnostics.record(this, "mobile_upload_begin id=${id.take(8)} bytes=${file.length()}")
+        reportCaptureStatus(id, secret, "uploading")
+
+        val body = MultipartBody.Builder()
+            .setType(MultipartBody.FORM)
+            .addFormDataPart("file", file.name, file.asRequestBody("audio/wav".toMediaType()))
+            .addFormDataPart("title", "Android playback recording")
+            .addFormDataPart("captureId", id)
+            .addFormDataPart("captureSecret", secret)
+            .addFormDataPart("stems", wantsStems.toString())
+            .addFormDataPart("fullSheet", wantsFullSheet.toString())
+            .addFormDataPart("partSheets", wantsPartSheets.toString())
+            .addFormDataPart("chords", wantsChords.toString())
+            .build()
+
+        val request = Request.Builder()
+            .url("$PIE_URL/api/sheets/mobile-process")
+            .post(body)
+            .build()
+
+        RecorderDiagnostics.record(this, "mobile_upload_request_queued url=$PIE_URL/api/sheets/mobile-process")
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                RecorderDiagnostics.record(this@PlaybackCaptureService, "mobile_upload_network_failure=${e.javaClass.simpleName}:${e.message.orEmpty().take(120)}")
+                reportCaptureStatus(id, secret, "uploadFailed")
+                finishAutoUpload("uploadFailed")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val code = response.code
+                val success = response.isSuccessful
+                response.body?.close()
+                RecorderDiagnostics.record(this@PlaybackCaptureService, "mobile_upload_response code=$code success=$success")
+                val result = if (success) "accepted" else "processingFailed"
+                reportCaptureStatus(id, secret, result)
+                finishAutoUpload(result)
+            }
+        })
+    }
+
+    private fun reportCaptureStatus(id: String, secret: String, status: String) {
+        val result = if (status == "accepted" || status == "processingFailed" || status == "uploadFailed") status else null
+        val payload = org.json.JSONObject()
+            .put("action", "update")
+            .put("id", id)
+            .put("secret", secret)
+            .put("status", status)
+            .put("result", result)
+            .toString()
+            .toRequestBody("application/json".toMediaType())
+
+        val request = Request.Builder()
+            .url(CAPTURE_STATUS_URL)
+            .header("apikey", SUPABASE_PUBLISHABLE_KEY)
+            .post(payload)
+            .build()
+
+        client.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                RecorderDiagnostics.record(this@PlaybackCaptureService, "capture_status_report_failed status=$status error=${e.javaClass.simpleName}:${e.message.orEmpty().take(120)}")
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                val code = response.code
+                val success = response.isSuccessful
+                response.body?.close()
+                RecorderDiagnostics.record(this@PlaybackCaptureService, "capture_status_report status=$status code=$code success=$success")
+            }
+        })
+    }
+
+    private fun finishAutoUpload(result: String) {
+        RecorderDiagnostics.record(this, "mobile_upload_finish result=$result")
+        val openPieIntent = Intent(Intent.ACTION_VIEW, pieResultUri(result))
+        val pending = PendingIntent.getActivity(
+            this,
+            46,
+            openPieIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = Notification.Builder(this, CHANNEL_ID)
+            .setContentTitle(if (result == "accepted") "Recording sent to Pie" else "Pie recording needs attention")
+            .setContentText(if (result == "accepted") "Processing has started" else "Tap to return to Pie")
+            .setSmallIcon(android.R.drawable.ic_btn_speak_now)
+            .setContentIntent(pending)
+            .setAutoCancel(true)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(47, notification)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+'''
+text = text[:start] + replacement + text[end:]
+path.write_text(text)
+print('Patched PlaybackCaptureService.kt with upload diagnostics/status reporting')

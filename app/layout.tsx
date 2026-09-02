@@ -6,12 +6,18 @@ import PasskeySetupBanner from './PasskeySetupBanner';
 import AccountControl from './AccountControl';
 import AudioPolicy from './AudioPolicy';
 import CloudSongSync from './CloudSongSync';
+import PwaBoot from './PwaBoot';
 
 export const metadata: Metadata = {
   title: 'Pieinears',
   description: 'Pieinears — The Kitchens Open. Let Them Cook!',
   manifest: '/manifest.webmanifest',
   themeColor: '#05070A',
+  appleWebApp: {
+    capable: true,
+    title: 'Pie',
+    statusBarStyle: 'black-translucent',
+  },
 };
 
 function clerkConfigured() {
@@ -22,6 +28,7 @@ function Document({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body>
+        <PwaBoot />
         <AudioPolicy />
         {children}
       </body>

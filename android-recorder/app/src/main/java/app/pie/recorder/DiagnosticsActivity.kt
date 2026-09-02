@@ -7,7 +7,7 @@ import android.content.Context
 import android.graphics.Typeface
 import android.os.Bundle
 import android.view.Gravity
-import android.view.View
+import android.view.ViewGroup
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -74,9 +74,9 @@ class DiagnosticsActivity : Activity() {
 
         val scroll = ScrollView(this).apply {
             isFillViewport = true
-            addView(logView, ScrollView.LayoutParams(
-                ScrollView.LayoutParams.MATCH_PARENT,
-                ScrollView.LayoutParams.WRAP_CONTENT
+            addView(logView, ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
             ))
         }
         root.addView(scroll, LinearLayout.LayoutParams(

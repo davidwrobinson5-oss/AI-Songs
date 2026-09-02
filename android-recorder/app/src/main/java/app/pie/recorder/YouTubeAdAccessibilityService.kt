@@ -67,7 +67,8 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         isConnected = true
-        RecorderDiagnostics.record(this, "accessibility_service_connected")
+        lastBrowserPackage = rememberedBrowserPackage() ?: preferredInstalledBrowser()
+        RecorderDiagnostics.record(this, "accessibility_service_connected browser=${lastBrowserPackage ?: "unknown"}")
         registerAutoFinishedReceiver()
     }
 
@@ -75,7 +76,7 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         val eventPackage = event?.packageName?.toString()
         if (!eventPackage.isNullOrBlank() && KNOWN_BROWSER_PACKAGES.contains(eventPackage)) {
             if (lastBrowserPackage != eventPackage) {
-                lastBrowserPackage = eventPackage
+                rememberBrowserPackage(eventPackage)
                 RecorderDiagnostics.record(this, "remember_browser=$eventPackage")
             }
         }
@@ -313,6 +314,32 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         lastLoggedPlayerState = null
     }
 
+    private fun rememberBrowserPackage(packageName: String) {
+        if (!KNOWN_BROWSER_PACKAGES.contains(packageName)) return
+        lastBrowserPackage = packageName
+        getSharedPreferences(BROWSER_PREFS, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_BROWSER_PACKAGE, packageName)
+            .apply()
+    }
+
+    private fun rememberedBrowserPackage(): String? {
+        val stored = getSharedPreferences(BROWSER_PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_BROWSER_PACKAGE, null)
+        return stored?.takeIf { KNOWN_BROWSER_PACKAGES.contains(it) && isPackageInstalled(it) }
+    }
+
+    private fun preferredInstalledBrowser(): String? {
+        return KNOWN_BROWSER_PACKAGES.firstOrNull(::isPackageInstalled)
+    }
+
+    private fun isPackageInstalled(packageName: String): Boolean = try {
+        packageManager.getPackageInfo(packageName, 0)
+        true
+    } catch (_: Exception) {
+        false
+    }
+
     private fun clickedSnapshot(event: AccessibilityEvent): String = buildString {
         event.text.forEach { append(' ').append(it) }
         event.contentDescription?.let { append(' ').append(it) }
@@ -378,14 +405,14 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         if (!CaptureSession.isActive(this) || returnTriggered) return
         val returnUrl = CaptureSession.returnUrl(this)
         returnTriggered = true
-        RecorderDiagnostics.record(this, "stop_and_return_requested browser=${lastBrowserPackage ?: "unknown"}")
+        RecorderDiagnostics.record(this, "stop_and_return_requested browser=${lastBrowserPackage ?: rememberedBrowserPackage() ?: "unknown"}")
         sendCaptureAction(PlaybackCaptureService.ACTION_AUTO_STOP)
         returnFromYouTube(returnUrl, RETURN_DELAY_MS)
     }
 
     private fun returnFromYouTube(returnUrl: String?, delayMs: Long) {
         val pieUrl = returnUrl?.takeIf(CaptureSession::isValidPieUrl) ?: PIE_URL
-        val expectedBrowser = lastBrowserPackage ?: resolveBrowserPackage(pieUrl)
+        val expectedBrowser = lastBrowserPackage ?: rememberedBrowserPackage() ?: preferredInstalledBrowser() ?: resolveBrowserPackage(pieUrl)
         RecorderDiagnostics.record(this, "return_expected_browser=${expectedBrowser ?: "unknown"} url=$pieUrl")
 
         handler.postDelayed({
@@ -513,6 +540,8 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
         val target = pieUrl.takeIf(CaptureSession::isValidPieUrl) ?: PIE_URL
         val candidates = buildList {
             if (!expectedBrowser.isNullOrBlank()) add(expectedBrowser)
+            val remembered = rememberedBrowserPackage()
+            if (!remembered.isNullOrBlank()) add(remembered)
             if (!lastBrowserPackage.isNullOrBlank()) add(lastBrowserPackage!!)
             addAll(KNOWN_BROWSER_PACKAGES)
         }.distinct()
@@ -599,6 +628,8 @@ class YouTubeAdAccessibilityService : AccessibilityService() {
 
         private const val YOUTUBE_PACKAGE = "com.google.android.youtube"
         private const val SYSTEM_UI_PACKAGE = "com.android.systemui"
+        private const val BROWSER_PREFS = "pie_browser_return"
+        private const val KEY_BROWSER_PACKAGE = "browser_package"
         private const val RESUME_STABILITY_MS = 1800L
         private const val STOP_STABILITY_MS = 900L
         private const val MONITOR_INTERVAL_MS = 500L

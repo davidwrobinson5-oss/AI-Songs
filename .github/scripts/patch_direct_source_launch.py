@@ -3,6 +3,12 @@ from pathlib import Path
 path = Path('android-recorder/app/src/main/java/app/pie/recorder/MainActivity.kt')
 text = path.read_text()
 
+# Idempotent: once the exact launch logic lives in source, this legacy build patch
+# becomes a no-op instead of replacing or fighting with it.
+if 'vnd.youtube:' in text and 'private fun openExactSource' in text:
+    print('Exact YouTube source launch already present in MainActivity; no patch needed')
+    raise SystemExit(0)
+
 old = '''        val raw = pendingSourceUrl?.trim().orEmpty()
         if (raw.isNotEmpty()) {
             try {
@@ -44,6 +50,29 @@ helper = '''    private fun openExactSource(raw: String) {
         val host = parsed.host?.lowercase().orEmpty()
         val isYouTube = host == "youtu.be" || host == "youtube.com" || host == "www.youtube.com" || host == "m.youtube.com"
 
+        val videoId = when {
+            host == "youtu.be" -> parsed.pathSegments.firstOrNull().orEmpty()
+            parsed.getQueryParameter("v").orEmpty().isNotBlank() -> parsed.getQueryParameter("v").orEmpty()
+            parsed.pathSegments.firstOrNull() in setOf("shorts", "embed", "live") -> parsed.pathSegments.getOrNull(1).orEmpty()
+            else -> ""
+        }.trim()
+
+        if (isYouTube && videoId.isNotBlank()) {
+            try {
+                // Use YouTube's native video URI. Do NOT use FLAG_ACTIVITY_CLEAR_TOP:
+                // on Samsung/YouTube that can revive the existing YouTube task and
+                // ignore the requested watch URL, landing on Home/current content.
+                val direct = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$videoId")).apply {
+                    setPackage("com.google.android.youtube")
+                }
+                RecorderDiagnostics.record(this, "source_open_youtube_video_id id=${videoId.take(16)}")
+                startActivity(direct)
+                return
+            } catch (e: Exception) {
+                RecorderDiagnostics.record(this, "source_open_youtube_video_id_fallback=${e.javaClass.simpleName}")
+            }
+        }
+
         val normalized = if (host == "m.youtube.com" || host == "youtube.com") {
             parsed.buildUpon().scheme("https").authority("www.youtube.com").build()
         } else {
@@ -52,18 +81,14 @@ helper = '''    private fun openExactSource(raw: String) {
 
         if (isYouTube) {
             try {
-                val direct = Intent(Intent.ACTION_VIEW, normalized).apply {
+                val directWeb = Intent(Intent.ACTION_VIEW, normalized).apply {
                     setPackage("com.google.android.youtube")
-                    addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP)
                 }
-                RecorderDiagnostics.record(
-                    this,
-                    "source_open_youtube_direct host=${normalized.host.orEmpty()} video=${normalized.getQueryParameter("v").orEmpty().take(16)}"
-                )
-                startActivity(direct)
+                RecorderDiagnostics.record(this, "source_open_youtube_web_fallback uri=$normalized")
+                startActivity(directWeb)
                 return
             } catch (e: Exception) {
-                RecorderDiagnostics.record(this, "source_open_youtube_direct_fallback=${e.javaClass.simpleName}")
+                RecorderDiagnostics.record(this, "source_open_youtube_web_fallback_failed=${e.javaClass.simpleName}")
             }
         }
 
@@ -78,4 +103,4 @@ if marker not in text:
 text = text.replace(marker, helper + marker, 1)
 
 path.write_text(text)
-print('Patched MainActivity to normalize YouTube URLs and open the exact video directly in the YouTube app')
+print('Patched MainActivity to force the exact YouTube video by native video ID')

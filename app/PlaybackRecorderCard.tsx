@@ -309,7 +309,6 @@ export default function PlaybackRecorderCard(){
       <button className="secondary" type="button" onClick={openSource}>Open URL / Choose App</button>
       {!recording?<button className="primary" type="button" onClick={()=>{setPermissionConfirmed(false);setConfirming(true);}}>● Record</button>:<button className="primary" type="button" disabled aria-disabled="true">● Recording — awaiting Android finish</button>}
     </div>
-    <small style={{display:'block',marginTop:10}}>Pie keeps the helper invisible. Android still requires its own secure “Share one app” permission sheet, and Android controls that sheet’s colors and buttons.</small>
     {status&&<div className="statusBox" style={{marginTop:12}}>{status}</div>}
 
     {processingSteps.length>0&&<div style={{marginTop:14,padding:14,borderRadius:16,background:'rgba(124,58,237,.08)',border:'1px solid rgba(192,132,252,.25)'}}>

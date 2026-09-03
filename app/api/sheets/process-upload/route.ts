@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { rateLimit, safeClientError } from '../../../security';
 import { createChordRecognition, createSourceSeparation, createTranscription } from '../klangio';
-import { removeStagedFile, signedStagingUrl } from '../staging';
+import { signedStagingUrl } from '../staging';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -23,10 +23,9 @@ export async function POST(req:Request){
   const limited=rateLimit(req,'sheets-process-upload',6,60_000);
   if(limited)return limited;
 
-  let stagedPath='';
   try{
     const body=await req.json() as {stagedPath?:string;name?:string;type?:string;outputs?:Outputs};
-    stagedPath=String(body.stagedPath||'');
+    const stagedPath=String(body.stagedPath||'');
     if(!stagedPath)return NextResponse.json({error:'Upload the audio file first.'},{status:400});
 
     const outputs:Outputs={
@@ -47,14 +46,15 @@ export async function POST(req:Request){
     if(outputs.stems||outputs.partSheets)pending.push(createSourceSeparation(blob).then(id=>{jobs.separation=id;}));
 
     await Promise.all(pending);
-    return NextResponse.json({jobs,outputs,title},{headers:{'Cache-Control':'no-store'}});
+    // Keep the staged source recording. It is now the durable source for the
+    // Songs library, downloads, and retries if a downstream analysis job fails.
+    return NextResponse.json({jobs,outputs,title,stagedPath},{headers:{'Cache-Control':'no-store'}});
   }catch(error){
     const message=error instanceof Error?error.message:'';
     if(message==='KLANGIO_NOT_CONFIGURED')return NextResponse.json({error:'Sheet and stem processing is not configured yet.'},{status:503});
     if(message==='AUDIO_TOO_LARGE')return NextResponse.json({error:'Use an audio file under 45 MB.'},{status:413});
+    if(message==='STAGED_AUDIO_FETCH_FAILED')return NextResponse.json({error:'The saved recording could not be found. Record it again only if it is no longer in your Songs library.'},{status:404});
     console.error('Uploaded audio processing failed',error);
     return NextResponse.json({error:safeClientError(error,'Could not start the selected processing jobs.')},{status:400,headers:{'Cache-Control':'no-store'}});
-  }finally{
-    if(stagedPath)await removeStagedFile(stagedPath);
   }
 }

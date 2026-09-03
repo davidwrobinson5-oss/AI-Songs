@@ -39,8 +39,11 @@ function isLegacyVerifyRequest(pathname: string) {
 }
 
 function isAndroidCaptureRequest(pathname: string) {
-  // This endpoint authenticates the helper with its one-time capture id + secret.
   return pathname === '/api/sheets/mobile-process';
+}
+
+function isCaptureSessionRequest(pathname: string) {
+  return pathname === '/api/capture-session';
 }
 
 function isAudioUploadRequest(pathname: string) {
@@ -99,12 +102,16 @@ async function legacySessionValid(req: NextRequest) {
   return verifySessionToken(req.cookies.get(SESSION_COOKIE)?.value, process.env.AI_SONGS_SESSION_SECRET);
 }
 
+function isCaptureBootstrap(pathname: string) {
+  return isAndroidCaptureRequest(pathname) || isCaptureSessionRequest(pathname);
+}
+
 async function legacyProxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req) || isLegacyVerifyRequest(pathname) || isAndroidCaptureRequest(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname)) return NextResponse.next();
 
   if (!authConfigured()) {
     if (isLoginRoute(pathname)) return NextResponse.next();
@@ -131,7 +138,7 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req) || isLegacyVerifyRequest(pathname) || isAndroidCaptureRequest(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname)) return NextResponse.next();
 
   const clerkAuth = await auth();
   const legacyValid = await legacySessionValid(req);

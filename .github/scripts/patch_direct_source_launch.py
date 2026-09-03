@@ -3,20 +3,12 @@ from pathlib import Path
 path = Path('android-recorder/app/src/main/java/app/pie/recorder/MainActivity.kt')
 text = path.read_text()
 
-# Preserve the exact source URL in the durable capture session so the
-# accessibility service can re-assert it after Android finishes bringing the
-# selected app to the foreground.
+# Preserve the exact source URL in the durable capture session.
 text = text.replace(
     '        CaptureSession.begin(this, requestedReturn!!)\n        pendingSourceUrl = data.getQueryParameter("url")\n',
     '        pendingSourceUrl = data.getQueryParameter("url")\n        CaptureSession.begin(this, requestedReturn!!, pendingSourceUrl)\n',
     1,
 )
-
-# Idempotent: once the exact launch logic lives in source, do not duplicate it.
-if 'vnd.youtube:' in text and 'private fun openExactSource' in text:
-    path.write_text(text)
-    print('Exact YouTube source launch already present; ensured source URL is remembered')
-    raise SystemExit(0)
 
 old = '''        val raw = pendingSourceUrl?.trim().orEmpty()
         if (raw.isNotEmpty()) {
@@ -48,9 +40,10 @@ new = '''        val raw = pendingSourceUrl?.trim().orEmpty()
         }
 '''
 
-if old not in text:
-    raise SystemExit('Could not locate source launch block')
-text = text.replace(old, new, 1)
+if 'private fun openExactSource' not in text:
+    if old not in text:
+        raise SystemExit('Could not locate source launch block')
+    text = text.replace(old, new, 1)
 
 marker = '''    private fun processRecording(returnOnCompletion: Boolean = true) {
 '''
@@ -67,15 +60,43 @@ helper = '''    private fun openExactSource(raw: String) {
         }.trim()
 
         if (isYouTube && videoId.isNotBlank()) {
+            val watchUrl = Uri.parse("https://www.youtube.com/watch?v=$videoId")
+
             try {
-                val direct = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$videoId")).apply {
+                val directWatch = Intent(Intent.ACTION_VIEW, watchUrl).apply {
+                    setClassName("com.google.android.youtube", "com.google.android.youtube.WatchActivity")
+                    putExtra("VIDEO_ID", videoId)
+                }
+                RecorderDiagnostics.record(this, "source_open_youtube_watch_activity id=${videoId.take(16)}")
+                startActivity(directWatch)
+                return
+            } catch (e: Exception) {
+                RecorderDiagnostics.record(this, "source_open_youtube_watch_activity_fallback=${e.javaClass.simpleName}")
+            }
+
+            try {
+                val native = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$videoId")).apply {
                     setPackage("com.google.android.youtube")
+                    putExtra("VIDEO_ID", videoId)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 RecorderDiagnostics.record(this, "source_open_youtube_video_id id=${videoId.take(16)}")
-                startActivity(direct)
+                startActivity(native)
                 return
             } catch (e: Exception) {
                 RecorderDiagnostics.record(this, "source_open_youtube_video_id_fallback=${e.javaClass.simpleName}")
+            }
+
+            try {
+                val directWeb = Intent(Intent.ACTION_VIEW, watchUrl).apply {
+                    setPackage("com.google.android.youtube")
+                    putExtra("VIDEO_ID", videoId)
+                }
+                RecorderDiagnostics.record(this, "source_open_youtube_web_fallback id=${videoId.take(16)}")
+                startActivity(directWeb)
+                return
+            } catch (e: Exception) {
+                RecorderDiagnostics.record(this, "source_open_youtube_web_fallback_failed=${e.javaClass.simpleName}")
             }
         }
 
@@ -84,29 +105,20 @@ helper = '''    private fun openExactSource(raw: String) {
         } else {
             parsed
         }
-
-        if (isYouTube) {
-            try {
-                val directWeb = Intent(Intent.ACTION_VIEW, normalized).apply {
-                    setPackage("com.google.android.youtube")
-                }
-                RecorderDiagnostics.record(this, "source_open_youtube_web_fallback uri=$normalized")
-                startActivity(directWeb)
-                return
-            } catch (e: Exception) {
-                RecorderDiagnostics.record(this, "source_open_youtube_web_fallback_failed=${e.javaClass.simpleName}")
-            }
-        }
-
         RecorderDiagnostics.record(this, "source_open_generic host=${normalized.host.orEmpty()}")
         startActivity(Intent(Intent.ACTION_VIEW, normalized))
     }
 
 '''
 
-if marker not in text:
-    raise SystemExit('Could not locate helper insertion point')
-text = text.replace(marker, helper + marker, 1)
+if 'private fun openExactSource' in text:
+    start = text.index('    private fun openExactSource(raw: String) {')
+    end = text.index(marker, start)
+    text = text[:start] + helper + text[end:]
+else:
+    if marker not in text:
+        raise SystemExit('Could not locate helper insertion point')
+    text = text.replace(marker, helper + marker, 1)
 
 path.write_text(text)
-print('Patched MainActivity to remember and initially open the exact YouTube video')
+print('Patched MainActivity to remember the source and target YouTube WatchActivity for the exact video')

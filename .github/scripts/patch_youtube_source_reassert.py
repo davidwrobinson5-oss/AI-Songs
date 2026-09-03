@@ -20,7 +20,6 @@ fields = '''    private var lastLoggedPlayerState: PlayerState? = null
             RecorderDiagnostics.record(this, "youtube_exact_source_reassert_missing_video_id")
             return@Runnable
         }
-
         val watchUrl = Uri.parse("https://www.youtube.com/watch?v=$videoId")
         try {
             val intent = Intent(Intent.ACTION_VIEW, watchUrl).apply {
@@ -96,7 +95,6 @@ helpers = '''    private fun scheduleExactSourceReassert() {
 
     private fun youtubeVideoId(raw: String?): String {
         if (raw.isNullOrBlank()) return ""
-
         val candidates = mutableListOf<String>()
         fun addCandidate(value: String?) {
             val clean = value?.trim().orEmpty()
@@ -119,39 +117,27 @@ helpers = '''    private fun scheduleExactSourceReassert() {
                     candidate.startsWith("youtu.be/") -> "https://$candidate"
                 else -> candidate
             }
-
             try {
                 val uri = Uri.parse(absolute)
                 val host = uri.host?.lowercase().orEmpty()
                 val youtubeHost = host == "youtu.be" || host == "youtube.com" || host.endsWith(".youtube.com")
                 if (youtubeHost) {
-                    if (host == "youtu.be") {
-                        cleanYouTubeVideoId(uri.pathSegments.firstOrNull())?.let { return it }
-                    }
-
+                    if (host == "youtu.be") cleanYouTubeVideoId(uri.pathSegments.firstOrNull())?.let { return it }
                     cleanYouTubeVideoId(uri.getQueryParameter("v"))?.let { return it }
                     cleanYouTubeVideoId(uri.getQueryParameter("vi"))?.let { return it }
-
                     val first = uri.pathSegments.firstOrNull()?.lowercase().orEmpty()
-                    if (first in setOf("shorts", "embed", "live", "v")) {
-                        cleanYouTubeVideoId(uri.pathSegments.getOrNull(1))?.let { return it }
-                    }
-
-                    for (key in listOf("u", "url", "q", "target", "continue")) {
-                        addCandidate(uri.getQueryParameter(key))
-                    }
+                    if (first in setOf("shorts", "embed", "live", "v")) cleanYouTubeVideoId(uri.pathSegments.getOrNull(1))?.let { return it }
+                    for (key in listOf("u", "url", "q", "target", "continue")) addCandidate(uri.getQueryParameter(key))
                 }
             } catch (_: Exception) {}
 
             val decoded = try { Uri.decode(candidate) } catch (_: Exception) { candidate }
             val patterns = listOf(
                 Regex("(?:[?&](?:v|vi)=)([A-Za-z0-9_-]{6,})"),
-                Regex("(?:youtu\\.be/|/(?:shorts|embed|live|v)/)([A-Za-z0-9_-]{6,})")
+                Regex("(?:youtu[.]be/|/(?:shorts|embed|live|v)/)([A-Za-z0-9_-]{6,})")
             )
             for (pattern in patterns) {
-                pattern.find(decoded)?.groupValues?.getOrNull(1)?.let { found ->
-                    cleanYouTubeVideoId(found)?.let { return it }
-                }
+                pattern.find(decoded)?.groupValues?.getOrNull(1)?.let { found -> cleanYouTubeVideoId(found)?.let { return it } }
             }
         }
         return ""

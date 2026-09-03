@@ -15,6 +15,10 @@ const STEMS=new Set(['vocals','drums','bass','guitar','piano','other']);
 
 type Kind='recording'|'sheet'|'chords'|'stem';
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
 function captureId(value:string){
   const id=value.trim();
   if(!/^[a-zA-Z0-9_-]{6,80}$/.test(id))throw new Error('INVALID_CAPTURE_ID');
@@ -97,7 +101,7 @@ export async function POST(req:Request){
       const jobId=safeId(String(body.jobId||''),180);
       const result=await getResult(jobId,'pdf');
       const branded=await brandPieSheetPdf(result.bytes);
-      blob=new Blob([branded],{type:'application/pdf'});
+      blob=new Blob([toArrayBuffer(branded)],{type:'application/pdf'});
       name='pie-sheet.pdf';
     }else if(kind==='chords'){
       const jobId=safeId(String(body.jobId||''),180);

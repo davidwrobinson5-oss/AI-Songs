@@ -7,6 +7,7 @@ import AccountControl from './AccountControl';
 import AudioPolicy from './AudioPolicy';
 import CloudSongSync from './CloudSongSync';
 import PwaBoot from './PwaBoot';
+import ProcessingRetryAssist from './ProcessingRetryAssist';
 
 export const metadata: Metadata = {
   title: 'Pieinears',
@@ -30,6 +31,7 @@ function Document({ children }: { children: React.ReactNode }) {
       <body>
         <PwaBoot />
         <AudioPolicy />
+        <ProcessingRetryAssist />
         {children}
       </body>
     </html>

@@ -16,13 +16,13 @@ fields = '''    private var lastLoggedPlayerState: PlayerState? = null
         exactSourceLaunchScheduled = false
         if (!CaptureSession.isActive(this) || exactSourceLaunchDone) return@Runnable
         val videoId = youtubeVideoId(CaptureSession.sourceUrl(this))
-        if (videoId.isBlank()) return@Runnable
+        if (videoId.isBlank()) {
+            RecorderDiagnostics.record(this, "youtube_exact_source_reassert_missing_video_id")
+            return@Runnable
+        }
 
         val watchUrl = Uri.parse("https://www.youtube.com/watch?v=$videoId")
         try {
-            // The Android "Share one app" picker can foreground YouTube after the
-            // recorder's first deep-link, restoring YouTube Home/current content.
-            // After that transition settles, target the watch activity itself.
             val intent = Intent(Intent.ACTION_VIEW, watchUrl).apply {
                 setClassName(YOUTUBE_PACKAGE, "com.google.android.youtube.WatchActivity")
                 putExtra("VIDEO_ID", videoId)
@@ -85,7 +85,10 @@ helper_marker = '    private fun clearAdStateAndScheduleResume(reason: String) {
 helpers = '''    private fun scheduleExactSourceReassert() {
         if (exactSourceLaunchDone || exactSourceLaunchScheduled || !CaptureSession.isActive(this)) return
         val videoId = youtubeVideoId(CaptureSession.sourceUrl(this))
-        if (videoId.isBlank()) return
+        if (videoId.isBlank()) {
+            RecorderDiagnostics.record(this, "youtube_exact_source_reassert_not_scheduled_missing_id")
+            return
+        }
         exactSourceLaunchScheduled = true
         RecorderDiagnostics.record(this, "youtube_exact_source_reassert_scheduled id=${videoId.take(16)}")
         handler.postDelayed(exactSourceRunnable, 700L)
@@ -93,19 +96,71 @@ helpers = '''    private fun scheduleExactSourceReassert() {
 
     private fun youtubeVideoId(raw: String?): String {
         if (raw.isNullOrBlank()) return ""
-        return try {
-            val uri = Uri.parse(raw)
-            val host = uri.host?.lowercase().orEmpty()
-            if (host != "youtu.be" && host != "youtube.com" && host != "www.youtube.com" && host != "m.youtube.com") return ""
-            when {
-                host == "youtu.be" -> uri.pathSegments.firstOrNull().orEmpty()
-                !uri.getQueryParameter("v").isNullOrBlank() -> uri.getQueryParameter("v").orEmpty()
-                uri.pathSegments.firstOrNull() in setOf("shorts", "embed", "live") -> uri.pathSegments.getOrNull(1).orEmpty()
-                else -> ""
-            }.trim()
-        } catch (_: Exception) {
-            ""
+
+        val candidates = mutableListOf<String>()
+        fun addCandidate(value: String?) {
+            val clean = value?.trim().orEmpty()
+            if (clean.isBlank() || candidates.contains(clean)) return
+            candidates.add(clean)
+            try {
+                val decoded = Uri.decode(clean).trim()
+                if (decoded.isNotBlank() && decoded != clean && !candidates.contains(decoded)) candidates.add(decoded)
+            } catch (_: Exception) {}
         }
+        addCandidate(raw)
+
+        var index = 0
+        while (index < candidates.size && index < 16) {
+            val candidate = candidates[index++].trim()
+            val absolute = when {
+                candidate.startsWith("/") -> "https://www.youtube.com$candidate"
+                candidate.startsWith("youtube.com/") || candidate.startsWith("www.youtube.com/") ||
+                    candidate.startsWith("m.youtube.com/") || candidate.startsWith("music.youtube.com/") ||
+                    candidate.startsWith("youtu.be/") -> "https://$candidate"
+                else -> candidate
+            }
+
+            try {
+                val uri = Uri.parse(absolute)
+                val host = uri.host?.lowercase().orEmpty()
+                val youtubeHost = host == "youtu.be" || host == "youtube.com" || host.endsWith(".youtube.com")
+                if (youtubeHost) {
+                    if (host == "youtu.be") {
+                        cleanYouTubeVideoId(uri.pathSegments.firstOrNull())?.let { return it }
+                    }
+
+                    cleanYouTubeVideoId(uri.getQueryParameter("v"))?.let { return it }
+                    cleanYouTubeVideoId(uri.getQueryParameter("vi"))?.let { return it }
+
+                    val first = uri.pathSegments.firstOrNull()?.lowercase().orEmpty()
+                    if (first in setOf("shorts", "embed", "live", "v")) {
+                        cleanYouTubeVideoId(uri.pathSegments.getOrNull(1))?.let { return it }
+                    }
+
+                    for (key in listOf("u", "url", "q", "target", "continue")) {
+                        addCandidate(uri.getQueryParameter(key))
+                    }
+                }
+            } catch (_: Exception) {}
+
+            val decoded = try { Uri.decode(candidate) } catch (_: Exception) { candidate }
+            val patterns = listOf(
+                Regex("(?:[?&](?:v|vi)=)([A-Za-z0-9_-]{6,})"),
+                Regex("(?:youtu\\.be/|/(?:shorts|embed|live|v)/)([A-Za-z0-9_-]{6,})")
+            )
+            for (pattern in patterns) {
+                pattern.find(decoded)?.groupValues?.getOrNull(1)?.let { found ->
+                    cleanYouTubeVideoId(found)?.let { return it }
+                }
+            }
+        }
+        return ""
+    }
+
+    private fun cleanYouTubeVideoId(value: String?): String? {
+        val candidate = value?.trim().orEmpty()
+        if (candidate.isBlank()) return null
+        return Regex("^[A-Za-z0-9_-]{6,}").find(candidate)?.value
     }
 
 '''
@@ -114,4 +169,4 @@ if helper_marker not in text:
 text = text.replace(helper_marker, helpers + helper_marker, 1)
 
 path.write_text(text)
-print('Patched YouTube accessibility service to reassert the exact WatchActivity after app selection settles')
+print('Patched YouTube accessibility reassertion with robust share/redirect URL parsing')

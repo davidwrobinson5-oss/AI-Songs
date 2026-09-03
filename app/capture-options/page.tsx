@@ -9,6 +9,7 @@ const JOBS_KEY='pieCaptureJobs';
 const OUTPUTS_KEY='pieCaptureOutputs';
 const TITLE_KEY='pieCaptureTitle';
 const PENDING_ID_KEY='piePendingCaptureId';
+const CAPTURE_LIBRARY_KEY='pie-captured-songs-v1';
 
 export default function CaptureOptionsPage(){
   const [captureId,setCaptureId]=useState('');
@@ -72,6 +73,28 @@ export default function CaptureOptionsPage(){
 
   const selectedCount=Number(selection.sheets)+Number(selection.chords)+Number(selection.stems);
 
+  function saveCaptureToLibrary(data:{jobs:Record<string,string>;outputs:Record<string,boolean>;title:string;stagedPath:string}){
+    let current:any[]=[];
+    try{
+      const parsed=JSON.parse(localStorage.getItem(CAPTURE_LIBRARY_KEY)||'[]');
+      if(Array.isArray(parsed))current=parsed;
+    }catch{}
+    const record={
+      id:`capture_${captureId}`,
+      captureId,
+      title:data.title||ready?.title||'Captured recording',
+      createdAt:new Date().toISOString(),
+      stagedPath:data.stagedPath||ready?.stagedPath||'',
+      jobs:data.jobs||{},
+      outputs:data.outputs||{},
+      statuses:{},
+      state:'processing',
+    };
+    const next=[record,...current.filter(item=>item?.id!==record.id)].slice(0,40);
+    localStorage.setItem(CAPTURE_LIBRARY_KEY,JSON.stringify(next));
+    window.dispatchEvent(new Event('pie-captured-songs-changed'));
+  }
+
   async function beginProcessing(){
     if(!ready||!captureId||selectedCount===0)return;
     setProcessing(true);
@@ -96,10 +119,16 @@ export default function CaptureOptionsPage(){
       sessionStorage.setItem(JOBS_KEY,JSON.stringify(data.jobs));
       sessionStorage.setItem(OUTPUTS_KEY,JSON.stringify(data.outputs||outputs));
       sessionStorage.setItem(TITLE_KEY,String(data.title||ready.title));
+      saveCaptureToLibrary({
+        jobs:data.jobs,
+        outputs:data.outputs||outputs,
+        title:String(data.title||ready.title),
+        stagedPath:String(data.stagedPath||ready.stagedPath),
+      });
       sessionStorage.removeItem(PENDING_ID_KEY);
       sessionStorage.removeItem('pieCaptureSessionId');
       sessionStorage.removeItem('pieCaptureStartedAt');
-      window.location.replace('/');
+      window.location.replace('/?screen=songs#captured');
     }catch(error){
       setProcessing(false);
       setStatus(error instanceof Error?error.message:'Could not start processing.');
@@ -119,8 +148,8 @@ export default function CaptureOptionsPage(){
     </button>;
   }
 
-  return <main style={{minHeight:'100dvh',display:'grid',placeItems:'center',padding:20}}>
-    <section className="panel" style={{width:'min(520px,100%)',padding:22}}>
+  return <main style={{minHeight:'100dvh',padding:'20px 16px 100px',overflowY:'auto'}}>
+    <section className="panel" style={{width:'min(520px,100%)',margin:'0 auto',padding:22,maxHeight:'calc(100dvh - 40px)',overflowY:'auto',overscrollBehavior:'contain'}}>
       <p className="eyebrow">RECORDING COMPLETE</p>
       <h1 style={{margin:'6px 0 8px'}}>What do you want Pie to make?</h1>
       <p className="sub" style={{marginTop:0}}>Nothing starts until you choose. Select one or more outputs for this recording.</p>

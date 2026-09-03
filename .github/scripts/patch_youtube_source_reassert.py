@@ -18,20 +18,33 @@ fields = '''    private var lastLoggedPlayerState: PlayerState? = null
         val videoId = youtubeVideoId(CaptureSession.sourceUrl(this))
         if (videoId.isBlank()) return@Runnable
 
+        val watchUrl = Uri.parse("https://www.youtube.com/watch?v=$videoId")
         try {
-            // Android's "Share one app" selector may bring YouTube's existing task
-            // to the foreground after MainActivity sends the first deep link. Re-send
-            // the exact watch URL only after that selector transition has settled.
-            val watch = Uri.parse("https://www.youtube.com/watch?v=$videoId")
-            val intent = Intent(Intent.ACTION_VIEW, watch).apply {
-                setPackage(YOUTUBE_PACKAGE)
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            // The Android "Share one app" picker can foreground YouTube after the
+            // recorder's first deep-link, restoring YouTube Home/current content.
+            // After that transition settles, target the watch activity itself.
+            val intent = Intent(Intent.ACTION_VIEW, watchUrl).apply {
+                setClassName(YOUTUBE_PACKAGE, "com.google.android.youtube.WatchActivity")
+                putExtra("VIDEO_ID", videoId)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
             startActivity(intent)
             exactSourceLaunchDone = true
-            RecorderDiagnostics.record(this, "youtube_exact_source_reassert id=${videoId.take(16)}")
-        } catch (e: Exception) {
-            RecorderDiagnostics.record(this, "youtube_exact_source_reassert_failed=${e.javaClass.simpleName}")
+            RecorderDiagnostics.record(this, "youtube_exact_source_reassert_watch_activity id=${videoId.take(16)}")
+        } catch (first: Exception) {
+            RecorderDiagnostics.record(this, "youtube_exact_source_reassert_watch_fallback=${first.javaClass.simpleName}")
+            try {
+                val fallback = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$videoId")).apply {
+                    setPackage(YOUTUBE_PACKAGE)
+                    putExtra("VIDEO_ID", videoId)
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                startActivity(fallback)
+                exactSourceLaunchDone = true
+                RecorderDiagnostics.record(this, "youtube_exact_source_reassert_video_id id=${videoId.take(16)}")
+            } catch (second: Exception) {
+                RecorderDiagnostics.record(this, "youtube_exact_source_reassert_failed=${second.javaClass.simpleName}")
+            }
         }
     }
 '''
@@ -101,4 +114,4 @@ if helper_marker not in text:
 text = text.replace(helper_marker, helpers + helper_marker, 1)
 
 path.write_text(text)
-print('Patched YouTube accessibility service to reassert the exact URL after Android app selection settles')
+print('Patched YouTube accessibility service to reassert the exact WatchActivity after app selection settles')

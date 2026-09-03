@@ -6,6 +6,8 @@ import { removeStagedFile, signedStagingUrl } from '../staging';
 export const runtime = 'nodejs';
 export const maxDuration = 60;
 
+type Outputs={stems?:boolean;fullSheet?:boolean;partSheets?:boolean;chords?:boolean};
+
 async function fetchStagedAudio(path:string,type:string){
   const signed=await signedStagingUrl(path);
   const response=await fetch(signed,{cache:'no-store'});
@@ -23,23 +25,35 @@ export async function POST(req:Request){
 
   let stagedPath='';
   try{
-    const body=await req.json() as {stagedPath?:string;name?:string;type?:string};
+    const body=await req.json() as {stagedPath?:string;name?:string;type?:string;outputs?:Outputs};
     stagedPath=String(body.stagedPath||'');
     if(!stagedPath)return NextResponse.json({error:'Upload the audio file first.'},{status:400});
-    const title=String(body.name||'Uploaded song').slice(0,120);
-    const blob=await fetchStagedAudio(stagedPath,String(body.type||'audio/mpeg'));
-    const [full,chords,separation]=await Promise.all([
-      createTranscription(blob,'universal',title),
-      createChordRecognition(blob),
-      createSourceSeparation(blob),
-    ]);
-    return NextResponse.json({jobs:{full,chords,separation}},{headers:{'Cache-Control':'no-store'}});
+
+    const outputs:Outputs={
+      stems:Boolean(body.outputs?.stems),
+      fullSheet:Boolean(body.outputs?.fullSheet),
+      partSheets:Boolean(body.outputs?.partSheets),
+      chords:Boolean(body.outputs?.chords),
+    };
+    if(!Object.values(outputs).some(Boolean))return NextResponse.json({error:'Choose at least one output.'},{status:400});
+
+    const title=String(body.name||'Android playback recording').slice(0,120);
+    const blob=await fetchStagedAudio(stagedPath,String(body.type||'audio/wav'));
+    const jobs:Record<string,string>={};
+    const pending:Promise<void>[]=[];
+
+    if(outputs.fullSheet)pending.push(createTranscription(blob,'universal',title).then(id=>{jobs.full=id;}));
+    if(outputs.chords)pending.push(createChordRecognition(blob).then(id=>{jobs.chords=id;}));
+    if(outputs.stems||outputs.partSheets)pending.push(createSourceSeparation(blob).then(id=>{jobs.separation=id;}));
+
+    await Promise.all(pending);
+    return NextResponse.json({jobs,outputs,title},{headers:{'Cache-Control':'no-store'}});
   }catch(error){
     const message=error instanceof Error?error.message:'';
     if(message==='KLANGIO_NOT_CONFIGURED')return NextResponse.json({error:'Sheet and stem processing is not configured yet.'},{status:503});
     if(message==='AUDIO_TOO_LARGE')return NextResponse.json({error:'Use an audio file under 45 MB.'},{status:413});
     console.error('Uploaded audio processing failed',error);
-    return NextResponse.json({error:safeClientError(error,'Could not start sheet music and stem processing.')},{status:400,headers:{'Cache-Control':'no-store'}});
+    return NextResponse.json({error:safeClientError(error,'Could not start the selected processing jobs.')},{status:400,headers:{'Cache-Control':'no-store'}});
   }finally{
     if(stagedPath)await removeStagedFile(stagedPath);
   }

@@ -48,6 +48,9 @@ class MainActivity : Activity() {
     private var wantsPartSheets = true
     private var wantsChords = true
     private var connectionChecks = 0
+    private var projectionConnectionChecks = 0
+    private var pendingProjectionResultCode: Int? = null
+    private var pendingProjectionData: Intent? = null
 
     private val savedReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -129,6 +132,9 @@ class MainActivity : Activity() {
         wantsPartSheets = data.getQueryParameter("partSheets")?.toBooleanStrictOrNull() ?: true
         wantsChords = data.getQueryParameter("chords")?.toBooleanStrictOrNull() ?: true
         autoProcessAfterSave = false
+        pendingProjectionResultCode = null
+        pendingProjectionData = null
+        projectionConnectionChecks = 0
         beginCapture()
     }
 
@@ -198,8 +204,16 @@ class MainActivity : Activity() {
 
         if (requestCode == accessibilitySettingsRequest) {
             connectionChecks = 0
-            if (isReturnAccessibilityEnabled()) beginCapture()
-            else {
+            projectionConnectionChecks = 0
+            if (isReturnAccessibilityEnabled()) {
+                val pendingCode = pendingProjectionResultCode
+                val pendingData = pendingProjectionData
+                if (pendingCode == RESULT_OK && pendingData != null) {
+                    startCaptureAfterProjection(pendingCode, pendingData)
+                } else {
+                    beginCapture()
+                }
+            } else {
                 CaptureSession.end(this)
                 finish()
             }
@@ -209,14 +223,44 @@ class MainActivity : Activity() {
         if (requestCode != projectionRequest) return
         if (resultCode != RESULT_OK || data == null) {
             CaptureSession.end(this)
+            pendingProjectionResultCode = null
+            pendingProjectionData = null
             returnToPie("captureCanceled")
             return
         }
-        if (!CaptureSession.isActive(this) || !YouTubeAdAccessibilityService.isConnected) {
-            CaptureSession.end(this)
+
+        pendingProjectionResultCode = resultCode
+        pendingProjectionData = data
+        projectionConnectionChecks = 0
+        startCaptureAfterProjection(resultCode, data)
+    }
+
+    private fun startCaptureAfterProjection(resultCode: Int, data: Intent) {
+        if (!CaptureSession.isActive(this)) {
+            pendingProjectionResultCode = null
+            pendingProjectionData = null
+            finish()
+            return
+        }
+
+        if (!isReturnAccessibilityEnabled()) {
+            RecorderDiagnostics.record(this, "projection_accessibility_disabled_open_settings")
             openAccessibilitySettings()
             return
         }
+
+        if (!YouTubeAdAccessibilityService.isConnected) {
+            if (projectionConnectionChecks++ < 12) {
+                RecorderDiagnostics.record(this, "projection_waiting_for_accessibility_connection attempt=$projectionConnectionChecks")
+                handler.postDelayed({ startCaptureAfterProjection(resultCode, data) }, 250L)
+            } else {
+                projectionConnectionChecks = 0
+                RecorderDiagnostics.record(this, "projection_accessibility_connection_timeout_open_settings")
+                openAccessibilitySettings()
+            }
+            return
+        }
+        projectionConnectionChecks = 0
 
         val service = Intent(this, PlaybackCaptureService::class.java)
             .setAction(PlaybackCaptureService.ACTION_START)
@@ -231,6 +275,9 @@ class MainActivity : Activity() {
             .putExtra(PlaybackCaptureService.EXTRA_PART_SHEETS, wantsPartSheets)
             .putExtra(PlaybackCaptureService.EXTRA_CHORDS, wantsChords)
         startForegroundService(service)
+
+        pendingProjectionResultCode = null
+        pendingProjectionData = null
 
         val raw = pendingSourceUrl?.trim().orEmpty()
         if (raw.isNotEmpty()) {

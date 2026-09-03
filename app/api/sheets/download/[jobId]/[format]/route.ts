@@ -15,6 +15,10 @@ const EXTENSIONS: Record<string, string> = {
   json: 'json',
 };
 
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+}
+
 export async function GET(req: Request, context: { params: Promise<{ jobId: string; format: string }> }) {
   const limited = rateLimit(req, 'sheets-download', 30, 60_000);
   if (limited) return limited;
@@ -29,7 +33,7 @@ export async function GET(req: Request, context: { params: Promise<{ jobId: stri
     const result = await getResult(jobId, format);
     const bytes = format === 'pdf' ? await brandPieSheetPdf(result.bytes) : result.bytes;
     const contentType = format === 'pdf' ? 'application/pdf' : result.contentType;
-    return new NextResponse(bytes, {
+    return new NextResponse(toArrayBuffer(bytes), {
       headers: {
         'Content-Type': contentType,
         'Content-Disposition': `attachment; filename="pie-${jobId.slice(0, 18)}.${extension}"`,

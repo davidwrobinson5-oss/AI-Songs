@@ -73,10 +73,6 @@ replacement = r'''    private fun uploadRecording(file: File) {
             .addFormDataPart("title", "Android playback recording")
             .addFormDataPart("captureId", id)
             .addFormDataPart("captureSecret", secret)
-            .addFormDataPart("stems", wantsStems.toString())
-            .addFormDataPart("fullSheet", wantsFullSheet.toString())
-            .addFormDataPart("partSheets", wantsPartSheets.toString())
-            .addFormDataPart("chords", wantsChords.toString())
             .build()
 
         val request = Request.Builder()
@@ -96,11 +92,11 @@ replacement = r'''    private fun uploadRecording(file: File) {
                 val code = response.code
                 val responseText = response.body?.string().orEmpty()
                 val httpSuccess = response.isSuccessful
-                val richResult = if (httpSuccess) normalizeProcessingResult(responseText) else null
+                val richResult = if (httpSuccess) normalizeCaptureResult(responseText) else null
                 val success = httpSuccess && richResult != null
                 RecorderDiagnostics.record(
                     this@PlaybackCaptureService,
-                    "mobile_upload_response code=$code httpSuccess=$httpSuccess jobsPresent=${richResult != null} bodyPrefix=${responseText.take(80)}"
+                    "mobile_upload_response code=$code httpSuccess=$httpSuccess resultPresent=${richResult != null} bodyPrefix=${responseText.take(100)}"
                 )
                 val result = if (success) "accepted" else "processingFailed"
                 reportCaptureStatus(id, secret, result, if (success) richResult else result)
@@ -109,16 +105,27 @@ replacement = r'''    private fun uploadRecording(file: File) {
         })
     }
 
-    private fun normalizeProcessingResult(raw: String): String? {
+    private fun normalizeCaptureResult(raw: String): String? {
         return try {
             val parsed = org.json.JSONObject(raw)
+            val title = parsed.optString("title", "Android playback recording")
+            val stagedPath = parsed.optString("stagedPath", "").trim()
+            if (parsed.optBoolean("awaitingSelection", false) && stagedPath.isNotBlank()) {
+                return org.json.JSONObject()
+                    .put("version", 2)
+                    .put("awaitingSelection", true)
+                    .put("stagedPath", stagedPath)
+                    .put("title", title)
+                    .toString()
+            }
+
             val jobs = parsed.optJSONObject("jobs") ?: return null
             if (jobs.length() == 0) return null
             org.json.JSONObject()
                 .put("version", 1)
                 .put("jobs", jobs)
                 .put("outputs", parsed.optJSONObject("outputs") ?: org.json.JSONObject())
-                .put("title", parsed.optString("title", "Android playback recording"))
+                .put("title", title)
                 .toString()
         } catch (_: Exception) {
             null
@@ -166,8 +173,8 @@ replacement = r'''    private fun uploadRecording(file: File) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(if (result == "accepted") "Recording sent to Pie" else "Pie recording needs attention")
-            .setContentText(if (result == "accepted") "Processing has started" else "Tap to return to Pie")
+            .setContentTitle(if (result == "accepted") "Recording ready in Pie" else "Pie recording needs attention")
+            .setContentText(if (result == "accepted") "Choose sheets, chords, or stems in Pie" else "Tap to return to Pie")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(pending)
             .setAutoCancel(true)
@@ -180,4 +187,4 @@ replacement = r'''    private fun uploadRecording(file: File) {
 '''
 text = text[:start] + replacement + text[end:]
 path.write_text(text)
-print('Patched PlaybackCaptureService.kt with upload diagnostics and durable processing job metadata')
+print('Patched PlaybackCaptureService.kt with staged upload diagnostics and selection-ready capture metadata')

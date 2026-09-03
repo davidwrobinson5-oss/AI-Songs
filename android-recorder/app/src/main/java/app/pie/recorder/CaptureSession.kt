@@ -7,6 +7,7 @@ object CaptureSession {
     private const val PREFS = "pie_capture_session"
     private const val KEY_ACTIVE = "active"
     private const val KEY_RETURN_URL = "return_url"
+    private const val KEY_SOURCE_URL = "source_url"
     private const val KEY_STARTED_AT = "started_at"
     private const val MAX_SESSION_MS = 60 * 60 * 1000L
 
@@ -26,12 +27,13 @@ object CaptureSession {
         }
     }
 
-    fun begin(context: Context, returnUrl: String) {
+    fun begin(context: Context, returnUrl: String, sourceUrl: String? = null) {
         if (!isValidPieUrl(returnUrl)) return
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_ACTIVE, true)
             .putString(KEY_RETURN_URL, returnUrl)
+            .putString(KEY_SOURCE_URL, sourceUrl?.trim().orEmpty())
             .putLong(KEY_STARTED_AT, System.currentTimeMillis())
             .apply()
     }
@@ -50,6 +52,14 @@ object CaptureSession {
         return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(KEY_RETURN_URL, null)
             ?.takeIf(::isValidPieUrl)
+    }
+
+    fun sourceUrl(context: Context): String? {
+        if (!isActive(context)) return null
+        return context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_SOURCE_URL, null)
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
     }
 
     fun end(context: Context) {

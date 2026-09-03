@@ -94,18 +94,39 @@ replacement = r'''    private fun uploadRecording(file: File) {
 
             override fun onResponse(call: Call, response: Response) {
                 val code = response.code
-                val success = response.isSuccessful
-                response.body?.close()
-                RecorderDiagnostics.record(this@PlaybackCaptureService, "mobile_upload_response code=$code success=$success")
+                val responseText = response.body?.string().orEmpty()
+                val httpSuccess = response.isSuccessful
+                val richResult = if (httpSuccess) normalizeProcessingResult(responseText) else null
+                val success = httpSuccess && richResult != null
+                RecorderDiagnostics.record(
+                    this@PlaybackCaptureService,
+                    "mobile_upload_response code=$code httpSuccess=$httpSuccess jobsPresent=${richResult != null} bodyPrefix=${responseText.take(80)}"
+                )
                 val result = if (success) "accepted" else "processingFailed"
-                reportCaptureStatus(id, secret, result)
+                reportCaptureStatus(id, secret, result, if (success) richResult else result)
                 finishAutoUpload(result)
             }
         })
     }
 
-    private fun reportCaptureStatus(id: String, secret: String, status: String) {
-        val result = if (status == "accepted" || status == "processingFailed" || status == "uploadFailed") status else null
+    private fun normalizeProcessingResult(raw: String): String? {
+        return try {
+            val parsed = org.json.JSONObject(raw)
+            val jobs = parsed.optJSONObject("jobs") ?: return null
+            if (jobs.length() == 0) return null
+            org.json.JSONObject()
+                .put("version", 1)
+                .put("jobs", jobs)
+                .put("outputs", parsed.optJSONObject("outputs") ?: org.json.JSONObject())
+                .put("title", parsed.optString("title", "Android playback recording"))
+                .toString()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun reportCaptureStatus(id: String, secret: String, status: String, resultOverride: String? = null) {
+        val result = resultOverride ?: if (status == "accepted" || status == "processingFailed" || status == "uploadFailed") status else null
         val payload = org.json.JSONObject()
             .put("action", "update")
             .put("id", id)
@@ -130,7 +151,7 @@ replacement = r'''    private fun uploadRecording(file: File) {
                 val code = response.code
                 val success = response.isSuccessful
                 response.body?.close()
-                RecorderDiagnostics.record(this@PlaybackCaptureService, "capture_status_report status=$status code=$code success=$success")
+                RecorderDiagnostics.record(this@PlaybackCaptureService, "capture_status_report status=$status code=$code success=$success richResult=${result?.startsWith("{") == true}")
             }
         })
     }
@@ -159,4 +180,4 @@ replacement = r'''    private fun uploadRecording(file: File) {
 '''
 text = text[:start] + replacement + text[end:]
 path.write_text(text)
-print('Patched PlaybackCaptureService.kt with upload diagnostics/status reporting')
+print('Patched PlaybackCaptureService.kt with upload diagnostics and durable processing job metadata')

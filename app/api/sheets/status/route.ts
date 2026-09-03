@@ -19,6 +19,8 @@ export async function POST(req: Request) {
       statuses[key] = await getJobStatus(jobId);
     }));
 
+    console.info('Sheet job statuses', JSON.stringify(statuses));
+
     let chords: Array<[number, number, string]> | undefined;
     if (typeof jobs.chords === 'string' && statuses.chords === 'COMPLETED') {
       chords = await getChordResult(safeId(jobs.chords, 180));

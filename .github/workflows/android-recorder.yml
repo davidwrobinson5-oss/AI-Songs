@@ -29,6 +29,8 @@ jobs:
         run: python .github/scripts/fix_browser_regex.py
       - name: Skip transient recorder screen on return
         run: python .github/scripts/patch_transient_recorder_return.py
+      - name: Open exact YouTube source video
+        run: python .github/scripts/patch_direct_source_launch.py
       - name: Build debug APK
         run: gradle -p android-recorder assembleDebug --stacktrace
       - uses: actions/upload-artifact@v4

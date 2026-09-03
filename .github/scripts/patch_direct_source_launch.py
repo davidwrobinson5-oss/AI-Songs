@@ -3,10 +3,19 @@ from pathlib import Path
 path = Path('android-recorder/app/src/main/java/app/pie/recorder/MainActivity.kt')
 text = path.read_text()
 
-# Idempotent: once the exact launch logic lives in source, this legacy build patch
-# becomes a no-op instead of replacing or fighting with it.
+# Preserve the exact source URL in the durable capture session so the
+# accessibility service can re-assert it after Android finishes bringing the
+# selected app to the foreground.
+text = text.replace(
+    '        CaptureSession.begin(this, requestedReturn!!)\n        pendingSourceUrl = data.getQueryParameter("url")\n',
+    '        pendingSourceUrl = data.getQueryParameter("url")\n        CaptureSession.begin(this, requestedReturn!!, pendingSourceUrl)\n',
+    1,
+)
+
+# Idempotent: once the exact launch logic lives in source, do not duplicate it.
 if 'vnd.youtube:' in text and 'private fun openExactSource' in text:
-    print('Exact YouTube source launch already present in MainActivity; no patch needed')
+    path.write_text(text)
+    print('Exact YouTube source launch already present; ensured source URL is remembered')
     raise SystemExit(0)
 
 old = '''        val raw = pendingSourceUrl?.trim().orEmpty()
@@ -59,9 +68,6 @@ helper = '''    private fun openExactSource(raw: String) {
 
         if (isYouTube && videoId.isNotBlank()) {
             try {
-                // Use YouTube's native video URI. Do NOT use FLAG_ACTIVITY_CLEAR_TOP:
-                // on Samsung/YouTube that can revive the existing YouTube task and
-                // ignore the requested watch URL, landing on Home/current content.
                 val direct = Intent(Intent.ACTION_VIEW, Uri.parse("vnd.youtube:$videoId")).apply {
                     setPackage("com.google.android.youtube")
                 }
@@ -103,4 +109,4 @@ if marker not in text:
 text = text.replace(marker, helper + marker, 1)
 
 path.write_text(text)
-print('Patched MainActivity to force the exact YouTube video by native video ID')
+print('Patched MainActivity to remember and initially open the exact YouTube video')

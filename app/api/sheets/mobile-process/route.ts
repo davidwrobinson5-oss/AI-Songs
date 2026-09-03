@@ -61,7 +61,8 @@ export async function POST(req:Request){
     if(outputs.stems||outputs.partSheets)pending.push(createSourceSeparation(file).then(id=>{jobs.separation=id}));
     await Promise.all(pending);
 
-    await updateCapture(captureId,captureSecret,'accepted','accepted');
+    const result=JSON.stringify({version:1,jobs,outputs,title});
+    await updateCapture(captureId,captureSecret,'accepted',result);
     return NextResponse.json({jobs,outputs,title},{headers:{'Cache-Control':'no-store'}});
   }catch(error){
     if(captureValidated&&captureId&&captureSecret){

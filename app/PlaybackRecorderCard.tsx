@@ -36,6 +36,7 @@ export default function PlaybackRecorderCard(){
   const [sourceUrl,setSourceUrl]=useState('');
   const [status,setStatus]=useState('');
   const [confirming,setConfirming]=useState(false);
+  const [permissionConfirmed,setPermissionConfirmed]=useState(false);
   const [recording,setRecording]=useState(false);
   const [jobs,setJobs]=useState<JobMap>({});
   const [outputs,setOutputs]=useState<OutputMap>({});
@@ -241,6 +242,7 @@ export default function PlaybackRecorderCard(){
 
   async function startRecorder(){
     const value=sourceUrl.trim();
+    if(!permissionConfirmed){setStatus('Confirm that you have permission to record this content.');return;}
     if(!value){setStatus('Paste the song or source URL first.');setConfirming(false);return;}
     try{
       const parsed=new URL(value);
@@ -250,6 +252,7 @@ export default function PlaybackRecorderCard(){
     }
 
     setConfirming(false);
+    setPermissionConfirmed(false);
     setRecording(true);
     setJobs({});setOutputs({});setJobStatuses({});setCaptureTitle('');setStemJobsStarted(false);
     sessionStorage.removeItem(CAPTURE_JOBS_KEY);
@@ -304,7 +307,7 @@ export default function PlaybackRecorderCard(){
     />
     <div style={{display:'flex',gap:8,flexWrap:'wrap',marginTop:10}}>
       <button className="secondary" type="button" onClick={openSource}>Open URL / Choose App</button>
-      {!recording?<button className="primary" type="button" onClick={()=>setConfirming(true)}>● Record</button>:<button className="primary" type="button" disabled aria-disabled="true">● Recording — awaiting Android finish</button>}
+      {!recording?<button className="primary" type="button" onClick={()=>{setPermissionConfirmed(false);setConfirming(true);}}>● Record</button>:<button className="primary" type="button" disabled aria-disabled="true">● Recording — awaiting Android finish</button>}
     </div>
     <small style={{display:'block',marginTop:10}}>Pie keeps the helper invisible. Android still requires its own secure “Share one app” permission sheet, and Android controls that sheet’s colors and buttons.</small>
     {status&&<div className="statusBox" style={{marginTop:12}}>{status}</div>}
@@ -326,9 +329,17 @@ export default function PlaybackRecorderCard(){
         <p className="eyebrow" style={{color:'#d8b4fe'}}>PIE CAPTURE</p>
         <h2 style={{margin:'4px 0 8px'}}>Ready to record?</h2>
         <p style={{margin:0,opacity:.85,lineHeight:1.5}}>Next, Android will place its secure permission sheet over Pie. Keep <strong>Share one app</strong> selected and choose only the app playing your song.</p>
+        <button
+          type="button"
+          aria-pressed={permissionConfirmed}
+          onClick={()=>setPermissionConfirmed(value=>!value)}
+          style={{width:'100%',marginTop:18,padding:'14px 16px',borderRadius:14,textAlign:'left',fontWeight:700,border:permissionConfirmed?'1px solid rgba(134,239,172,.7)':'1px solid rgba(192,132,252,.45)',background:permissionConfirmed?'rgba(34,197,94,.16)':'rgba(255,255,255,.04)',color:'inherit'}}
+        >
+          {permissionConfirmed?'✓':'○'} I have permission to record this content
+        </button>
         <div style={{display:'flex',gap:10,marginTop:18}}>
-          <button className="secondary" type="button" onClick={()=>setConfirming(false)} style={{flex:1}}>Cancel</button>
-          <button className="primary" type="button" onClick={()=>{void startRecorder();}} style={{flex:1}}>Continue</button>
+          <button className="secondary" type="button" onClick={()=>{setPermissionConfirmed(false);setConfirming(false);}} style={{flex:1}}>Cancel</button>
+          <button className="primary" type="button" disabled={!permissionConfirmed} aria-disabled={!permissionConfirmed} onClick={()=>{void startRecorder();}} style={{flex:1,opacity:permissionConfirmed?1:.5}}>Continue</button>
         </div>
       </div>
     </div>}

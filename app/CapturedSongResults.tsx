@@ -42,8 +42,22 @@ function complete(statuses:Statuses,jobs:Jobs){
   return keys.length>0&&keys.every(key=>statuses[key]==='COMPLETED');
 }
 
+function selectedOutputCount(item:CaptureRecord){
+  return Number(Boolean(item.outputs.fullSheet))+Number(Boolean(item.outputs.chords))+Number(Boolean(item.outputs.stems||item.outputs.partSheets));
+}
+
+function assetSummary(item:CaptureRecord){
+  const parts=['WAV'];
+  if(item.outputs.fullSheet)parts.push('PDF');
+  if(item.outputs.chords)parts.push('Chords');
+  if(item.outputs.stems||item.outputs.partSheets)parts.push('Stems');
+  return parts.join(' · ');
+}
+
 export default function CapturedSongResults(){
   const [records,setRecords]=useState<CaptureRecord[]>([]);
+  const [selectedId,setSelectedId]=useState('');
+  const [renameValue,setRenameValue]=useState('');
 
   const refresh=()=>setRecords(readRecords());
 
@@ -97,38 +111,109 @@ export default function CapturedSongResults(){
   },[records.length]);
 
   const sorted=useMemo(()=>[...records].sort((a,b)=>b.createdAt.localeCompare(a.createdAt)),[records]);
+  const selected=sorted.find(item=>item.id===selectedId)||null;
+
+  useEffect(()=>{
+    if(selected)setRenameValue(selected.title||'Captured recording');
+  },[selectedId,selected?.title]);
+
   if(!sorted.length)return null;
 
   function remove(id:string){
     const next=readRecords().filter(item=>item.id!==id);
     saveRecords(next);
     setRecords(next);
+    if(selectedId===id)setSelectedId('');
   }
 
-  return <section style={{margin:'0 0 14px',padding:'0 2px'}}>
+  function renameSelected(){
+    if(!selected)return;
+    const title=renameValue.trim().slice(0,120)||'Captured recording';
+    const next=readRecords().map(item=>item.id===selected.id?{...item,title}:item);
+    saveRecords(next);
+    setRecords(next);
+  }
+
+  if(selected){
+    const statuses=selected.statuses||{};
+    const state=selected.state||'processing';
+    const fullReady=Boolean(selected.jobs.full&&statuses.full==='COMPLETED');
+    const stemsReady=Boolean(selected.jobs.separation&&statuses.separation==='COMPLETED');
+    const chordsReady=Boolean(selected.jobs.chords&&statuses.chords==='COMPLETED');
+
+    return <section id="captured" style={{margin:'0 0 18px',padding:'0 2px'}}>
+      <button type="button" className="secondary" onClick={()=>setSelectedId('')} style={{margin:'4px 0 12px'}}>← All songs</button>
+      <article className="statusBox" style={{display:'grid',gap:14,padding:16,borderRadius:20}}>
+        <div style={{display:'grid',gridTemplateColumns:'58px minmax(0,1fr)',gap:12,alignItems:'center'}}>
+          <div style={{width:58,height:58,borderRadius:16,display:'grid',placeItems:'center',fontSize:26,background:'linear-gradient(145deg,rgba(168,85,247,.5),rgba(59,130,246,.35))',border:'1px solid rgba(255,255,255,.12)'}}>♫</div>
+          <div style={{minWidth:0}}>
+            <strong style={{display:'block',fontSize:19,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{selected.title||'Captured recording'}</strong>
+            <small style={{display:'block',marginTop:3,opacity:.62}}>{new Date(selected.createdAt).toLocaleString()}</small>
+            <small style={{display:'block',marginTop:4,opacity:.7}}>{assetSummary(selected)}</small>
+          </div>
+        </div>
+
+        <div style={{display:'grid',gridTemplateColumns:'minmax(0,1fr) auto',gap:8}}>
+          <input value={renameValue} onChange={event=>setRenameValue(event.target.value)} maxLength={120} aria-label="Song name" style={{minWidth:0}} />
+          <button type="button" className="secondary" onClick={renameSelected}>Rename</button>
+        </div>
+
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:10}}>
+          <strong>Files</strong>
+          <span style={{fontSize:11,fontWeight:850,opacity:.75}}>{state==='ready'?'READY':state==='failed'?'NEEDS ATTENTION':'PROCESSING'}</span>
+        </div>
+
+        <a className="secondary" href={`/api/sheets/source?path=${encodeURIComponent(selected.stagedPath)}`} download style={{textDecoration:'none',padding:14}}>♪ Original recording · WAV</a>
+
+        {selected.outputs.fullSheet&&(
+          fullReady
+            ? <a className="secondary" href={`/api/sheets/download/${encodeURIComponent(selected.jobs.full)}/pdf`} style={{textDecoration:'none',padding:14}}>▤ Full sheet music · PDF</a>
+            : <div className="statusBox" style={{padding:14}}>▤ Full sheet music · {statuses.full==='FAILED'?'Failed':'Processing…'}</div>
+        )}
+
+        {selected.outputs.chords&&(
+          chordsReady
+            ? <a className="secondary" href={`/api/sheets/download/${encodeURIComponent(selected.jobs.chords)}/json`} style={{textDecoration:'none',padding:14}}>♬ Chords</a>
+            : <div className="statusBox" style={{padding:14}}>♬ Chords · {statuses.chords==='FAILED'?'Failed':'Processing…'}</div>
+        )}
+
+        {(selected.outputs.stems||selected.outputs.partSheets)&&<div style={{display:'grid',gap:8}}>
+          <strong style={{fontSize:14}}>Stems</strong>
+          {stemsReady
+            ? <div style={{display:'grid',gridTemplateColumns:'repeat(2,minmax(0,1fr))',gap:8}}>{STEMS.map(stem=><a key={stem} className="secondary" href={`/api/sheets/stem/${encodeURIComponent(selected.jobs.separation)}/${stem}`} style={{textDecoration:'none',padding:12,fontSize:13}}>♪ {stem} · WAV</a>)}</div>
+            : <div className="statusBox" style={{padding:14}}>Stem separation · {statuses.separation==='FAILED'?'Failed':'Processing…'}</div>}
+        </div>}
+
+        {state==='failed'&&<small style={{opacity:.72}}>Your original recording is still saved. Only the failed analysis output needs to be retried.</small>}
+        <button className="secondary" type="button" onClick={()=>remove(selected.id)} style={{justifySelf:'start'}}>Remove song</button>
+      </article>
+    </section>;
+  }
+
+  return <section id="captured" style={{margin:'0 0 18px',padding:'0 2px'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',gap:12,padding:'10px 2px 8px'}}>
       <strong>Captured songs</strong><span style={{fontSize:12,opacity:.6}}>{sorted.length}</span>
     </div>
-    <div style={{display:'grid',gap:10}}>{sorted.map(item=>{
-      const statuses=item.statuses||{};
+    <div style={{display:'grid',gap:9}}>{sorted.map((item,index)=>{
       const state=item.state||'processing';
-      const fullReady=Boolean(item.jobs.full&&statuses.full==='COMPLETED');
-      const stemsReady=Boolean(item.jobs.separation&&statuses.separation==='COMPLETED');
-      const chordsReady=Boolean(item.jobs.chords&&statuses.chords==='COMPLETED');
-      return <article key={item.id} className="statusBox" style={{display:'grid',gap:10,padding:14,borderRadius:16}}>
-        <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'start'}}>
-          <div style={{minWidth:0}}><strong style={{display:'block',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{item.title||'Captured recording'}</strong><small style={{display:'block',marginTop:3,opacity:.65}}>{new Date(item.createdAt).toLocaleString()}</small></div>
-          <span style={{fontSize:11,fontWeight:800,opacity:.8}}>{state==='ready'?'READY':state==='failed'?'NEEDS ATTENTION':'PROCESSING'}</span>
-        </div>
-        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          <a className="secondary" href={`/api/sheets/source?path=${encodeURIComponent(item.stagedPath)}`} download style={{textDecoration:'none'}}>↓ Recording WAV</a>
-          {fullReady&&<a className="secondary" href={`/api/sheets/download/${encodeURIComponent(item.jobs.full)}/pdf`} style={{textDecoration:'none'}}>↓ Sheet PDF</a>}
-          {chordsReady&&<a className="secondary" href={`/api/sheets/download/${encodeURIComponent(item.jobs.chords)}/json`} style={{textDecoration:'none'}}>↓ Chords</a>}
-        </div>
-        {stemsReady&&<div style={{display:'flex',gap:7,flexWrap:'wrap'}}>{STEMS.map(stem=><a key={stem} className="secondary" href={`/api/sheets/stem/${encodeURIComponent(item.jobs.separation)}/${stem}`} style={{textDecoration:'none',fontSize:12}}>↓ {stem} WAV</a>)}</div>}
-        {state==='failed'&&<small style={{opacity:.72}}>The recording is still saved. A selected analysis job failed, so you can retry processing without recording the song again.</small>}
-        <button className="secondary" type="button" onClick={()=>remove(item.id)} style={{justifySelf:'start'}}>Remove from list</button>
-      </article>;
+      return <button
+        key={item.id}
+        type="button"
+        onClick={()=>setSelectedId(item.id)}
+        className="statusBox"
+        style={{width:'100%',display:'grid',gridTemplateColumns:'56px minmax(0,1fr) auto',gap:12,alignItems:'center',padding:10,borderRadius:17,textAlign:'left',color:'inherit'}}
+      >
+        <span style={{width:56,height:56,borderRadius:14,display:'grid',placeItems:'center',fontSize:24,background:index%2===0?'linear-gradient(145deg,rgba(168,85,247,.5),rgba(59,130,246,.35))':'linear-gradient(145deg,rgba(236,72,153,.45),rgba(124,58,237,.35))',border:'1px solid rgba(255,255,255,.1)'}}>♫</span>
+        <span style={{minWidth:0}}>
+          <strong style={{display:'block',fontSize:16,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{item.title||'Captured recording'}</strong>
+          <small style={{display:'block',marginTop:3,opacity:.62}}>{new Date(item.createdAt).toLocaleString()}</small>
+          <small style={{display:'block',marginTop:4,opacity:.72,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{assetSummary(item)} · {selectedOutputCount(item)} selected output{selectedOutputCount(item)===1?'':'s'}</small>
+        </span>
+        <span style={{display:'grid',justifyItems:'end',gap:5}}>
+          <small style={{fontSize:10,fontWeight:850,opacity:.7}}>{state==='ready'?'READY':state==='failed'?'ATTENTION':'WORKING'}</small>
+          <span style={{fontSize:24,opacity:.55}}>›</span>
+        </span>
+      </button>;
     })}</div>
   </section>;
 }

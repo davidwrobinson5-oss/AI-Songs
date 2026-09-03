@@ -9,9 +9,9 @@ const CRUST = rgb(0.95, 0.61, 0.2);
 /**
  * Turn a provider PDF into a user-facing Pie sheet.
  *
- * Klangio documents that its PDF hint/watermark may be removed with a PDF editor.
- * We keep the notation untouched and replace only the footer band, where the
- * provider hint is rendered, with a small Pie-branded footer and our own page count.
+ * The provider watermark occupies a taller reserved footer area than the small
+ * Pie footer itself. Clear that entire reserved band first, then draw only Pie.
+ * Notation above the provider footer remains untouched.
  */
 export async function brandPieSheetPdf(input: Uint8Array) {
   const pdf = await PDFDocument.load(input, { ignoreEncryption: true, updateMetadata: false });
@@ -24,15 +24,25 @@ export async function brandPieSheetPdf(input: Uint8Array) {
 
   pages.forEach((page, index) => {
     const { width } = page.getSize();
-    const footerHeight = 29;
+    const providerFooterClearHeight = 108;
+    const pieFooterHeight = 30;
     const iconX = 50;
     const iconY = 12.5;
 
-    // Replace only the printable footer margin; do not alter any notation above it.
-    page.drawRectangle({ x: 0, y: 0, width, height: footerHeight, color: WHITE });
+    // Clear the complete provider footer/watermark region, including both the
+    // Klangio mark and the "Made with ... using Klangio" line.
+    page.drawRectangle({
+      x: 0,
+      y: 0,
+      width,
+      height: providerFooterClearHeight,
+      color: WHITE,
+    });
+
+    // Rebuild a compact Pie-only footer at the very bottom of the page.
     page.drawLine({
-      start: { x: 24, y: footerHeight - 1 },
-      end: { x: width - 24, y: footerHeight - 1 },
+      start: { x: 24, y: pieFooterHeight - 1 },
+      end: { x: width - 24, y: pieFooterHeight - 1 },
       thickness: 0.45,
       color: LINE,
     });

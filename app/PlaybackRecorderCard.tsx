@@ -7,19 +7,27 @@ const CAPTURE_ID_KEY='pieCaptureSessionId';
 const CAPTURE_JOBS_KEY='pieCaptureJobs';
 const CAPTURE_OUTPUTS_KEY='pieCaptureOutputs';
 const CAPTURE_TITLE_KEY='pieCaptureTitle';
+const CAPTURE_STAGED_KEY='pieCaptureStagedPath';
 
 type JobMap=Record<string,string>;
 type StatusMap=Record<string,string>;
 type OutputMap={stems?:boolean;fullSheet?:boolean;partSheets?:boolean;chords?:boolean};
+type ParsedCapture={jobs:JobMap;outputs:OutputMap;title:string;awaitingSelection:boolean;stagedPath:string};
 
-function parseResult(raw:unknown){
+function parseResult(raw:unknown):ParsedCapture|null{
   if(typeof raw!=='string'||!raw.trim())return null;
   try{
     const parsed=JSON.parse(raw);
     if(!parsed||typeof parsed!=='object')return null;
     const jobs=parsed.jobs&&typeof parsed.jobs==='object'?parsed.jobs as JobMap:{};
     const outputs=parsed.outputs&&typeof parsed.outputs==='object'?parsed.outputs as OutputMap:{};
-    return {jobs,outputs,title:String(parsed.title||'Android playback recording')};
+    return {
+      jobs,
+      outputs,
+      title:String(parsed.title||'Android playback recording'),
+      awaitingSelection:Boolean(parsed.awaitingSelection),
+      stagedPath:String(parsed.stagedPath||''),
+    };
   }catch{return null;}
 }
 
@@ -43,6 +51,10 @@ export default function PlaybackRecorderCard(){
   const [jobStatuses,setJobStatuses]=useState<StatusMap>({});
   const [captureTitle,setCaptureTitle]=useState('');
   const [stemJobsStarted,setStemJobsStarted]=useState(false);
+  const [pendingStagedPath,setPendingStagedPath]=useState('');
+  const [choosingOutputs,setChoosingOutputs]=useState(false);
+  const [processingSelection,setProcessingSelection]=useState(false);
+  const [selectedOutputs,setSelectedOutputs]=useState<OutputMap>({stems:false,fullSheet:false,partSheets:false,chords:false});
 
   useEffect(()=>{
     try{
@@ -51,6 +63,11 @@ export default function PlaybackRecorderCard(){
       if(savedJobs&&typeof savedJobs==='object')setJobs(savedJobs);
       if(savedOutputs&&typeof savedOutputs==='object')setOutputs(savedOutputs);
       setCaptureTitle(sessionStorage.getItem(CAPTURE_TITLE_KEY)||'');
+      const staged=sessionStorage.getItem(CAPTURE_STAGED_KEY)||'';
+      if(staged){
+        setPendingStagedPath(staged);
+        setChoosingOutputs(true);
+      }
     }catch{}
   },[]);
 
@@ -77,10 +94,26 @@ export default function PlaybackRecorderCard(){
       sessionStorage.setItem(CAPTURE_JOBS_KEY,JSON.stringify(nextJobs));
       sessionStorage.setItem(CAPTURE_OUTPUTS_KEY,JSON.stringify(nextOutputs));
       sessionStorage.setItem(CAPTURE_TITLE_KEY,title);
+      sessionStorage.removeItem(CAPTURE_STAGED_KEY);
+      setPendingStagedPath('');
+      setChoosingOutputs(false);
       setRecording(false);
       sessionStorage.removeItem(CAPTURE_STARTED_KEY);
       sessionStorage.removeItem(CAPTURE_ID_KEY);
-      setStatus('Recording received. Pie is analyzing the music now.');
+      setStatus('Processing started for the items you selected.');
+    };
+
+    const offerSelection=(stagedPath:string,title:string)=>{
+      setRecording(false);
+      setCaptureTitle(title);
+      setPendingStagedPath(stagedPath);
+      setSelectedOutputs({stems:false,fullSheet:false,partSheets:false,chords:false});
+      setChoosingOutputs(true);
+      sessionStorage.setItem(CAPTURE_STAGED_KEY,stagedPath);
+      sessionStorage.setItem(CAPTURE_TITLE_KEY,title);
+      sessionStorage.removeItem(CAPTURE_STARTED_KEY);
+      sessionStorage.removeItem(CAPTURE_ID_KEY);
+      setStatus('Recording saved. Choose what you want Pie to create.');
     };
 
     const checkCapture=async()=>{
@@ -102,10 +135,12 @@ export default function PlaybackRecorderCard(){
         const captureStatus=String(data?.status||'');
         if(captureStatus==='accepted'){
           const parsed=parseResult(data?.result);
-          if(parsed&&Object.keys(parsed.jobs).length){
+          if(parsed?.awaitingSelection&&parsed.stagedPath){
+            offerSelection(parsed.stagedPath,parsed.title);
+          }else if(parsed&&Object.keys(parsed.jobs).length){
             saveProcessing(parsed.jobs,parsed.outputs,parsed.title);
           }else{
-            finishCapture('Recording sent to Pie. Processing has started.');
+            finishCapture('Recording received by Pie.');
           }
         }else if(captureStatus==='processingFailed') finishCapture('Recording finished, but processing needs attention.');
         else if(captureStatus==='uploadFailed') finishCapture('Recording finished, but upload to Pie failed.');
@@ -125,8 +160,8 @@ export default function PlaybackRecorderCard(){
       const current=new URL(window.location.href);
       const result=current.searchParams.get('pieCapture');
       if(result){
-        if(result==='accepted') setStatus('Recording received. Pie is loading the processing jobs…');
-        else if(result==='processing') setStatus('Recording finished. Pie is processing it.');
+        if(result==='accepted') setStatus('Recording received. Loading your choices…');
+        else if(result==='processing') setStatus('Recording finished. Returning to Pie…');
         else if(result==='processingFailed') finishCapture('Recording finished, but processing needs attention.');
         else setStatus('Recording session finished.');
         current.searchParams.delete('pieCapture');
@@ -198,13 +233,13 @@ export default function PlaybackRecorderCard(){
         const statuses=d.statuses||{};
         setJobStatuses(statuses);
         if(hasFailed(statuses)){
-          setStatus('Pie hit a processing problem. Your recording is safe, but one of the analysis jobs needs attention.');
+          setStatus('Pie hit a processing problem. Your recording is safe, but one of the selected analysis jobs needs attention.');
           return;
         }
         if(statuses.separation==='COMPLETED'&&outputs.partSheets&&!jobs.lead)void startPartSheets(jobs.separation);
-        else if(allDone(statuses,jobs)) setStatus('Ready — your stems and sheet-music analysis are complete.');
-        else if(statuses.separation==='COMPLETED') setStatus('Stems are ready. Pie is finishing the notation and chord analysis.');
-        else setStatus('Analyzing music… creating stems, notation, and chords.');
+        else if(allDone(statuses,jobs)) setStatus('Ready — the items you selected are complete.');
+        else if(statuses.separation==='COMPLETED') setStatus('Stems are ready. Pie is finishing your other selected items.');
+        else setStatus('Working on your selected items…');
       }catch(error){
         if(!dead)setStatus(error instanceof Error?error.message:'Could not check processing status.');
       }
@@ -220,12 +255,13 @@ export default function PlaybackRecorderCard(){
     const steps=[
       ['Upload','COMPLETED'],
       ['Analyze',Object.values(jobStatuses).some(Boolean)?'COMPLETED':'PROCESSING'],
-      ['Stems',jobs.separation?jobStatuses.separation||'PROCESSING':'SKIPPED'],
-      ['Sheets',jobs.full?jobStatuses.full||'PROCESSING':'SKIPPED'],
-      ['Chords',jobs.chords?jobStatuses.chords||'PROCESSING':'SKIPPED'],
+      ['Stems',outputs.stems&&jobs.separation?jobStatuses.separation||'PROCESSING':'SKIPPED'],
+      ['Full sheet',outputs.fullSheet&&jobs.full?jobStatuses.full||'PROCESSING':'SKIPPED'],
+      ['Instrument sheets',outputs.partSheets&&jobs.separation?(jobs.lead&&jobs.drums&&jobs.bass&&jobs.guitar&&jobs.keys?'COMPLETED':jobStatuses.separation||'PROCESSING'):'SKIPPED'],
+      ['Chords',outputs.chords&&jobs.chords?jobStatuses.chords||'PROCESSING':'SKIPPED'],
     ];
     return steps;
-  },[jobs,jobStatuses]);
+  },[jobs,jobStatuses,outputs]);
 
   function openSource(){
     const value=sourceUrl.trim();
@@ -255,9 +291,11 @@ export default function PlaybackRecorderCard(){
     setPermissionConfirmed(false);
     setRecording(true);
     setJobs({});setOutputs({});setJobStatuses({});setCaptureTitle('');setStemJobsStarted(false);
+    setPendingStagedPath('');setChoosingOutputs(false);
     sessionStorage.removeItem(CAPTURE_JOBS_KEY);
     sessionStorage.removeItem(CAPTURE_OUTPUTS_KEY);
     sessionStorage.removeItem(CAPTURE_TITLE_KEY);
+    sessionStorage.removeItem(CAPTURE_STAGED_KEY);
     setStatus('Preparing secure Pie capture…');
 
     try{
@@ -276,10 +314,6 @@ export default function PlaybackRecorderCard(){
       params.set('return',window.location.href);
       params.set('captureId',String(data.id));
       params.set('captureSecret',String(data.secret));
-      params.set('stems','true');
-      params.set('fullSheet','true');
-      params.set('partSheets','true');
-      params.set('chords','true');
 
       sessionStorage.setItem(CAPTURE_STARTED_KEY,String(Date.now()));
       sessionStorage.setItem(CAPTURE_ID_KEY,String(data.id));
@@ -292,6 +326,62 @@ export default function PlaybackRecorderCard(){
       setStatus(error instanceof Error?error.message:'Could not start Pie capture.');
     }
   }
+
+  async function startSelectedProcessing(){
+    if(!pendingStagedPath)return;
+    if(!Object.values(selectedOutputs).some(Boolean)){
+      setStatus('Select at least one item to create.');
+      return;
+    }
+
+    setProcessingSelection(true);
+    setStatus('Starting only the items you selected…');
+    try{
+      const response=await fetch('/api/sheets/process-upload',{
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({
+          stagedPath:pendingStagedPath,
+          name:captureTitle||'Android playback recording',
+          type:'audio/wav',
+          outputs:selectedOutputs,
+        }),
+        credentials:'same-origin',
+        cache:'no-store',
+      });
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok)throw new Error(data?.error||'Could not start the selected processing.');
+      const nextJobs=data.jobs&&typeof data.jobs==='object'?data.jobs as JobMap:{};
+      if(!Object.keys(nextJobs).length)throw new Error('Pie did not return any processing jobs.');
+      const nextOutputs=data.outputs&&typeof data.outputs==='object'?data.outputs as OutputMap:{...selectedOutputs};
+      setJobs(nextJobs);
+      setOutputs(nextOutputs);
+      setJobStatuses({});
+      setStemJobsStarted(false);
+      sessionStorage.setItem(CAPTURE_JOBS_KEY,JSON.stringify(nextJobs));
+      sessionStorage.setItem(CAPTURE_OUTPUTS_KEY,JSON.stringify(nextOutputs));
+      sessionStorage.setItem(CAPTURE_TITLE_KEY,String(data.title||captureTitle||'Android playback recording'));
+      sessionStorage.removeItem(CAPTURE_STAGED_KEY);
+      setPendingStagedPath('');
+      setChoosingOutputs(false);
+      setStatus('Processing started for the items you selected.');
+    }catch(error){
+      setStatus(error instanceof Error?error.message:'Could not start the selected processing.');
+    }finally{
+      setProcessingSelection(false);
+    }
+  }
+
+  function toggleOutput(key:keyof OutputMap){
+    setSelectedOutputs(current=>({...current,[key]:!current[key]}));
+  }
+
+  const chooserOptions:[keyof OutputMap,string,string][]=[
+    ['fullSheet','Full sheet','Full-song notation / transcription'],
+    ['partSheets','Instrument sheets','Lead, drums, bass, guitar, and keys'],
+    ['chords','Chords','Chord recognition and chord chart data'],
+    ['stems','Stems','Separated vocals and instruments'],
+  ];
 
   return <section className="panel" style={{padding:20,marginBottom:16,position:'relative',overflow:'hidden'}}>
     <div style={{position:'absolute',inset:'0 0 auto 0',height:4,background:'linear-gradient(90deg,#7c3aed,#c084fc,#f59e0b)'}} />
@@ -340,6 +430,25 @@ export default function PlaybackRecorderCard(){
           <button className="secondary" type="button" onClick={()=>{setPermissionConfirmed(false);setConfirming(false);}} style={{flex:1}}>Cancel</button>
           <button className="primary" type="button" disabled={!permissionConfirmed} aria-disabled={!permissionConfirmed} onClick={()=>{void startRecorder();}} style={{flex:1,opacity:permissionConfirmed?1:.5}}>Continue</button>
         </div>
+      </div>
+    </div>}
+
+    {choosingOutputs&&<div role="dialog" aria-modal="true" style={{position:'fixed',inset:0,zIndex:10001,display:'grid',placeItems:'center',padding:20,background:'rgba(8,5,15,.78)',backdropFilter:'blur(8px)'}}>
+      <div style={{width:'min(460px,100%)',maxHeight:'calc(100dvh - 40px)',overflowY:'auto',borderRadius:24,padding:22,background:'linear-gradient(145deg,#24143d,#120d22)',border:'1px solid rgba(192,132,252,.45)',boxShadow:'0 24px 70px rgba(0,0,0,.5)'}}>
+        <div style={{fontSize:34,marginBottom:8}}>🥧</div>
+        <p className="eyebrow" style={{color:'#d8b4fe'}}>RECORDING SAVED</p>
+        <h2 style={{margin:'4px 0 8px'}}>What do you want Pie to create?</h2>
+        <p style={{margin:'0 0 14px',opacity:.82,lineHeight:1.5}}>Nothing starts until you choose. Select only what you want from this recording.</p>
+        <div style={{display:'grid',gap:10}}>{chooserOptions.map(([key,label,copy])=>{
+          const selected=Boolean(selectedOutputs[key]);
+          return <button key={key} type="button" aria-pressed={selected} onClick={()=>toggleOutput(key)} style={{width:'100%',padding:'13px 14px',borderRadius:14,textAlign:'left',border:selected?'1px solid rgba(134,239,172,.7)':'1px solid rgba(192,132,252,.35)',background:selected?'rgba(34,197,94,.14)':'rgba(255,255,255,.035)',color:'inherit'}}>
+            <div style={{fontWeight:800}}>{selected?'✓':'○'} {label}</div>
+            <div style={{fontSize:13,opacity:.72,marginTop:3}}>{copy}</div>
+          </button>;
+        })}</div>
+        <button className="primary" type="button" disabled={processingSelection||!Object.values(selectedOutputs).some(Boolean)} onClick={()=>{void startSelectedProcessing();}} style={{width:'100%',marginTop:16,opacity:processingSelection||!Object.values(selectedOutputs).some(Boolean)?.55:1}}>
+          {processingSelection?'Starting…':'Create selected items'}
+        </button>
       </div>
     </div>}
   </section>;

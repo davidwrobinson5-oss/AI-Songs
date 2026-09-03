@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 import { rateLimit, safeClientError } from '../../../security';
 import {
   PROCESSING_RETRY_COOKIE,
-  PROCESSING_RETRY_MAX_AGE,
   encodeRetryDescriptor,
   normalizeOutputs,
   startProcessingFromStaged,
@@ -20,7 +19,6 @@ function attachRetryCookie(response:NextResponse,descriptor:RetryDescriptor|null
     sameSite:'lax',
     secure:true,
     path:'/',
-    maxAge:PROCESSING_RETRY_MAX_AGE,
   });
   return response;
 }
@@ -40,7 +38,7 @@ export async function POST(req:Request){
 
     const title=String(body.name||'Android playback recording').slice(0,120);
     const type=String(body.type||'audio/wav');
-    retryDescriptor={stagedPath,title,type,outputs};
+    retryDescriptor={stagedPath,title,type,outputs,attempt:1};
 
     const result=await startProcessingFromStaged(retryDescriptor);
     return attachRetryCookie(NextResponse.json(result,{headers:{'Cache-Control':'no-store'}}),retryDescriptor);

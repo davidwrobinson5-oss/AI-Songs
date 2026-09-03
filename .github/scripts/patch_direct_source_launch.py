@@ -27,6 +27,36 @@ old = '''        val raw = pendingSourceUrl?.trim().orEmpty()
 
 new = '''        val raw = pendingSourceUrl?.trim().orEmpty()
         if (raw.isNotEmpty()) {
+            // Android's "Share one app" flow can foreground the selected app *after*
+            // MediaProjection returns, which can overwrite an immediate YouTube deep-link
+            // and leave the user on YouTube Home. Let that system transition settle first,
+            // then open the exact requested source. The accessibility reassertion remains
+            // as a second line of defense if YouTube changes activities again.
+            RecorderDiagnostics.record(this, "source_exact_launch_waiting_for_app_share_settle")
+            handler.postDelayed({
+                if (!CaptureSession.isActive(this)) return@postDelayed
+                try {
+                    openExactSource(raw)
+                    RecorderDiagnostics.record(this, "source_opened_exact_after_share_settle")
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) finishAndRemoveTask() else finish()
+                } catch (_: Exception) {
+                    CaptureSession.end(this)
+                    returnToPie("sourceOpenFailed")
+                }
+            }, 1100L)
+        } else {
+            returnToPie("recordingStarted")
+        }
+'''
+
+if 'private fun openExactSource' not in text:
+    if old not in text:
+        raise SystemExit('Could not locate source launch block')
+    text = text.replace(old, new, 1)
+else:
+    # If a previously patched source block is present, make only the launch timing sticky.
+    immediate = '''        val raw = pendingSourceUrl?.trim().orEmpty()
+        if (raw.isNotEmpty()) {
             try {
                 openExactSource(raw)
                 RecorderDiagnostics.record(this, "source_opened_remove_helper_task")
@@ -39,11 +69,8 @@ new = '''        val raw = pendingSourceUrl?.trim().orEmpty()
             returnToPie("recordingStarted")
         }
 '''
-
-if 'private fun openExactSource' not in text:
-    if old not in text:
-        raise SystemExit('Could not locate source launch block')
-    text = text.replace(old, new, 1)
+    if immediate in text:
+        text = text.replace(immediate, new, 1)
 
 marker = '''    private fun processRecording(returnOnCompletion: Boolean = true) {
 '''
@@ -121,4 +148,4 @@ else:
     text = text.replace(marker, helper + marker, 1)
 
 path.write_text(text)
-print('Patched MainActivity to remember the source and target YouTube WatchActivity for the exact video')
+print('Patched MainActivity to preserve the exact source and open YouTube after app-share selection settles')

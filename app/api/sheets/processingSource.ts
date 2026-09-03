@@ -2,10 +2,10 @@ import { createChordRecognition, createSourceSeparation, createTranscription } f
 import { signedStagingUrl } from './staging';
 
 export const PROCESSING_RETRY_COOKIE='pie_processing_retry';
-export const PROCESSING_RETRY_MAX_AGE=7*24*60*60;
+export const MAX_PROCESSING_ATTEMPTS=3;
 
 export type Outputs={stems?:boolean;fullSheet?:boolean;partSheets?:boolean;chords?:boolean};
-export type RetryDescriptor={stagedPath:string;title:string;type:string;outputs:Outputs};
+export type RetryDescriptor={stagedPath:string;title:string;type:string;outputs:Outputs;attempt:number};
 
 export function normalizeOutputs(value:Outputs|undefined):Outputs{
   return {
@@ -49,7 +49,7 @@ export async function startProcessingFromStaged(descriptor:RetryDescriptor){
   if(outputs.stems||outputs.partSheets)pending.push(createSourceSeparation(blob).then(id=>{jobs.separation=id;}));
 
   await Promise.all(pending);
-  return {jobs,outputs,title,stagedPath,type};
+  return {jobs,outputs,title,stagedPath,type,attempt:descriptor.attempt};
 }
 
 export function encodeRetryDescriptor(descriptor:RetryDescriptor){
@@ -58,12 +58,13 @@ export function encodeRetryDescriptor(descriptor:RetryDescriptor){
     title:String(descriptor.title||'Android playback recording').slice(0,120),
     type:String(descriptor.type||'audio/wav'),
     outputs:normalizeOutputs(descriptor.outputs),
+    attempt:Math.min(MAX_PROCESSING_ATTEMPTS,Math.max(1,Number(descriptor.attempt)||1)),
   }),'utf8').toString('base64url');
 }
 
 export function decodeRetryDescriptor(value:string):RetryDescriptor|null{
   try{
-    const parsed=JSON.parse(Buffer.from(value,'base64url').toString('utf8')) as RetryDescriptor;
+    const parsed=JSON.parse(Buffer.from(value,'base64url').toString('utf8')) as Partial<RetryDescriptor>;
     const stagedPath=String(parsed?.stagedPath||'');
     if(!validStagedPath(stagedPath))return null;
     const outputs=normalizeOutputs(parsed?.outputs);
@@ -73,6 +74,7 @@ export function decodeRetryDescriptor(value:string):RetryDescriptor|null{
       title:String(parsed?.title||'Android playback recording').slice(0,120),
       type:String(parsed?.type||'audio/wav'),
       outputs,
+      attempt:Math.min(MAX_PROCESSING_ATTEMPTS,Math.max(1,Number(parsed?.attempt)||1)),
     };
   }catch{return null;}
 }

@@ -2,6 +2,7 @@ import { getVercelOidcToken } from '@vercel/oidc';
 import { NextResponse } from 'next/server';
 import { rateLimit, safeClientError, safeId } from '../../../security';
 import { getResult, getStem } from '../klangio';
+import { brandPieSheetPdf } from '../piePdf';
 import { signedStagingUrl } from '../staging';
 
 export const runtime='nodejs';
@@ -95,8 +96,9 @@ export async function POST(req:Request){
     }else if(kind==='sheet'){
       const jobId=safeId(String(body.jobId||''),180);
       const result=await getResult(jobId,'pdf');
-      blob=new Blob([result.bytes],{type:result.contentType||'application/pdf'});
-      name='sheet.pdf';
+      const branded=await brandPieSheetPdf(result.bytes);
+      blob=new Blob([branded],{type:'application/pdf'});
+      name='pie-sheet.pdf';
     }else if(kind==='chords'){
       const jobId=safeId(String(body.jobId||''),180);
       const result=await getResult(jobId,'json');

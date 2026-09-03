@@ -283,7 +283,8 @@ class MainActivity : Activity() {
         if (raw.isNotEmpty()) {
             try {
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(raw)))
-                finish()
+                RecorderDiagnostics.record(this, "source_opened_remove_helper_task")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) finishAndRemoveTask() else finish()
             } catch (_: Exception) {
                 CaptureSession.end(this)
                 returnToPie("sourceOpenFailed")

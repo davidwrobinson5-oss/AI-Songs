@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { rateLimit, safeClientError, safeId, textField } from '../../../../../security';
 import { getResult } from '../../../klangio';
+import { brandPieSheetPdf } from '../../../piePdf';
 
 export const runtime = 'nodejs';
 export const maxDuration = 60;
@@ -26,10 +27,12 @@ export async function GET(req: Request, context: { params: Promise<{ jobId: stri
     if (!extension) throw new Error('INVALID_RESULT_FORMAT');
 
     const result = await getResult(jobId, format);
-    return new NextResponse(result.bytes, {
+    const bytes = format === 'pdf' ? await brandPieSheetPdf(result.bytes) : result.bytes;
+    const contentType = format === 'pdf' ? 'application/pdf' : result.contentType;
+    return new NextResponse(bytes, {
       headers: {
-        'Content-Type': result.contentType,
-        'Content-Disposition': `attachment; filename="ai-songs-${jobId.slice(0, 18)}.${extension}"`,
+        'Content-Type': contentType,
+        'Content-Disposition': `attachment; filename="pie-${jobId.slice(0, 18)}.${extension}"`,
         'Cache-Control': 'private, no-store, max-age=0',
         'X-Content-Type-Options': 'nosniff',
       },

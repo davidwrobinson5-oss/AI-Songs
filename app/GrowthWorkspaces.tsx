@@ -1,0 +1,83 @@
+'use client';
+
+import { useMemo, useState } from 'react';
+
+type Workspace = 'marketing' | 'band' | 'licensing';
+
+type Props = {
+  workspace: Workspace;
+  onNavigate: (screen: string) => void;
+};
+
+const marketingCards = [
+  ['Campaign Builder', 'Choose a song, audience, goal, budget, channels, launch date, and call-to-action. Pie turns it into a coordinated release plan.'],
+  ['Content Calendar', 'Plan teaser clips, lyric posts, behind-the-scenes, countdowns, release-day content, follow-ups, contests, and giveaways.'],
+  ['Brand Library', 'Keep approved photos, video references, logos, colors, artwork, bios, press copy, and visual references together.'],
+  ['Distribution', 'Prepare release metadata and track delivery tasks for social channels and distributor services without losing the marketing plan around them.'],
+  ['Fan Database', 'Track opt-in email, phone, text, mailing, messages, notes, segments, superfans, and follow-up schedules.'],
+  ['Performance', 'Score campaigns by reach, saves, clicks, follows, streams, conversion, fan growth, and cost per result.'],
+];
+
+const bandCards = [
+  ['Band Room', 'A shared space for invited members to contribute ideas, lyrics, riffs, recordings, mixes, comments, and references.'],
+  ['Song Tasks', 'Assign vocals, guitar, bass, drums, keys, production, artwork, rehearsal, approvals, and deadlines.'],
+  ['Versions + Feedback', 'Keep every contribution attached to the correct song and version. Compare takes without overwriting anyone else’s work.'],
+  ['Setlists + Rehearsal', 'Build live setlists, rehearsal notes, keys, tempos, count-ins, charts, and performance cues.'],
+  ['Member Permissions', 'Invite individual Pie accounts and control who can view, contribute, approve, publish, or manage the band.'],
+  ['Decision Log', 'Record final creative decisions so the band knows which lyric, arrangement, mix, artwork, or master was approved.'],
+];
+
+const licensingCards = [
+  ['Rights Split Sheet', 'Track writers, composers, producers, performers, publishers, ownership percentages, PROs, and approval status.'],
+  ['Master Ownership', 'Record who owns the recording, dates, contributors, work-for-hire status, and master-use permissions.'],
+  ['Sample + Interpolation Log', 'Document samples, references, interpolations, third-party loops, licenses, clearance status, and source files.'],
+  ['Sync Readiness', 'Store instrumental, clean, explicit, stems, lyrics, BPM, key, mood, themes, contact, ownership, and one-stop status.'],
+  ['License Requests', 'Track film, TV, ad, game, creator, venue, and brand requests from inquiry through quote, approval, contract, and payment.'],
+  ['Evidence Vault', 'Keep dated drafts, recordings, lyric versions, stems, score exports, registrations, contracts, and originality reports together.'],
+];
+
+export default function GrowthWorkspaces({ workspace, onNavigate }: Props) {
+  const [notes, setNotes] = useState<Record<Workspace, string>>({ marketing: '', band: '', licensing: '' });
+  const content = useMemo(() => {
+    if (workspace === 'marketing') return { eyebrow: 'Grow the Song', title: 'Marketing', intro: 'Turn finished songs into coordinated campaigns, distribution plans, content, fan follow-up, and measurable growth.', cards: marketingCards };
+    if (workspace === 'band') return { eyebrow: 'Create Together', title: 'Band', intro: 'Give invited collaborators one shared place to build on each other’s work while keeping songs, versions, ownership, and decisions organized.', cards: bandCards };
+    return { eyebrow: 'Protect + Place', title: 'Licensing', intro: 'Keep ownership, splits, clearances, evidence, metadata, and sync-ready assets organized before a song is pitched or licensed.', cards: licensingCards };
+  }, [workspace]);
+
+  return (
+    <main className="growthWorkspace">
+      <section className="hero">
+        <p className="eyebrow">{content.eyebrow}</p>
+        <h1>{content.title}</h1>
+        <p className="sub">{content.intro}</p>
+      </section>
+
+      <section className="panel growthQuickActions">
+        <div className="mixButtons">
+          <button className="primary" type="button">＋ New {workspace === 'band' ? 'Band Project' : workspace === 'marketing' ? 'Campaign' : 'Rights Record'}</button>
+          <button className="secondary" type="button" onClick={() => onNavigate('songs')}>Choose From Songs</button>
+        </div>
+      </section>
+
+      <section className="growthCardGrid">
+        {content.cards.map(([title, copy]) => (
+          <article className="panel growthFeatureCard" key={title}>
+            <strong>{title}</strong>
+            <small>{copy}</small>
+            <button className="secondary" type="button">Open</button>
+          </article>
+        ))}
+      </section>
+
+      <section className="panel">
+        <h2>{workspace === 'marketing' ? 'Campaign Notes' : workspace === 'band' ? 'Band Notes' : 'Licensing Notes'}</h2>
+        <textarea
+          value={notes[workspace]}
+          onChange={(event) => setNotes((current) => ({ ...current, [workspace]: event.target.value }))}
+          placeholder="Capture ideas, decisions, contacts, deadlines, or next actions here…"
+          style={{ minHeight: 180 }}
+        />
+      </section>
+    </main>
+  );
+}

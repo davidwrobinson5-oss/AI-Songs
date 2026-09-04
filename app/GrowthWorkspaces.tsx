@@ -31,10 +31,13 @@ const bandCards = [
 const licensingCards = [
   ['Rights Split Sheet', 'Track writers, composers, producers, performers, publishers, ownership percentages, PROs, and approval status.'],
   ['Master Ownership', 'Record who owns the recording, dates, contributors, work-for-hire status, and master-use permissions.'],
+  ['Use Existing Music', 'Bring another creator’s song, beat, loop, recording, sample, stem, or instrumental into a Pie project and track the source, rights owners, intended use, territories, term, fees, approvals, and supporting documents before release.'],
+  ['Cover Opportunities', 'Create a list of songs you want to cover and, later, discover songs whose writers, publishers, or owners are open to covers, reinterpretations, remixes, collaborations, or other licensed uses. Track key, range, arrangement idea, contact, terms, request status, and release plan.'],
+  ['Cover + Remix Clearance', 'Organize the permissions and evidence connected to a cover, remix, interpolation, adaptation, or derivative-style project. Pie can track composition rights, master-use rights when an existing recording is involved, approval contacts, requests, responses, and clearance status without treating an unfinished request as permission.'],
   ['Sample + Interpolation Log', 'Document samples, references, interpolations, third-party loops, licenses, clearance status, and source files.'],
   ['Sync Readiness', 'Store instrumental, clean, explicit, stems, lyrics, BPM, key, mood, themes, contact, ownership, and one-stop status.'],
-  ['License Requests', 'Track film, TV, ad, game, creator, venue, and brand requests from inquiry through quote, approval, contract, and payment.'],
-  ['Evidence Vault', 'Keep dated drafts, recordings, lyric versions, stems, score exports, registrations, contracts, and originality reports together.'],
+  ['License Requests', 'Track film, TV, ad, game, creator, venue, brand, cover, remix, sample, and third-party music requests from inquiry through quote, approval, contract, and payment.'],
+  ['Evidence Vault', 'Keep dated drafts, recordings, lyric versions, stems, score exports, registrations, contracts, permission emails, licenses, and originality reports together.'],
 ];
 
 export default function GrowthWorkspaces({ workspace, onNavigate }: Props) {
@@ -42,7 +45,7 @@ export default function GrowthWorkspaces({ workspace, onNavigate }: Props) {
   const content = useMemo(() => {
     if (workspace === 'marketing') return { eyebrow: 'Grow the Song', title: 'Marketing', intro: 'Turn finished songs into coordinated campaigns, distribution plans, content, fan follow-up, business relationships, and measurable growth.', cards: marketingCards };
     if (workspace === 'band') return { eyebrow: 'Create Together', title: 'Band', intro: 'Give invited collaborators one shared place to build on each other’s work while keeping songs, versions, ownership, and decisions organized.', cards: bandCards };
-    return { eyebrow: 'Protect + Place', title: 'Licensing', intro: 'Keep ownership, splits, clearances, evidence, metadata, and sync-ready assets organized before a song is pitched or licensed.', cards: licensingCards };
+    return { eyebrow: 'Protect + Place', title: 'Licensing', intro: 'Manage your own rights and also organize legitimate opportunities to use, cover, remix, sample, adapt, or collaborate around music owned by other people.', cards: licensingCards };
   }, [workspace]);
 
   return (
@@ -55,7 +58,7 @@ export default function GrowthWorkspaces({ workspace, onNavigate }: Props) {
 
       <section className="panel growthQuickActions">
         <div className="mixButtons">
-          <button className="primary" type="button">＋ New {workspace === 'band' ? 'Band Project' : workspace === 'marketing' ? 'Campaign' : 'Rights Record'}</button>
+          <button className="primary" type="button">＋ New {workspace === 'band' ? 'Band Project' : workspace === 'marketing' ? 'Campaign' : 'Rights / Clearance Record'}</button>
           <button className="secondary" type="button" onClick={() => onNavigate('songs')}>Choose From Songs</button>
         </div>
       </section>
@@ -75,7 +78,7 @@ export default function GrowthWorkspaces({ workspace, onNavigate }: Props) {
         <textarea
           value={notes[workspace]}
           onChange={(event) => setNotes((current) => ({ ...current, [workspace]: event.target.value }))}
-          placeholder="Capture ideas, decisions, contacts, deadlines, or next actions here…"
+          placeholder="Capture ideas, decisions, contacts, deadlines, rights questions, permission requests, or next actions here…"
           style={{ minHeight: 180 }}
         />
       </section>

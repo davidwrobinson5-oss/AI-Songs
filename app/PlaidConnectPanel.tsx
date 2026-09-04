@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-declare global { interface Window { Plaid?: { create: (options: any) => { open: () => void; destroy?: () => void } } } }
+declare global { interface Window { Plaid?: { create: (options: Record<string, unknown>) => { open: () => void; destroy?: () => void } } } }
 
 type Connection={id:string;institution_name?:string;status:string;last_synced_at?:string;error_message?:string};
 type Account={id:string;connection_id:string;name?:string;official_name?:string;mask?:string;account_type?:string;account_subtype?:string;current_balance?:number;available_balance?:number;currency?:string};

@@ -18,8 +18,7 @@ if(source.includes(stateAnchor)&&!source.includes('studioRecorderRef')){
   const [studioInputId,setStudioInputId]=useState('');
   const [studioStatus,setStudioStatus]=useState('Plug in a USB-C audio interface or adapter, then choose the input.');
   const [metronomeOn,setMetronomeOn]=useState(false);
-  const [metronomeBpm,setMetronomeBpm]=useState(92);
-  const [headphoneOverdub,setHeadphoneOverdub]=useState(true);`);
+  const [metronomeBpm,setMetronomeBpm]=useState(92);`);
 }
 
 const functionAnchor='  async function startRecording() {';
@@ -88,7 +87,7 @@ if(source.includes(functionAnchor)&&!source.includes('async function refreshStud
       setStudioRecording(true);
       startMetronome();
       const label=stream.getAudioTracks()[0]?.label||'selected input';
-      setStudioStatus('Recording from '+label+'. '+(headphoneOverdub?'Keep earbuds/headphones connected to hear other Pie parts without feeding them into the selected input.':'Other Pie playback is not being used for monitoring.'));
+      setStudioStatus('Recording from '+label+'. Keep earbuds/headphones connected if you want to hear other Pie parts while recording the selected input.');
     } catch(error) {
       stopMetronome();
       setStudioRecording(false);
@@ -119,8 +118,6 @@ if(source.includes(functionAnchor)&&!source.includes('async function refreshStud
   source=source.replace(functionAnchor,functions+functionAnchor);
 }
 
-// Put the live-input workflow visibly inside the same first card, immediately
-// below Record Melody / Upload Audio instead of below the entire melody card.
 const buttonAnchor=`        <div className="mixButtons">
           {!recording ? <button className="primary" onClick={startRecording}>🎤 Record Melody</button> : <button className="primary" onClick={stopRecording}>■ Stop Recording</button>}
           <label className="secondary">Upload Audio<input type="file" accept="audio/*" style={{ display: 'none' }} onChange={(event) => { const file = event.target.files?.[0]; if (file) setBlob(file); }} /></label>
@@ -134,11 +131,12 @@ if(!source.includes('Plug In & Record Live')){
           <small>Connect a microphone, guitar, bass, keyboard, or other instrument through a USB-C audio interface/adapter using XLR, TRS, or TS. Start building your song live on the phone.</small>
           <button type="button" className="secondary" onClick={()=>void refreshStudioInputs()} disabled={studioRecording}>🔌 Detect USB / Audio Input</button>
           {studioDevices.length>0&&<label style={{display:'grid',gap:6}}><span className="controlLabel">Recording input</span><select value={studioInputId} onChange={event=>setStudioInputId(event.target.value)} disabled={studioRecording}>{studioDevices.map((device,index)=><option key={device.deviceId} value={device.deviceId}>{device.label||('Audio input '+(index+1))}</option>)}</select></label>}
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            <label className="statusBox" style={{display:'grid',gap:7}}><span><strong>Metronome</strong><small style={{display:'block'}}>Optional click in earbuds/headphones</small></span><input type="checkbox" checked={metronomeOn} onChange={event=>setMetronomeOn(event.target.checked)} disabled={studioRecording}/></label>
-            <label className="statusBox" style={{display:'grid',gap:7}}><span><strong>Hear other parts</strong><small style={{display:'block'}}>Monitor Pie tracks in earbuds while recording only the selected input.</small></span><input type="checkbox" checked={headphoneOverdub} onChange={event=>setHeadphoneOverdub(event.target.checked)} disabled={studioRecording}/></label>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,padding:'10px 12px',border:'1px solid rgba(255,255,255,.12)',borderRadius:14}}>
+            <div style={{display:'grid',gap:2}}><strong style={{fontSize:16}}>Metronome</strong><small>Optional click in earbuds/headphones</small></div>
+            <input type="checkbox" aria-label="Metronome" checked={metronomeOn} onChange={event=>setMetronomeOn(event.target.checked)} disabled={studioRecording}/>
           </div>
-          {metronomeOn&&<label style={{display:'grid',gap:6}}><span className="controlLabel">Metronome · {metronomeBpm} BPM</span><input type="range" min="40" max="220" step="1" value={metronomeBpm} onChange={event=>setMetronomeBpm(Number(event.target.value))} disabled={studioRecording}/></label>}
+          {metronomeOn&&<label style={{display:'grid',gap:6}}><span className="controlLabel">{metronomeBpm} BPM</span><input type="range" min="40" max="220" step="1" value={metronomeBpm} onChange={event=>setMetronomeBpm(Number(event.target.value))} disabled={studioRecording}/></label>}
+          <div style={{display:'grid',gap:4,padding:'2px 2px 4px'}}><strong style={{fontSize:15}}>Monitoring</strong><small>Hear other Pie parts through earbuds/headphones while Pie records only the selected input.</small></div>
           <div className="mixButtons">{!studioRecording?<button type="button" className="primary" onClick={()=>void startStudioRecording()}>⏺ Start Live Take</button>:<button type="button" className="primary" onClick={stopStudioRecording}>■ Stop Live Take</button>}</div>
           <div className="statusBox"><small>{studioStatus}</small></div>
           <small>Best setup: USB-C audio interface/adapter plus wired earbuds/headphones. Pie records the selected input while monitoring and the metronome stay on the output side.</small>
@@ -146,10 +144,10 @@ if(!source.includes('Plug In & Record Live')){
   source=source.replace(buttonAnchor,liveBlock);
 }
 
-// Remove the earlier below-card placement if a previous build patch ever left it there.
 source=source.replace(/\n      <div className="playerCard" style=\{\{marginTop:14\}\}>\n        <strong>2\. Plug In & Record Live<\/strong>[\s\S]*?<\/div>\n\n      \{melodyBlob && <button className="primary" onClick=\{analyze\} disabled=\{analyzing\}>\{analyzing \? 'Analyzing Melody…' : '3\. Analyze Melody'\}<\/button>\}/, "\n      {melodyBlob && <button className=\"primary\" onClick={analyze} disabled={analyzing}>{analyzing ? 'Analyzing Melody…' : '3. Analyze Melody'}</button>}");
 
 if(!source.includes('2. Plug In & Record Live'))throw new Error('Live USB recording section missing after patch.');
+if(source.includes('Hear other parts</strong><small'))throw new Error('Old Hear other parts checkbox card still present.');
 
 fs.writeFileSync(path,source);
-console.log('Placed live USB-C recording controls directly under Record Melody / Upload Audio.');
+console.log('Compacted metronome control and replaced Hear other parts checkbox with simple monitoring guidance.');

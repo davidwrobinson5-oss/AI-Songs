@@ -38,6 +38,10 @@ jobs:
         if: always()
         run: cat code-health-report.md >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Create PDF report
+        if: always()
+        run: node scripts/report-to-pdf.mjs code-health-report.md code-health-report.pdf
+
       - name: Create dependency audit lock
         if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: npm install --package-lock-only --ignore-scripts --no-audit
@@ -54,6 +58,7 @@ jobs:
           name: pie-code-health-${{ github.run_number }}
           path: |
             code-health-report.md
+            code-health-report.pdf
             dependency-audit.txt
           if-no-files-found: ignore
           retention-days: 90

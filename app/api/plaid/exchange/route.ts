@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { encryptAccessToken, financeAction, plaidRequest } from '../../../plaidServer';
+import { awardPieScore } from '../../../scoreServer';
 
 export async function POST(req:NextRequest){
   try{
@@ -22,6 +23,7 @@ export async function POST(req:NextRequest){
     const connectionId=String(data.connectionId||'');
     const accounts=await plaidRequest('/accounts/get',{access_token:accessToken});
     await financeAction('upsertAccounts',{connectionId,accounts:(accounts.accounts||[]).map((a:any)=>({providerAccountId:a.account_id,name:a.name,officialName:a.official_name,mask:a.mask,accountType:a.type,accountSubtype:a.subtype,currency:a.balances?.iso_currency_code||'USD',currentBalance:a.balances?.current,availableBalance:a.balances?.available}))});
+    await awardPieScore('bank_connected',connectionId,0,{institutionName:institutionName||'',accountCount:Array.isArray(accounts.accounts)?accounts.accounts.length:0});
     return NextResponse.json({ok:true,connectionId},{headers:{'Cache-Control':'no-store'}});
   }catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Could not connect bank account.'},{status:400});}
 }

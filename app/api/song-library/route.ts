@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
+import { auth, currentUser } from '@clerk/nextjs/server';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { cookies } from 'next/headers';
 import { SESSION_COOKIE, verifySessionToken } from '../../auth';
 
 const LIBRARY_URL = 'https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-library';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const LEGACY_OWNER_ID = 'pie-primary';
 const PLAYBACK_FIELDS = ['masterBlob', 'generatedBlob', 'backingBlob', 'drobVocalBlob', 'guideVocalBlob'] as const;
 
 type CloudFile = { url?: string; type?: string };
@@ -21,25 +22,35 @@ function noStore(body: unknown, status = 200) {
   return NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
-async function authenticated() {
-  let clerkSignedIn = false;
+async function authenticatedOwnerId() {
   try {
     const clerk = await auth();
-    clerkSignedIn = Boolean(clerk.userId);
+    if (clerk.userId) {
+      const user = await currentUser().catch(() => null);
+      const publicMetadata = (user?.publicMetadata || {}) as Record<string, unknown>;
+      const unsafeMetadata = (user?.unsafeMetadata || {}) as Record<string, unknown>;
+      const hasBillingProfile = Boolean(
+        publicMetadata.pieOnboardingCompleted ||
+        publicMetadata.piePlanLevel ||
+        unsafeMetadata.pieOnboardingStartedAt ||
+        unsafeMetadata.pieOnboardingCompleted
+      );
+
+      // Keep the original beta owner's historical library intact. Every onboarded
+      // Pie account uses its Clerk user id as a separate storage/database owner.
+      return hasBillingProfile ? clerk.userId : LEGACY_OWNER_ID;
+    }
   } catch {
-    clerkSignedIn = false;
+    // Fall through to the legacy session check.
   }
 
   const jar = await cookies();
   const legacyToken = jar.get(SESSION_COOKIE)?.value || '';
-  const legacyValid = clerkSignedIn
-    ? false
-    : await verifySessionToken(legacyToken, process.env.AI_SONGS_SESSION_SECRET);
-
-  return clerkSignedIn || legacyValid;
+  const legacyValid = await verifySessionToken(legacyToken, process.env.AI_SONGS_SESSION_SECRET);
+  return legacyValid ? LEGACY_OWNER_ID : '';
 }
 
-async function callLibrary(body: unknown) {
+async function callLibrary(body: unknown, ownerId: string) {
   const vercelOidcToken = await getVercelOidcToken().catch(() => '');
   if (!vercelOidcToken) throw new Error('Cloud library identity is temporarily unavailable.');
 
@@ -49,6 +60,7 @@ async function callLibrary(body: unknown) {
       'Content-Type': 'application/json',
       apikey: SUPABASE_PUBLISHABLE_KEY,
       'X-Pie-Vercel-OIDC': vercelOidcToken,
+      'X-Pie-User-Id': ownerId,
     },
     body: JSON.stringify(body),
     cache: 'no-store',
@@ -57,14 +69,13 @@ async function callLibrary(body: unknown) {
 
 export async function GET(req: NextRequest) {
   try {
-    if (!(await authenticated())) {
-      return noStore({ error: 'Authentication required.' }, 401);
-    }
+    const ownerId = await authenticatedOwnerId();
+    if (!ownerId) return noStore({ error: 'Authentication required.' }, 401);
 
     const songId = req.nextUrl.searchParams.get('songId') || '';
     if (!songId) return noStore({ error: 'Missing song id.' }, 400);
 
-    const libraryResponse = await callLibrary({ action: 'list' });
+    const libraryResponse = await callLibrary({ action: 'list' }, ownerId);
     const cloud = await libraryResponse.json().catch(() => ({})) as CloudLibrary & { error?: string };
     if (!libraryResponse.ok) {
       return noStore({ error: cloud.error || 'Could not load song audio.' }, libraryResponse.status);
@@ -123,12 +134,11 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    if (!(await authenticated())) {
-      return noStore({ error: 'Authentication required.' }, 401);
-    }
+    const ownerId = await authenticatedOwnerId();
+    if (!ownerId) return noStore({ error: 'Authentication required.' }, 401);
 
     const body = await req.json();
-    const response = await callLibrary(body);
+    const response = await callLibrary(body, ownerId);
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       console.info('Pie cloud response diagnostic', {

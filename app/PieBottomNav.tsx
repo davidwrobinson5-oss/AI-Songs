@@ -10,6 +10,10 @@ const items = [
   { id: 'marketing', icon: '📣', label: 'Marketing' },
   { id: 'band', icon: '👥', label: 'Band' },
   { id: 'licensing', icon: '⚖️', label: 'Licensing' },
+  { id: 'calendar', icon: '📅', label: 'Calendar' },
+  { id: 'travel', icon: '✈️', label: 'Travel' },
+  { id: 'business', icon: '💼', label: 'Business' },
+  { id: 'accounting', icon: '🧾', label: 'Accounting' },
 ] as const;
 
 export default function PieBottomNav({ active, onNavigate }: { active: string; onNavigate: (screen: string) => void }) {

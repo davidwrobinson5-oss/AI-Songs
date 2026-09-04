@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth, currentUser } from '@clerk/nextjs/server';
+import { auth } from '@clerk/nextjs/server';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { cookies } from 'next/headers';
 import { SESSION_COOKIE, verifySessionToken } from '../../auth';
@@ -27,18 +27,7 @@ function errorText(value:unknown,fallback:string){
 async function authenticatedOwnerId(){
   try{
     const clerk=await auth();
-    if(clerk.userId){
-      const user=await currentUser().catch(()=>null);
-      const publicMetadata=(user?.publicMetadata||{}) as Record<string,unknown>;
-      const unsafeMetadata=(user?.unsafeMetadata||{}) as Record<string,unknown>;
-      const hasBillingProfile=Boolean(
-        publicMetadata.pieOnboardingCompleted||
-        publicMetadata.piePlanLevel||
-        unsafeMetadata.pieOnboardingStartedAt||
-        unsafeMetadata.pieOnboardingCompleted
-      );
-      return hasBillingProfile?clerk.userId:LEGACY_OWNER_ID;
-    }
+    if(clerk.userId)return clerk.userId;
   }catch{}
 
   const jar=await cookies();

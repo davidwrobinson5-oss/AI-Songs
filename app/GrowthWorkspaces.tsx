@@ -10,6 +10,17 @@ type SponsorOpportunity = {
   value?: number;
 };
 
+type FundingCampaign = {
+  id: string;
+  name: string;
+  route: string;
+  platform: string;
+  stage: string;
+  goal?: number;
+  raised?: number;
+  url: string;
+};
+
 type Workspace = 'marketing' | 'band' | 'licensing';
 
 type Props = {
@@ -25,6 +36,7 @@ const marketingCards = [
   ['Fan Database', 'Track opt-in email, phone, text, mailing, messages, notes, segments, superfans, and follow-up schedules.'],
   ['Business Contacts', 'Build a music-business CRM for venues, promoters, labels, publishers, sync supervisors, music supervisors, brands, agencies, media, radio, playlist contacts, distributors, managers, booking contacts, collaborators, and vendors. Store company, role, email, phone, social links, location, relationship status, tags, notes, last contact, next follow-up, and opportunities.'],
   ['Endorsements + Sponsorships', 'Build brand partnerships, endorsement proposals, sponsored content, event support, product placement, affiliate offers, and long-term ambassador relationships.'],
+  ['VC + Crowdfunding', 'Organize venture-capital outreach, investor conversations, fan-funding and crowdfunding campaigns, platform links, goals, progress, and follow-up stages.'],
   ['Performance', 'Score campaigns by reach, saves, clicks, follows, streams, conversion, fan growth, and cost per result.'],
 ];
 
@@ -56,14 +68,26 @@ export default function GrowthWorkspaces({ workspace, onNavigate }: Props) {
   const [partnership, setPartnership] = useState('Sponsorship');
   const [sponsorStatus, setSponsorStatus] = useState('Prospect');
   const [sponsorValue, setSponsorValue] = useState('');
+  const [fundingCampaigns, setFundingCampaigns] = useState<FundingCampaign[]>([]);
+  const [fundingName, setFundingName] = useState('');
+  const [fundingRoute, setFundingRoute] = useState('Crowdfunding');
+  const [fundingPlatform, setFundingPlatform] = useState('');
+  const [fundingStage, setFundingStage] = useState('Planning');
+  const [fundingGoal, setFundingGoal] = useState('');
+  const [fundingRaised, setFundingRaised] = useState('');
+  const [fundingUrl, setFundingUrl] = useState('');
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem('pie-marketing-sponsors-v1');
       const parsed = raw ? JSON.parse(raw) : [];
       setSponsors(Array.isArray(parsed) ? parsed : []);
+      const fundingRaw = localStorage.getItem('pie-marketing-funding-v1');
+      const fundingParsed = fundingRaw ? JSON.parse(fundingRaw) : [];
+      setFundingCampaigns(Array.isArray(fundingParsed) ? fundingParsed : []);
     } catch {
       setSponsors([]);
+      setFundingCampaigns([]);
     }
   }, []);
 
@@ -71,6 +95,38 @@ export default function GrowthWorkspaces({ workspace, onNavigate }: Props) {
     setSponsors(next);
     try { localStorage.setItem('pie-marketing-sponsors-v1', JSON.stringify(next)); } catch {}
   }
+
+  function saveFundingCampaigns(next: FundingCampaign[]) {
+    setFundingCampaigns(next);
+    try { localStorage.setItem('pie-marketing-funding-v1', JSON.stringify(next)); } catch {}
+  }
+
+  function addFundingCampaign() {
+    if (!fundingName.trim()) return;
+    const goal = fundingGoal.trim() ? Number(fundingGoal.replace(/[^0-9.-]/g, '')) : undefined;
+    const raised = fundingRaised.trim() ? Number(fundingRaised.replace(/[^0-9.-]/g, '')) : undefined;
+    saveFundingCampaigns([{
+      id: crypto.randomUUID(),
+      name: fundingName.trim(),
+      route: fundingRoute,
+      platform: fundingPlatform.trim(),
+      stage: fundingStage,
+      goal: Number.isFinite(goal) ? goal : undefined,
+      raised: Number.isFinite(raised) ? raised : undefined,
+      url: fundingUrl.trim(),
+    }, ...fundingCampaigns]);
+    setFundingName('');
+    setFundingPlatform('');
+    setFundingGoal('');
+    setFundingRaised('');
+    setFundingUrl('');
+  }
+
+  const fundingTotals = useMemo(() => {
+    const goal = fundingCampaigns.reduce((sum, campaign) => sum + Number(campaign.goal || 0), 0);
+    const raised = fundingCampaigns.reduce((sum, campaign) => sum + Number(campaign.raised || 0), 0);
+    return { goal, raised, progress: goal > 0 ? Math.min(100, (raised / goal) * 100) : 0 };
+  }, [fundingCampaigns]);
 
   function addSponsor() {
     if (!brand.trim()) return;
@@ -141,6 +197,49 @@ export default function GrowthWorkspaces({ workspace, onNavigate }: Props) {
               ))}
             </div>
           ) : <small>No opportunities yet. Add the first brand or sponsor above.</small>}
+        </section>
+      )}
+
+      {workspace === 'marketing' && (
+        <section className="panel" style={{ display: 'grid', gap: 12 }}>
+          <div>
+            <p className="eyebrow">Raise Campaign Capital</p>
+            <h2>VC + Crowdfunding Campaigns</h2>
+            <p className="sub">Manage investor outreach and fan-funded campaigns together while keeping each external platform or investor record linked to Pie.</p>
+          </div>
+          <div className="controlGrid">
+            <div className="statusBox"><small>CAMPAIGNS</small><strong>{fundingCampaigns.length}</strong></div>
+            <div className="statusBox"><small>TOTAL GOAL</small><strong>${fundingTotals.goal.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong></div>
+            <div className="statusBox"><small>RAISED</small><strong>${fundingTotals.raised.toLocaleString(undefined, { maximumFractionDigits: 0 })}</strong></div>
+            <div className="statusBox"><small>PROGRESS</small><strong>{fundingTotals.progress.toFixed(1)}%</strong></div>
+          </div>
+          <div className="controlGrid">
+            <label><span className="controlLabel">Campaign or round</span><input value={fundingName} onChange={(event) => setFundingName(event.target.value)} placeholder="Album campaign, seed round…" /></label>
+            <label><span className="controlLabel">Funding route</span><select value={fundingRoute} onChange={(event) => setFundingRoute(event.target.value)}><option>Crowdfunding</option><option>Venture Capital</option><option>Angel Investor</option><option>Equity Crowdfunding</option><option>Fan Membership</option><option>Grant</option></select></label>
+            <label><span className="controlLabel">Platform or investor</span><input value={fundingPlatform} onChange={(event) => setFundingPlatform(event.target.value)} placeholder="Platform, fund, or investor" /></label>
+            <label><span className="controlLabel">Stage</span><select value={fundingStage} onChange={(event) => setFundingStage(event.target.value)}><option>Planning</option><option>Researching</option><option>Preparing Pitch</option><option>Live</option><option>Due Diligence</option><option>Funded</option><option>Closed</option></select></label>
+            <label><span className="controlLabel">Funding goal</span><input inputMode="decimal" value={fundingGoal} onChange={(event) => setFundingGoal(event.target.value)} placeholder="$0" /></label>
+            <label><span className="controlLabel">Raised or committed</span><input inputMode="decimal" value={fundingRaised} onChange={(event) => setFundingRaised(event.target.value)} placeholder="$0" /></label>
+            <label><span className="controlLabel">Campaign / investor URL</span><input type="url" value={fundingUrl} onChange={(event) => setFundingUrl(event.target.value)} placeholder="https://…" /></label>
+          </div>
+          <button className="primary" type="button" disabled={!fundingName.trim()} onClick={addFundingCampaign}>＋ Add Funding Campaign</button>
+          {fundingCampaigns.length > 0 ? (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {fundingCampaigns.map((campaign) => {
+                const progress = campaign.goal ? Math.min(100, (Number(campaign.raised || 0) / campaign.goal) * 100) : 0;
+                return (
+                  <article className="statusBox" key={campaign.id} style={{ display: 'grid', gap: 5 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><strong>{campaign.name}</strong><small>{campaign.stage}</small></div>
+                    <small>{campaign.route}{campaign.platform ? ` · ${campaign.platform}` : ''}</small>
+                    <small>${Number(campaign.raised || 0).toLocaleString()} raised of ${Number(campaign.goal || 0).toLocaleString()} · {progress.toFixed(1)}%</small>
+                    {campaign.url && <a href={campaign.url} target="_blank" rel="noreferrer" className="secondary">Open Integration</a>}
+                    <button className="secondary" type="button" onClick={() => saveFundingCampaigns(fundingCampaigns.filter((item) => item.id !== campaign.id))}>Remove</button>
+                  </article>
+                );
+              })}
+            </div>
+          ) : <small>No funding campaigns yet. Add a VC round or crowdfunding campaign above.</small>}
+          <small>Pie stores campaign tracking data locally. Transactions, investor solicitation, and securities offerings remain subject to each platform’s terms and applicable law.</small>
         </section>
       )}
 

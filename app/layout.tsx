@@ -8,6 +8,8 @@ import AudioPolicy from './AudioPolicy';
 import CloudSongSync from './CloudSongSync';
 import PwaBoot from './PwaBoot';
 import ProcessingRetryAssist from './ProcessingRetryAssist';
+import OriginalityScoreOverlay from './OriginalityScoreOverlay';
+import SongScoreOverlay from './SongScoreOverlay';
 
 export const metadata: Metadata = {
   title: 'Pieinears',
@@ -32,6 +34,8 @@ function Document({ children }: { children: React.ReactNode }) {
         <PwaBoot />
         <AudioPolicy />
         <ProcessingRetryAssist />
+        <OriginalityScoreOverlay />
+        <SongScoreOverlay />
         {children}
       </body>
     </html>

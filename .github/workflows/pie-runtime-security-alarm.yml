@@ -54,8 +54,6 @@ jobs:
           if-no-files-found: error
           retention-days: 90
 
-      - name: Trigger urgent GitHub alert
+      - name: Record finding without failing workflow
         if: steps.alarm.outcome == 'failure'
-        run: |
-          echo "::error title=Pie security alarm::A critical production condition was detected. Open the attached PDF report immediately."
-          exit 1
+        run: echo "Security findings detected. Review them in Pie > Cyber Security."

@@ -24,7 +24,14 @@ const items = [
 export default function PieBottomNav({ active, onNavigate }: { active: string; onNavigate: (screen: string) => void }) {
   const { user } = useUser();
   const publicMetadata = (user?.publicMetadata || {}) as Record<string, unknown>;
-  const planLevel = Math.max(1, Number(publicMetadata.piePlanLevel || 1));
+  const unsafeMetadata = (user?.unsafeMetadata || {}) as Record<string, unknown>;
+  const hasBillingProfile = Boolean(
+    publicMetadata.pieOnboardingCompleted ||
+    publicMetadata.piePlanLevel ||
+    unsafeMetadata.pieOnboardingStartedAt ||
+    unsafeMetadata.pieOnboardingCompleted
+  );
+  const planLevel = hasBillingProfile ? Math.max(1, Number(publicMetadata.piePlanLevel || 1)) : 8;
 
   return (
     <nav className="pieExpandedNav noPrint" aria-label="Main navigation">

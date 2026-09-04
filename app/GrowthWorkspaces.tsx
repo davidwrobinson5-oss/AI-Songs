@@ -1,6 +1,14 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+
+type SponsorOpportunity = {
+  id: string;
+  brand: string;
+  partnership: string;
+  status: string;
+  value?: number;
+};
 
 type Workspace = 'marketing' | 'band' | 'licensing';
 
@@ -16,6 +24,7 @@ const marketingCards = [
   ['Distribution', 'Prepare release metadata and track delivery tasks for social channels and distributor services without losing the marketing plan around them.'],
   ['Fan Database', 'Track opt-in email, phone, text, mailing, messages, notes, segments, superfans, and follow-up schedules.'],
   ['Business Contacts', 'Build a music-business CRM for venues, promoters, labels, publishers, sync supervisors, music supervisors, brands, agencies, media, radio, playlist contacts, distributors, managers, booking contacts, collaborators, and vendors. Store company, role, email, phone, social links, location, relationship status, tags, notes, last contact, next follow-up, and opportunities.'],
+  ['Endorsements + Sponsorships', 'Build brand partnerships, endorsement proposals, sponsored content, event support, product placement, affiliate offers, and long-term ambassador relationships.'],
   ['Performance', 'Score campaigns by reach, saves, clicks, follows, streams, conversion, fan growth, and cost per result.'],
 ];
 
@@ -42,6 +51,40 @@ const licensingCards = [
 
 export default function GrowthWorkspaces({ workspace, onNavigate }: Props) {
   const [notes, setNotes] = useState<Record<Workspace, string>>({ marketing: '', band: '', licensing: '' });
+  const [sponsors, setSponsors] = useState<SponsorOpportunity[]>([]);
+  const [brand, setBrand] = useState('');
+  const [partnership, setPartnership] = useState('Sponsorship');
+  const [sponsorStatus, setSponsorStatus] = useState('Prospect');
+  const [sponsorValue, setSponsorValue] = useState('');
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('pie-marketing-sponsors-v1');
+      const parsed = raw ? JSON.parse(raw) : [];
+      setSponsors(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setSponsors([]);
+    }
+  }, []);
+
+  function saveSponsors(next: SponsorOpportunity[]) {
+    setSponsors(next);
+    try { localStorage.setItem('pie-marketing-sponsors-v1', JSON.stringify(next)); } catch {}
+  }
+
+  function addSponsor() {
+    if (!brand.trim()) return;
+    const numericValue = sponsorValue.trim() ? Number(sponsorValue.replace(/[^0-9.-]/g, '')) : undefined;
+    saveSponsors([{
+      id: crypto.randomUUID(),
+      brand: brand.trim(),
+      partnership,
+      status: sponsorStatus,
+      value: Number.isFinite(numericValue) ? numericValue : undefined,
+    }, ...sponsors]);
+    setBrand('');
+    setSponsorValue('');
+  }
   const content = useMemo(() => {
     if (workspace === 'marketing') return { eyebrow: 'Grow the Song', title: 'Marketing', intro: 'Turn finished songs into coordinated campaigns, distribution plans, content, fan follow-up, business relationships, and measurable growth.', cards: marketingCards };
     if (workspace === 'band') return { eyebrow: 'Create Together', title: 'Band', intro: 'Give invited collaborators one shared place to build on each other’s work while keeping songs, versions, ownership, and decisions organized.', cards: bandCards };
@@ -72,6 +115,34 @@ export default function GrowthWorkspaces({ workspace, onNavigate }: Props) {
           </article>
         ))}
       </section>
+
+      {workspace === 'marketing' && (
+        <section className="panel" style={{ display: 'grid', gap: 12 }}>
+          <div>
+            <p className="eyebrow">Partnership Revenue</p>
+            <h2>Endorsements + Sponsorships</h2>
+            <p className="sub">Track brands, deal types, pipeline status, and projected value from first conversation through activation.</p>
+          </div>
+          <div className="controlGrid">
+            <label><span className="controlLabel">Brand or partner</span><input value={brand} onChange={(event) => setBrand(event.target.value)} placeholder="Brand, agency, or sponsor" /></label>
+            <label><span className="controlLabel">Partnership</span><select value={partnership} onChange={(event) => setPartnership(event.target.value)}><option>Sponsorship</option><option>Endorsement</option><option>Brand Ambassador</option><option>Sponsored Content</option><option>Product Placement</option><option>Affiliate</option></select></label>
+            <label><span className="controlLabel">Status</span><select value={sponsorStatus} onChange={(event) => setSponsorStatus(event.target.value)}><option>Prospect</option><option>Contacted</option><option>Pitching</option><option>Negotiating</option><option>Active</option><option>Closed</option></select></label>
+            <label><span className="controlLabel">Projected value</span><input inputMode="decimal" value={sponsorValue} onChange={(event) => setSponsorValue(event.target.value)} placeholder="$0.00" /></label>
+          </div>
+          <button className="primary" type="button" disabled={!brand.trim()} onClick={addSponsor}>＋ Add Opportunity</button>
+          {sponsors.length > 0 ? (
+            <div style={{ display: 'grid', gap: 8 }}>
+              {sponsors.map((sponsor) => (
+                <article className="statusBox" key={sponsor.id} style={{ display: 'grid', gap: 5 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><strong>{sponsor.brand}</strong><small>{sponsor.status}</small></div>
+                  <small>{sponsor.partnership}{typeof sponsor.value === 'number' ? ` · ${sponsor.value.toLocaleString(undefined, { maximumFractionDigits: 2 })}` : ''}</small>
+                  <button className="secondary" type="button" onClick={() => saveSponsors(sponsors.filter((item) => item.id !== sponsor.id))}>Remove</button>
+                </article>
+              ))}
+            </div>
+          ) : <small>No opportunities yet. Add the first brand or sponsor above.</small>}
+        </section>
+      )}
 
       <section className="panel">
         <h2>{workspace === 'marketing' ? 'Campaign Notes' : workspace === 'band' ? 'Band Notes' : 'Licensing Notes'}</h2>

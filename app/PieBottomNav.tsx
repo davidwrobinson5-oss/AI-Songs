@@ -8,6 +8,7 @@ const items = [
   { id: 'sheets', icon: '📄', label: 'Sheets' },
   { id: 'video', icon: '🎬', label: 'Video' },
   { id: 'marketing', icon: '📣', label: 'Marketing' },
+  { id: 'merch', icon: '👕', label: 'Merch' },
   { id: 'band', icon: '👥', label: 'Band' },
   { id: 'licensing', icon: '⚖️', label: 'Licensing' },
   { id: 'calendar', icon: '📅', label: 'Calendar' },

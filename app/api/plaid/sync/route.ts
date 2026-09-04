@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { connectionSecret, financeAction, plaidRequest } from '../../../plaidServer';
+import { awardPieScore } from '../../../scoreServer';
 
 export async function POST(req:NextRequest){
   try{
@@ -28,6 +29,8 @@ export async function POST(req:NextRequest){
       await financeAction('applySync',{connectionId,added,modified,removed,cursor});
       totalAdded+=added.length;totalModified+=modified.length;totalRemoved+=removed.length;hasMore=Boolean(sync.has_more);
     }
+    const day=new Date().toISOString().slice(0,10);
+    await awardPieScore('bank_synced',`${connectionId}:${day}`,0,{added:totalAdded,modified:totalModified,removed:totalRemoved});
     return NextResponse.json({ok:true,added:totalAdded,modified:totalModified,removed:totalRemoved,cursor},{headers:{'Cache-Control':'no-store'}});
   }catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Plaid sync failed.'},{status:400});}
 }

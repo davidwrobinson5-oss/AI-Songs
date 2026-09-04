@@ -1,0 +1,59 @@
+name: Pie Runtime Security Alarm
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pie-runtime-security-alarm
+  cancel-in-progress: true
+
+jobs:
+  monitor:
+    name: Check production for suspicious conditions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TARGET_URL: https://pieinears.ai
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run runtime security alarm
+        id: alarm
+        continue-on-error: true
+        run: node scripts/runtime-security-alarm.mjs runtime-alarm-report.md
+
+      - name: Create PDF incident report
+        if: always()
+        run: node scripts/report-to-pdf.mjs runtime-alarm-report.md runtime-alarm-report.pdf
+
+      - name: Add alarm report to workflow summary
+        if: always()
+        run: cat runtime-alarm-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload incident evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pie-runtime-alarm-${{ github.run_number }}
+          path: |
+            runtime-alarm-report.md
+            runtime-alarm-report.pdf
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Trigger urgent GitHub alert
+        if: steps.alarm.outcome == 'failure'
+        run: |
+          echo "::error title=Pie security alarm::A critical production condition was detected. Open the attached PDF report immediately."
+          exit 1

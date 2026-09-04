@@ -61,8 +61,14 @@ export default function OnboardingPage() {
         return;
       }
 
-      if (!plan.paymentLink) throw new Error('This plan is not available for checkout yet.');
-      window.location.href = plan.paymentLink;
+      const response = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId: plan.id }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.url) throw new Error(data?.error || 'Checkout could not be started.');
+      window.location.href = data.url;
     } catch (err) {
       setError(err instanceof Error ? err.message : 'We could not finish setup.');
       setBusy(false);
@@ -105,13 +111,13 @@ export default function OnboardingPage() {
           <div style={{ color:'#a8a9b7', fontSize:12, lineHeight:1.5, marginTop:5 }}>
             {plan.level === 1
               ? 'Start free with limited generations and standard-quality outputs. Upgrade whenever you need more generations, higher-quality outputs, or the next stage of the business system.'
-              : 'Paid checkout is handled securely by Stripe. After payment, Pie will use the subscription status to unlock this stage and everything below it.'}
+              : 'Paid checkout is handled securely by Stripe. After payment, Pie verifies the subscription before unlocking this stage and everything below it.'}
           </div>
         </section>
 
         {error && <div style={{ color:'#ffb6c0', fontSize:12 }}>{error}</div>}
         <button type="submit" disabled={busy} style={primary}>{busy ? 'Setting up…' : plan.level === 1 ? 'Start Creating Free' : `Continue to ${plan.name}`}</button>
-        <p style={{ ...muted, fontSize:10, margin:0 }}>This checkout is currently connected to Pie's Stripe sandbox while billing is being tested before live charges are enabled.</p>
+        <p style={{ ...muted, fontSize:10, margin:0 }}>Billing is currently connected to Pie's Stripe sandbox for end-to-end testing before live charges are enabled.</p>
       </form>
     </main>
   );

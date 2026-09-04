@@ -1,6 +1,8 @@
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
+import { FREE_LIMITS } from '../../billingConfig';
 import { rateLimit, readJsonObject, safeClientError, textField } from '../../security';
+import { consumeUsage, usageDeniedMessage } from '../../usageEntitlements';
 
 function fallbackScore(prompt: string, lyrics: string) {
   const words = lyrics.toLowerCase().match(/[a-z0-9']+/g) || [];
@@ -27,13 +29,28 @@ export async function POST(req: Request) {
   const limited = rateLimit(req, 'song-score', 12, 60_000);
   if (limited) return limited;
   try {
+    const entitlement = await consumeUsage('song_scores', FREE_LIMITS.songScoresPerMonth);
+    if (!entitlement.allowed) {
+      return NextResponse.json({
+        error: usageDeniedMessage('song scores', entitlement),
+        code: 'PIE_USAGE_LIMIT',
+        usage: { count: entitlement.usageCount, limit: entitlement.usageLimit },
+      }, { status: entitlement.userId ? 402 : 401, headers: { 'Cache-Control': 'no-store' } });
+    }
+
     const body = await readJsonObject(req, 48_000);
     const title = textField(body.title, 220, 'Untitled Song');
     const lyrics = textField(body.lyrics, 24_000);
     const prompt = textField(body.prompt, 6_000);
     const vocalRange = textField(body.vocalRange, 60, 'unspecified');
 
-    if (!process.env.OPENAI_API_KEY) return NextResponse.json(fallbackScore(prompt, lyrics), { headers: { 'Cache-Control': 'no-store' } });
+    if (!process.env.OPENAI_API_KEY) {
+      return NextResponse.json({
+        ...fallbackScore(prompt, lyrics),
+        usage: { count: entitlement.usageCount, limit: entitlement.usageLimit },
+        outputQuality: entitlement.outputQuality,
+      }, { headers: { 'Cache-Control': 'no-store' } });
+    }
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const response = await client.responses.create({
@@ -42,15 +59,15 @@ export async function POST(req: Request) {
         { role: 'system', content: 'You are Pie Song Intelligence, a strict but useful professional songwriting evaluator. Score the supplied song as a commercial song draft, not the performer. Return valid JSON only with keys: score (0-100 integer), label (short string), summary (2 sentences max), dimensions (array of exactly 8 objects with name, score 0-100, detail), nextMoves (array of exactly 3 concise strings). Dimension names must be Hook, Structure, Emotional Arc, Lyrics, Melody Readiness, Singability, Memorability, Release Readiness. Do not claim audio qualities you cannot inspect; for Melody Readiness and Singability, score only from available lyric/prosody/vocal-range evidence and say so.' },
         { role: 'user', content: `Title: ${title}\nVocal range: ${vocalRange}\nSong direction: ${prompt || 'None provided'}\n\nLyrics:\n${lyrics || 'No lyrics provided yet.'}` },
       ],
-      max_output_tokens: 1800,
+      max_output_tokens: entitlement.outputQuality === 'premium' ? 1800 : 1000,
     });
 
     const raw = response.output_text.trim().replace(/^```json\s*/i, '').replace(/```$/i, '').trim();
     try {
       const parsed = JSON.parse(raw);
-      return NextResponse.json(parsed, { headers: { 'Cache-Control': 'no-store' } });
+      return NextResponse.json({ ...parsed, usage: { count: entitlement.usageCount, limit: entitlement.usageLimit }, outputQuality: entitlement.outputQuality }, { headers: { 'Cache-Control': 'no-store' } });
     } catch {
-      return NextResponse.json(fallbackScore(prompt, lyrics), { headers: { 'Cache-Control': 'no-store' } });
+      return NextResponse.json({ ...fallbackScore(prompt, lyrics), usage: { count: entitlement.usageCount, limit: entitlement.usageLimit }, outputQuality: entitlement.outputQuality }, { headers: { 'Cache-Control': 'no-store' } });
     }
   } catch (error) {
     return NextResponse.json({ error: safeClientError(error, 'Song scoring failed.') }, { status: 400 });

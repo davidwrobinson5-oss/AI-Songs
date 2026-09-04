@@ -6,6 +6,7 @@ const items = [
   { id: 'create', icon: '🎶', label: 'Music', minLevel: 1 },
   { id: 'train', icon: '🎤', label: 'Voice', minLevel: 1 },
   { id: 'songs', icon: '🎵', label: 'Songs', minLevel: 1 },
+  { id: 'scoreboard', icon: '🏆', label: 'Scoreboard', minLevel: 1 },
   { id: 'mix', icon: '🎚️', label: 'Mix', minLevel: 1 },
   { id: 'sheets', icon: '📄', label: 'Sheets', minLevel: 1 },
   { id: 'video', icon: '🎬', label: 'Video', minLevel: 3 },

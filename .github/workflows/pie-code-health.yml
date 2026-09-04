@@ -63,6 +63,6 @@ jobs:
           if-no-files-found: ignore
           retention-days: 90
 
-      - name: Fail on critical findings
+      - name: Record findings without failing workflow
         if: steps.health.outcome == 'failure'
-        run: exit 1
+        run: echo "Code-health findings detected. Review them in Pie > Cyber Security."

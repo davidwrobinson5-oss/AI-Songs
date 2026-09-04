@@ -1,0 +1,63 @@
+name: Pie Code Health Agent
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 15 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pie-code-health-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evaluate:
+    name: Evaluate quality, efficiency, and risk
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run repository health agent
+        id: health
+        continue-on-error: true
+        run: node scripts/code-health-agent.mjs code-health-report.md
+
+      - name: Add report to workflow summary
+        if: always()
+        run: cat code-health-report.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Create dependency audit lock
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        run: npm install --package-lock-only --ignore-scripts --no-audit
+
+      - name: Audit production dependencies
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=moderate | tee dependency-audit.txt
+
+      - name: Upload weekly recommendations and risks
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pie-code-health-${{ github.run_number }}
+          path: |
+            code-health-report.md
+            dependency-audit.txt
+          if-no-files-found: ignore
+          retention-days: 90
+
+      - name: Fail on critical findings
+        if: steps.health.outcome == 'failure'
+        run: exit 1

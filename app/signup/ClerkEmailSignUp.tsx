@@ -70,7 +70,7 @@ export default function ClerkEmailSignUp() {
           return;
         }
 
-        const url = decorateUrl('/');
+        const url = decorateUrl('/onboarding');
         if (url.startsWith('http')) window.location.href = url;
         else router.push(url);
       },
@@ -83,27 +83,12 @@ export default function ClerkEmailSignUp() {
         <p className={styles.verifyNote}>We sent a verification code to {email}.</p>
         <label className={styles.emailField}>
           <span>Verification code</span>
-          <input
-            value={code}
-            onChange={(event) => setCode(event.target.value)}
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            required
-          />
+          <input value={code} onChange={(event) => setCode(event.target.value)} inputMode="numeric" autoComplete="one-time-code" required />
         </label>
         {errors.fields.code?.message ? <p className={styles.fieldError}>{errors.fields.code.message}</p> : null}
         {formError ? <p className={styles.authError}>{formError}</p> : null}
-        <button className={styles.primaryAuthButton} type="submit" disabled={busy || !code.trim()}>
-          {busy ? 'Verifying…' : 'Verify & Create Account'}
-        </button>
-        <button
-          className={styles.resendButton}
-          type="button"
-          disabled={busy}
-          onClick={() => signUp.verifications.sendEmailCode()}
-        >
-          Send another code
-        </button>
+        <button className={styles.primaryAuthButton} type="submit" disabled={busy || !code.trim()}>{busy ? 'Verifying…' : 'Verify & Continue'}</button>
+        <button className={styles.resendButton} type="button" disabled={busy} onClick={() => signUp.verifications.sendEmailCode()}>Send another code</button>
       </form>
     );
   }
@@ -112,45 +97,22 @@ export default function ClerkEmailSignUp() {
     <form className={styles.emailLogin} onSubmit={handleCreate}>
       <label className={styles.emailField}>
         <span>Email address</span>
-        <input
-          type="email"
-          value={email}
-          onChange={(event) => setEmail(event.target.value)}
-          autoComplete="email"
-          autoCapitalize="none"
-          required
-        />
+        <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" autoCapitalize="none" required />
       </label>
       {errors.fields.emailAddress?.message ? <p className={styles.fieldError}>{errors.fields.emailAddress.message}</p> : null}
 
       <label className={styles.emailField}>
         <span>Create password</span>
         <div className={styles.passwordWrap}>
-          <input
-            type={showPassword ? 'text' : 'password'}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="new-password"
-            required
-          />
-          <button
-            className={styles.togglePassword}
-            type="button"
-            aria-label={showPassword ? 'Hide password' : 'Show password'}
-            onClick={() => setShowPassword((value) => !value)}
-          >
-            {showPassword ? 'Hide' : 'Show'}
-          </button>
+          <input type={showPassword ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" required />
+          <button className={styles.togglePassword} type="button" aria-label={showPassword ? 'Hide password' : 'Show password'} onClick={() => setShowPassword((value) => !value)}>{showPassword ? 'Hide' : 'Show'}</button>
         </div>
       </label>
       {errors.fields.password?.message ? <p className={styles.fieldError}>{errors.fields.password.message}</p> : null}
       {formError ? <p className={styles.authError}>{formError}</p> : null}
 
       <div id="clerk-captcha" />
-
-      <button className={styles.primaryAuthButton} type="submit" disabled={busy || !email.trim() || !password}>
-        {busy ? 'Creating account…' : 'Create Account'}
-      </button>
+      <button className={styles.primaryAuthButton} type="submit" disabled={busy || !email.trim() || !password}>{busy ? 'Creating account…' : 'Create Account'}</button>
     </form>
   );
 }

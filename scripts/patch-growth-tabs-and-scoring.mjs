@@ -5,20 +5,27 @@ let source=fs.readFileSync(pagePath,'utf8');
 
 if(!source.includes("import PieBottomNav from './PieBottomNav';")){
   const importAnchor="import MelodyWorkspace, { type MelodyAnalysis } from './MelodyWorkspace';";
-  if(source.includes(importAnchor)) source=source.replace(importAnchor,`${importAnchor}\nimport PieBottomNav from './PieBottomNav';\nimport GrowthWorkspaces from './GrowthWorkspaces';`);
-  else source=source.replace("'use client';",`'use client';\n\nimport PieBottomNav from './PieBottomNav';\nimport GrowthWorkspaces from './GrowthWorkspaces';`);
+  if(source.includes(importAnchor)) source=source.replace(importAnchor,`${importAnchor}\nimport PieBottomNav from './PieBottomNav';\nimport GrowthWorkspaces from './GrowthWorkspaces';\nimport VideoWorkspace from './VideoWorkspace';`);
+  else source=source.replace("'use client';",`'use client';\n\nimport PieBottomNav from './PieBottomNav';\nimport GrowthWorkspaces from './GrowthWorkspaces';\nimport VideoWorkspace from './VideoWorkspace';`);
+} else if(!source.includes("import VideoWorkspace from './VideoWorkspace';")) {
+  source=source.replace("import GrowthWorkspaces from './GrowthWorkspaces';", "import GrowthWorkspaces from './GrowthWorkspaces';\nimport VideoWorkspace from './VideoWorkspace';");
 }
 
-source=source.replace(/type Screen = [^;]+;/, "type Screen = 'create' | 'songs' | 'train' | 'mix' | 'sheets' | 'marketing' | 'band' | 'licensing';");
+source=source.replace(/type Screen = [^;]+;/, "type Screen = 'create' | 'songs' | 'train' | 'mix' | 'sheets' | 'video' | 'marketing' | 'band' | 'licensing';");
 
 const songsAnchor="  if (screen === 'songs') {";
+if(!source.includes("screen === 'video'")){
+  if(!source.includes(songsAnchor)) throw new Error('Songs screen anchor not found for Video tab.');
+  const video=`  if (screen === 'video') {\n    return (\n      <>\n        <VideoWorkspace onNavigate={(next) => setScreen(next as Screen)} />\n        <PieBottomNav active={screen} onNavigate={(next) => setScreen(next as Screen)} />\n      </>\n    );\n  }\n\n`;
+  source=source.replace(songsAnchor,video+songsAnchor);
+}
+
 if(!source.includes("screen === 'marketing'")){
   if(!source.includes(songsAnchor)) throw new Error('Songs screen anchor not found for growth tabs.');
   const growth=`  if (screen === 'marketing' || screen === 'band' || screen === 'licensing') {\n    return (\n      <>\n        <GrowthWorkspaces workspace={screen} onNavigate={(next) => setScreen(next as Screen)} />\n        <PieBottomNav active={screen} onNavigate={(next) => setScreen(next as Screen)} />\n      </>\n    );\n  }\n\n`;
   source=source.replace(songsAnchor,growth+songsAnchor);
 }
 
-// Replace every older five-item navigation with the expanded mobile scroller.
 source=source.replace(/<nav className="bottomNav(?: noPrint)?">[\s\S]*?<\/nav>/g, '<PieBottomNav active={screen} onNavigate={(next) => setScreen(next as Screen)} />');
 
 if(!source.includes("pie-originality-score")){
@@ -34,6 +41,7 @@ if(!source.includes("pie-originality-score")){
 }
 
 if(!source.includes("<PieBottomNav")) throw new Error('Expanded navigation missing after growth patch.');
+if(!source.includes("<VideoWorkspace")) throw new Error('Video workspace missing after growth patch.');
 if(!source.includes("Originality Score")) throw new Error('Originality Score menu action missing after growth patch.');
 
 fs.writeFileSync(pagePath,source);
@@ -46,4 +54,4 @@ if(!css.includes(marker)){
   fs.writeFileSync(cssPath,css);
 }
 
-console.log('Added Marketing, Band, Licensing tabs plus Song Score and Originality Score actions.');
+console.log('Added Video, Marketing, Band, Licensing tabs plus Song Score and Originality Score actions.');

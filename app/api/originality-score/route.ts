@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { rateLimit, readJsonObject, safeClientError, textField } from '../../security';
+import { awardPieScore } from '../../scoreServer';
 
 function clamp(value: number) { return Math.max(0, Math.min(100, Math.round(value))); }
 
@@ -196,6 +197,8 @@ export async function POST(req: Request) {
 
     const label = score >= 90 ? 'Highly Distinctive' : score >= 80 ? 'Strong Originality Signals' : score >= 70 ? 'Good, with Familiar Elements' : score >= 55 ? 'Mixed Originality Signals' : 'Needs More Differentiation';
     const trustLabel = confidence >= 90 ? 'High trust' : confidence >= 75 ? 'Strong trust' : confidence >= 60 ? 'Moderate trust' : 'Preliminary';
+    const scoreRef = textField(body.songId, 180, title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,120) || 'untitled');
+    await awardPieScore('originality_scan',scoreRef,score,{confidence,title});
 
     return NextResponse.json({
       score,

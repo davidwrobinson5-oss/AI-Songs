@@ -5,15 +5,16 @@ let source=fs.readFileSync(pagePath,'utf8');
 
 if(!source.includes("import PieBottomNav from './PieBottomNav';")){
   const importAnchor="import MelodyWorkspace, { type MelodyAnalysis } from './MelodyWorkspace';";
-  if(source.includes(importAnchor)) source=source.replace(importAnchor,`${importAnchor}\nimport PieBottomNav from './PieBottomNav';\nimport GrowthWorkspaces from './GrowthWorkspaces';\nimport VideoWorkspace from './VideoWorkspace';\nimport OperationsWorkspaces from './OperationsWorkspaces';\nimport MerchWorkspace from './MerchWorkspace';`);
-  else source=source.replace("'use client';",`'use client';\n\nimport PieBottomNav from './PieBottomNav';\nimport GrowthWorkspaces from './GrowthWorkspaces';\nimport VideoWorkspace from './VideoWorkspace';\nimport OperationsWorkspaces from './OperationsWorkspaces';\nimport MerchWorkspace from './MerchWorkspace';`);
+  if(source.includes(importAnchor)) source=source.replace(importAnchor,`${importAnchor}\nimport PieBottomNav from './PieBottomNav';\nimport GrowthWorkspaces from './GrowthWorkspaces';\nimport VideoWorkspace from './VideoWorkspace';\nimport OperationsWorkspaces from './OperationsWorkspaces';\nimport MerchWorkspace from './MerchWorkspace';\nimport LegalGigsWorkspace from './LegalGigsWorkspace';`);
+  else source=source.replace("'use client';",`'use client';\n\nimport PieBottomNav from './PieBottomNav';\nimport GrowthWorkspaces from './GrowthWorkspaces';\nimport VideoWorkspace from './VideoWorkspace';\nimport OperationsWorkspaces from './OperationsWorkspaces';\nimport MerchWorkspace from './MerchWorkspace';\nimport LegalGigsWorkspace from './LegalGigsWorkspace';`);
 } else {
   if(!source.includes("import VideoWorkspace from './VideoWorkspace';")) source=source.replace("import GrowthWorkspaces from './GrowthWorkspaces';", "import GrowthWorkspaces from './GrowthWorkspaces';\nimport VideoWorkspace from './VideoWorkspace';");
   if(!source.includes("import OperationsWorkspaces from './OperationsWorkspaces';")) source=source.replace("import VideoWorkspace from './VideoWorkspace';", "import VideoWorkspace from './VideoWorkspace';\nimport OperationsWorkspaces from './OperationsWorkspaces';");
   if(!source.includes("import MerchWorkspace from './MerchWorkspace';")) source=source.replace("import OperationsWorkspaces from './OperationsWorkspaces';", "import OperationsWorkspaces from './OperationsWorkspaces';\nimport MerchWorkspace from './MerchWorkspace';");
+  if(!source.includes("import LegalGigsWorkspace from './LegalGigsWorkspace';")) source=source.replace("import MerchWorkspace from './MerchWorkspace';", "import MerchWorkspace from './MerchWorkspace';\nimport LegalGigsWorkspace from './LegalGigsWorkspace';");
 }
 
-source=source.replace(/type Screen = [^;]+;/, "type Screen = 'create' | 'songs' | 'train' | 'mix' | 'sheets' | 'video' | 'marketing' | 'merch' | 'band' | 'licensing' | 'calendar' | 'travel' | 'business' | 'accounting';");
+source=source.replace(/type Screen = [^;]+;/, "type Screen = 'create' | 'songs' | 'train' | 'mix' | 'sheets' | 'video' | 'marketing' | 'merch' | 'gigs' | 'band' | 'licensing' | 'legal' | 'calendar' | 'travel' | 'business' | 'accounting';");
 
 const songsAnchor="  if (screen === 'songs') {";
 if(!source.includes("screen === 'video'")){
@@ -32,6 +33,12 @@ if(!source.includes("screen === 'merch'")){
   if(!source.includes(songsAnchor)) throw new Error('Songs screen anchor not found for Merch tab.');
   const merch=`  if (screen === 'merch') {\n    return (\n      <>\n        <MerchWorkspace onNavigate={(next) => setScreen(next as Screen)} />\n        <PieBottomNav active={screen} onNavigate={(next) => setScreen(next as Screen)} />\n      </>\n    );\n  }\n\n`;
   source=source.replace(songsAnchor,merch+songsAnchor);
+}
+
+if(!source.includes("screen === 'legal'")){
+  if(!source.includes(songsAnchor)) throw new Error('Songs screen anchor not found for Legal/Gigs tabs.');
+  const legalGigs=`  if (screen === 'legal' || screen === 'gigs') {\n    return (\n      <>\n        <LegalGigsWorkspace workspace={screen} onNavigate={(next) => setScreen(next as Screen)} />\n        <PieBottomNav active={screen} onNavigate={(next) => setScreen(next as Screen)} />\n      </>\n    );\n  }\n\n`;
+  source=source.replace(songsAnchor,legalGigs+songsAnchor);
 }
 
 if(!source.includes("screen === 'calendar'")){
@@ -58,6 +65,7 @@ if(!source.includes("<PieBottomNav")) throw new Error('Expanded navigation missi
 if(!source.includes("<VideoWorkspace")) throw new Error('Video workspace missing after growth patch.');
 if(!source.includes("<OperationsWorkspaces")) throw new Error('Operations workspaces missing after growth patch.');
 if(!source.includes("<MerchWorkspace")) throw new Error('Merch workspace missing after growth patch.');
+if(!source.includes("<LegalGigsWorkspace")) throw new Error('Legal/Gigs workspace missing after growth patch.');
 if(!source.includes("Originality Score")) throw new Error('Originality Score menu action missing after growth patch.');
 
 fs.writeFileSync(pagePath,source);
@@ -70,4 +78,4 @@ if(!css.includes(marker)){
   fs.writeFileSync(cssPath,css);
 }
 
-console.log('Added Video, Marketing, Merch, Band, Licensing, Calendar, Travel, Business, Accounting tabs plus scoring actions.');
+console.log('Added Video, Marketing, Merch, Gigs, Band, Licensing, Legal, Calendar, Travel, Business, Accounting tabs plus scoring actions.');

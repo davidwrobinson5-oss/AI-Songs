@@ -17,9 +17,8 @@ async function isPieSecurityAdmin(){
     if(session.userId){
       const user=await currentUser().catch(()=>null);
       const pub=(user?.publicMetadata||{}) as Record<string,unknown>;
-      const unsafe=(user?.unsafeMetadata||{}) as Record<string,unknown>;
-      const hasBillingProfile=Boolean(pub.pieOnboardingCompleted||pub.piePlanLevel||unsafe.pieOnboardingStartedAt||unsafe.pieOnboardingCompleted);
-      return Boolean(pub.pieAdmin===true||!hasBillingProfile);
+      const allowedIds=(process.env.PIE_ADMIN_USER_IDS||'').split(',').map(x=>x.trim()).filter(Boolean);
+      return Boolean(pub.pieAdmin===true||pub.pieSecurityAdmin===true||allowedIds.includes(session.userId));
     }
   }catch{}
   const jar=await cookies();

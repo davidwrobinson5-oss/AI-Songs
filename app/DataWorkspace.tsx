@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useUser } from '@clerk/nextjs';
 
 const categories = [
@@ -19,6 +19,15 @@ const categories = [
 ];
 
 const genreOptions = ['All genres','Pop','Hip-Hop / Rap','R&B / Soul','Christian / Gospel','Rock','Alternative','Country','Electronic / Dance','Jazz','Latin','Indie','Other'];
+type DataRequest = {
+  id: string;
+  createdAt: string;
+  genre: string;
+  geo: string;
+  categories: string[];
+  notes: string;
+};
+
 const geoOptions = ['Local','Regional','United States','Canada','United Kingdom','Europe','Latin America','Asia-Pacific','International'];
 
 function creditsForLevel(level: number) {
@@ -37,8 +46,31 @@ export default function DataWorkspace() {
   const [geo, setGeo] = useState('Local');
   const [notes, setNotes] = useState('');
   const [saved, setSaved] = useState(false);
+  const [savedRequests, setSavedRequests] = useState<DataRequest[]>([]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('pie-data-requests-v1');
+      const parsed = raw ? JSON.parse(raw) : [];
+      setSavedRequests(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setSavedRequests([]);
+    }
+  }, []);
 
   const selectedLabels = useMemo(() => categories.filter(([,label])=>selected.includes(label)).map(([,label])=>label), [selected]);
+  const dataStats = useMemo(() => {
+    const categoryCounts = new Map<string, number>();
+    const markets = new Set<string>();
+    let totalLists = 0;
+    for (const request of savedRequests) {
+      markets.add(request.geo);
+      totalLists += request.categories.length;
+      for (const category of request.categories) categoryCounts.set(category, (categoryCounts.get(category) || 0) + 1);
+    }
+    const topCategories = [...categoryCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 3);
+    return { totalRequests: savedRequests.length, totalLists, markets: markets.size, topCategories };
+  }, [savedRequests]);
 
   function toggle(label: string) {
     setSaved(false);
@@ -50,7 +82,9 @@ export default function DataWorkspace() {
     try {
       const raw = localStorage.getItem('pie-data-requests-v1');
       const list = raw ? JSON.parse(raw) : [];
-      localStorage.setItem('pie-data-requests-v1', JSON.stringify([request, ...(Array.isArray(list)?list:[])]));
+      const next = [request, ...(Array.isArray(list) ? list : [])];
+      localStorage.setItem('pie-data-requests-v1', JSON.stringify(next));
+      setSavedRequests(next);
     } catch {}
     setSaved(true);
   }
@@ -70,6 +104,22 @@ export default function DataWorkspace() {
           <div className="statusBox"><small>SELECTED LISTS</small><strong>{selected.length}</strong></div>
         </div>
         <p style={{color:'#8e8f9f',fontSize:11,lineHeight:1.5,marginBottom:0}}>Data access expands with the subscription level. Pie should use licensed, permissioned, public-business, or otherwise lawfully sourced records and respect opt-outs, applicable privacy laws, and provider terms. Sensitive personal data should not be sold through this workspace.</p>
+      </section>
+
+      <section className="panel">
+        <p className="eyebrow">Data Statistics</p>
+        <h2>Request Activity</h2>
+        <div className="controlGrid">
+          <div className="statusBox"><small>SAVED REQUESTS</small><strong>{dataStats.totalRequests}</strong></div>
+          <div className="statusBox"><small>TARGET LISTS</small><strong>{dataStats.totalLists}</strong></div>
+          <div className="statusBox"><small>MARKETS</small><strong>{dataStats.markets}</strong></div>
+        </div>
+        <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+          <small><strong>Top requested categories</strong></small>
+          {dataStats.topCategories.length > 0
+            ? dataStats.topCategories.map(([category, count]) => <small key={category}>{category} · {count} request{count === 1 ? '' : 's'}</small>)
+            : <small>Save a data request to begin tracking statistics.</small>}
+        </div>
       </section>
 
       <section className="panel">

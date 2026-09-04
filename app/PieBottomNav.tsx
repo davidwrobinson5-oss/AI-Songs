@@ -10,6 +10,7 @@ const items = [
   { id: 'sheets', icon: '📄', label: 'Sheets', minLevel: 1 },
   { id: 'video', icon: '🎬', label: 'Video', minLevel: 3 },
   { id: 'marketing', icon: '📣', label: 'Marketing', minLevel: 3 },
+  { id: 'data', icon: '🗂️', label: 'Data', minLevel: 3 },
   { id: 'merch', icon: '👕', label: 'Merch', minLevel: 3 },
   { id: 'gigs', icon: '🎟️', label: 'Gigs', minLevel: 6 },
   { id: 'band', icon: '👥', label: 'Band', minLevel: 6 },

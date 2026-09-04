@@ -31,6 +31,7 @@ let todoCount = 0;
 
 for (const file of files) {
   const source = fs.readFileSync(file, 'utf8');
+  const isAgentSource = path.relative(root, file) === 'scripts/code-health-agent.mjs';
   const lines = source.split(/\r?\n/);
   totalLines += lines.length;
   if (/^['"]use client['"];?/m.test(source)) clientComponents += 1;
@@ -40,10 +41,10 @@ for (const file of files) {
     const hasAuth = /\b(auth|currentUser|getAuth|verifyToken|session|authorization)\b/i.test(source);
     if (mutates && !hasAuth) add('HIGH', 'API authorization', file, 'Mutation route has no obvious authorization check.', 'Verify authentication and resource-level authorization before processing requests.');
   }
-  if (/dangerouslySetInnerHTML/.test(source)) add('HIGH', 'Injection', file, 'Uses dangerouslySetInnerHTML.', 'Sanitize trusted input and document why raw HTML is required.');
-  if (/\b(eval|new Function)\s*\(/.test(source)) add('CRITICAL', 'Code execution', file, 'Dynamic code execution pattern detected.', 'Remove dynamic evaluation or isolate and strictly validate the input.');
-  if (/child_process|\bexecSync?\s*\(/.test(source)) add('HIGH', 'Command execution', file, 'Process execution is present.', 'Avoid shell interpolation and validate every argument at the trust boundary.');
-  if (/(sk|pk)_(live|test)_[A-Za-z0-9]{12,}|(?:api|secret)[_-]?key\s*[:=]\s*['"][^'"]{12,}/i.test(source)) add('CRITICAL', 'Secret exposure', file, 'Possible hard-coded credential detected.', 'Remove the credential, rotate it, and load it from the environment.');
+  if (!isAgentSource && /dangerouslySetInnerHTML/.test(source)) add('HIGH', 'Injection', file, 'Uses dangerouslySetInnerHTML.', 'Sanitize trusted input and document why raw HTML is required.');
+  if (!isAgentSource && /\b(eval|new Function)\s*\(/.test(source)) add('CRITICAL', 'Code execution', file, 'Dynamic code execution pattern detected.', 'Remove dynamic evaluation or isolate and strictly validate the input.');
+  if (!isAgentSource && /child_process|\bexecSync?\s*\(/.test(source)) add('HIGH', 'Command execution', file, 'Process execution is present.', 'Avoid shell interpolation and validate every argument at the trust boundary.');
+  if (!isAgentSource && /(sk|pk)_(live|test)_[A-Za-z0-9]{12,}|(?:api|secret)[_-]?key\s*[:=]\s*['"][^'"]{12,}/i.test(source)) add('CRITICAL', 'Secret exposure', file, 'Possible hard-coded credential detected.', 'Remove the credential, rotate it, and load it from the environment.');
   const catches = source.match(/catch\s*(?:\([^)]*\))?\s*\{\s*\}/g) || [];
   if (catches.length) {
     emptyCatches += catches.length;

@@ -3,6 +3,7 @@ import { getVercelOidcToken } from '@vercel/oidc';
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { cookies } from 'next/headers';
 import { SESSION_COOKIE, verifySessionToken } from '../../auth';
+import { awardPieScore } from '../../scoreServer';
 
 const OPERATIONS_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-operations';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
@@ -39,6 +40,9 @@ export async function POST(req:NextRequest){
     if(action==='scoreIdentity'&&!payload.displayName){payload.displayName=user?.fullName||user?.firstName||'Pie Artist';}
     const response=await fetch(OPERATIONS_URL,{method:'POST',headers:{'Content-Type':'application/json',apikey:SUPABASE_PUBLISHABLE_KEY,'X-Pie-Vercel-OIDC':oidc},body:JSON.stringify(payload),cache:'no-store'});
     const data=await response.json().catch(()=>({}));
+    if(response.ok&&action==='contractSave'&&data?.contract?.id){
+      await awardPieScore('contract_saved',String(data.contract.id),0,{contractType:String(data.contract.contract_type||body?.contractType||'')});
+    }
     return noStore(data,response.status);
   }catch(error){
     console.error('Pie operations proxy failed',error);

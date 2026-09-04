@@ -21,6 +21,7 @@ const items = [
   { id: 'travel', icon: '✈️', label: 'Travel', minLevel: 6 },
   { id: 'business', icon: '💼', label: 'Business', minLevel: 5 },
   { id: 'accounting', icon: '🧾', label: 'Accounting', minLevel: 5 },
+  { id: 'cyber', icon: '🛡️', label: 'Cyber Security', minLevel: 1 },
 ] as const;
 
 export default function PieBottomNav({ active, onNavigate }: { active: string; onNavigate: (screen: string) => void }) {

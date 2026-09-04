@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import PlaidConnectPanel from './PlaidConnectPanel';
 
 type Workspace = 'calendar' | 'travel' | 'business' | 'accounting';
 
@@ -83,7 +84,7 @@ const workspaceContent: Record<Workspace, {
       ['Royalties + Splits', 'Reconcile incoming royalties against writer, producer, performer, publisher, master, collaborator, and recoupment obligations.'],
       ['Budgets + Profitability', 'Compare planned versus actual costs and revenue for songs, videos, releases, tours, marketing campaigns, and merchandise.'],
       ['Receipts + Tax Records', 'Keep receipts, business purpose, categories, mileage/travel notes, tax documents, and supporting records together.'],
-      ['P&L + Cash Flow', 'Build project and business-level profit-and-loss, cash-flow, payable, receivable, and runway views once financial connections are enabled.'],
+      ['P&L + Cash Flow', 'Build project and business-level profit-and-loss, cash-flow, payable, receivable, and runway views from both manual entries and connected bank activity.'],
     ],
   },
 };
@@ -166,12 +167,14 @@ export default function OperationsWorkspaces({ workspace, onNavigate }: Props) {
         <p className="sub">{content.intro}</p>
       </section>
 
+      {workspace === 'accounting' && <PlaidConnectPanel />}
+
       {accountingSummary && (
         <section className="panel">
           <div className="controlGrid">
-            <div className="statusBox"><small>INCOME</small><strong>${accountingSummary.income.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>
-            <div className="statusBox"><small>EXPENSES</small><strong>${accountingSummary.expenses.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>
-            <div className="statusBox"><small>NET</small><strong>${accountingSummary.net.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>
+            <div className="statusBox"><small>MANUAL INCOME</small><strong>${accountingSummary.income.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>
+            <div className="statusBox"><small>MANUAL EXPENSES</small><strong>${accountingSummary.expenses.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>
+            <div className="statusBox"><small>MANUAL NET</small><strong>${accountingSummary.net.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>
           </div>
         </section>
       )}
@@ -181,14 +184,14 @@ export default function OperationsWorkspaces({ workspace, onNavigate }: Props) {
           <p className="eyebrow">Financials</p>
           <h2>Business Health</h2>
           <div className="controlGrid">
-            <div className="statusBox"><small>TRANSACTIONS</small><strong>{accountingSummary.transactions}</strong></div>
-            <div className="statusBox"><small>PROFIT MARGIN</small><strong>{accountingSummary.margin.toFixed(1)}%</strong></div>
+            <div className="statusBox"><small>MANUAL TRANSACTIONS</small><strong>{accountingSummary.transactions}</strong></div>
+            <div className="statusBox"><small>MANUAL PROFIT MARGIN</small><strong>{accountingSummary.margin.toFixed(1)}%</strong></div>
             <div className="statusBox"><small>AVG. INCOME</small><strong>${accountingSummary.averageIncome.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>
             <div className="statusBox"><small>AVG. EXPENSE</small><strong>${accountingSummary.averageExpense.toLocaleString(undefined, { maximumFractionDigits: 2 })}</strong></div>
           </div>
           <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
-            <small><strong>Cash-flow position:</strong> {accountingSummary.net >= 0 ? 'Positive' : 'Negative'} by ${Math.abs(accountingSummary.net).toLocaleString(undefined, { maximumFractionDigits: 2 })}</small>
-            <small>Financials update automatically whenever an income or expense transaction is added or removed.</small>
+            <small><strong>Manual cash-flow position:</strong> {accountingSummary.net >= 0 ? 'Positive' : 'Negative'} by ${Math.abs(accountingSummary.net).toLocaleString(undefined, { maximumFractionDigits: 2 })}</small>
+            <small>Connected bank activity appears above; manual entries remain separate so Pie does not double-count transactions before reconciliation.</small>
           </div>
         </section>
       )}
@@ -210,7 +213,7 @@ export default function OperationsWorkspaces({ workspace, onNavigate }: Props) {
 
       {items.length > 0 && (
         <section className="panel">
-          <div className="songsSectionHead"><strong>{workspace === 'calendar' ? 'Upcoming' : workspace === 'travel' ? 'Trips' : workspace === 'business' ? 'Business Items' : 'Recent Transactions'}</strong><span>{items.length}</span></div>
+          <div className="songsSectionHead"><strong>{workspace === 'calendar' ? 'Upcoming' : workspace === 'travel' ? 'Trips' : workspace === 'business' ? 'Business Items' : 'Manual Transactions'}</strong><span>{items.length}</span></div>
           <div style={{ display: 'grid', gap: 8 }}>
             {items.slice(0, 12).map((item) => (
               <article key={item.id} className="statusBox" style={{ display: 'grid', gap: 4 }}>

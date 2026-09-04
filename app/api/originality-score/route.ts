@@ -66,15 +66,44 @@ async function laionTitleCheck(title: string) {
   return { ok: true, rows: (json.rows || []).length, closest, similarity };
 }
 
+type AudioAnalysis = {
+  chromaprint?: string;
+  analyzedSeconds?: number;
+  melody?: { score?: number; voicedFrames?: number; intervalDiversity?: number; repetition?: number; detail?: string };
+  harmony?: { score?: number; key?: string; chordDiversity?: number; commonProgressionSimilarity?: number; detail?: string };
+  localLibrary?: { compared?: number; maxSimilarity?: number; closestTitle?: string; fingerprintSimilarity?: number; melodySimilarity?: number; harmonySimilarity?: number };
+};
+
+async function acoustIdLookup(fingerprint: string, durationSeconds: number) {
+  const key = process.env.ACOUSTID_API_KEY;
+  if (!key || !fingerprint || !durationSeconds) return null;
+  const url = `https://api.acoustid.org/v2/lookup?client=${encodeURIComponent(key)}&meta=recordings+releasegroups&duration=${encodeURIComponent(String(Math.max(1, Math.round(durationSeconds))))}&fingerprint=${encodeURIComponent(fingerprint)}`;
+  const response = await withTimeout(fetch(url, { cache: 'no-store' }), 7000);
+  if (!response.ok) throw new Error('ACOUSTID_UNAVAILABLE');
+  const json = await response.json() as { status?: string; results?: Array<{ score?: number; recordings?: Array<{ title?: string }> }> };
+  const results = Array.isArray(json.results) ? json.results : [];
+  let bestScore = 0;
+  let bestTitle = '';
+  for (const row of results) {
+    const score = Number(row.score || 0);
+    if (score > bestScore) {
+      bestScore = score;
+      bestTitle = String(row.recordings?.[0]?.title || '');
+    }
+  }
+  return { bestScore, bestTitle, count: results.length };
+}
+
 export async function POST(req: Request) {
   const limited = rateLimit(req, 'originality-score', 12, 60_000);
   if (limited) return limited;
 
   try {
-    const body = await readJsonObject(req, 48_000);
+    const body = await readJsonObject(req, 96_000);
     const title = textField(body.title, 220, 'Untitled Song');
     const lyrics = textField(body.lyrics, 24_000);
     const prompt = textField(body.prompt, 6_000);
+    const audio = (body.audioAnalysis && typeof body.audioAnalysis === 'object' ? body.audioAnalysis : null) as AudioAnalysis | null;
 
     const evidence: Array<{ source: string; status: string; detail: string }> = [];
     const dimensions: Array<{ name: string; score: number; detail: string }> = [];
@@ -83,15 +112,11 @@ export async function POST(req: Request) {
     let lyricScore = lyrics.trim() ? 68 + stats.lexical * 26 - stats.clichéHits * 5 : 65;
     if (stats.words > 120) lyricScore += 3;
     lyricScore = clamp(lyricScore);
-    dimensions.push({
-      name: 'Lyric Distinctiveness',
-      score: lyricScore,
-      detail: lyrics.trim() ? `${Math.round(stats.lexical * 100)}% unique-word ratio with ${stats.clichéHits} common cliché phrase${stats.clichéHits === 1 ? '' : 's'} detected.` : 'No lyrics were available, so Pie used a neutral provisional score.',
-    });
+    dimensions.push({ name: 'Lyric Distinctiveness', score: lyricScore, detail: lyrics.trim() ? `${Math.round(stats.lexical * 100)}% unique-word ratio with ${stats.clichéHits} common cliché phrase${stats.clichéHits === 1 ? '' : 's'} detected.` : 'No lyrics were available, so Pie used a neutral provisional score.' });
 
     const promptStats = tokenStats(prompt);
     const conceptScore = clamp(prompt.trim() ? 62 + promptStats.lexical * 30 - Math.max(0, 18 - promptStats.words) * 0.5 : 60);
-    dimensions.push({ name: 'Concept Specificity', score: conceptScore, detail: prompt.trim() ? 'Scores how specific and differentiated the described concept is, not whether the audio itself is unique.' : 'No song-direction text was available.' });
+    dimensions.push({ name: 'Concept Specificity', score: conceptScore, detail: prompt.trim() ? 'Scores how specific and differentiated the described concept is.' : 'No song-direction text was available.' });
 
     let mbScore = 75;
     try {
@@ -113,29 +138,73 @@ export async function POST(req: Request) {
     } catch {
       evidence.push({ source: 'LAION-DISCO-12M', status: 'Unavailable', detail: 'The public Hugging Face dataset service did not return a metadata sample during this scan.' });
     }
-    dimensions.push({ name: 'LAION Metadata Novelty', score: laionScore, detail: 'Uses LAION-DISCO metadata as an index check. LAION-DISCO does not provide the underlying audio in the dataset itself.' });
+    dimensions.push({ name: 'LAION Metadata Novelty', score: laionScore, detail: 'Uses LAION-DISCO metadata as an index check; it does not treat metadata matches as audio matches.' });
 
-    const audioFingerprintConfigured = Boolean(process.env.ACOUSTID_API_KEY);
-    evidence.push({
-      source: 'AcoustID / Chromaprint',
-      status: audioFingerprintConfigured ? 'Ready for fingerprint step' : 'Not configured',
-      detail: audioFingerprintConfigured ? 'Server credentials are available; Pie still needs a generated Chromaprint fingerprint from the song audio before exact fingerprint matching can run.' : 'No AcoustID API key is configured, so this scan does not claim fingerprint-level audio matching.',
-    });
+    let fingerprintScore = 70;
+    let fingerprintChecked = false;
+    if (audio?.chromaprint && audio.analyzedSeconds) {
+      try {
+        const acoust = await acoustIdLookup(audio.chromaprint, audio.analyzedSeconds);
+        if (acoust) {
+          fingerprintChecked = true;
+          fingerprintScore = clamp(100 - acoust.bestScore * 92);
+          evidence.push({ source: 'AcoustID / Chromaprint', status: 'Checked', detail: acoust.bestScore > 0 ? `Best database fingerprint similarity ${Math.round(acoust.bestScore * 100)}%${acoust.bestTitle ? ` to “${acoust.bestTitle}”` : ''}.` : 'No strong AcoustID fingerprint match was returned.' });
+        } else {
+          evidence.push({ source: 'AcoustID / Chromaprint', status: 'Fingerprint generated', detail: 'Pie generated a Chromaprint fingerprint, but no AcoustID API key is configured for public fingerprint lookup.' });
+        }
+      } catch {
+        evidence.push({ source: 'AcoustID / Chromaprint', status: 'Lookup unavailable', detail: 'Pie generated the fingerprint, but the public AcoustID lookup did not respond during this scan.' });
+      }
+    } else {
+      evidence.push({ source: 'AcoustID / Chromaprint', status: 'No audio fingerprint', detail: 'No usable audio fingerprint was attached to this scan.' });
+    }
+    dimensions.push({ name: 'Audio Fingerprint Novelty', score: fingerprintScore, detail: fingerprintChecked ? 'Exact/near-exact recording fingerprint evidence from AcoustID.' : 'Provisional until both a Chromaprint fingerprint and AcoustID lookup are available.' });
 
-    const base = lyricScore * 0.30 + conceptScore * 0.15 + mbScore * 0.25 + laionScore * 0.30;
-    const score = clamp(base);
-    const checkedCount = evidence.filter((item) => item.status === 'Checked').length;
-    const confidence = clamp(45 + checkedCount * 18 + (lyrics.trim() ? 10 : 0) + (prompt.trim() ? 6 : 0));
+    const melodyScore = clamp(Number(audio?.melody?.score ?? 68));
+    const harmonyScore = clamp(Number(audio?.harmony?.score ?? 68));
+    const localSimilarity = Math.max(0, Math.min(1, Number(audio?.localLibrary?.maxSimilarity ?? 0)));
+    const localNovelty = clamp(100 - localSimilarity * 100);
+
+    dimensions.push({ name: 'Melodic Distinctiveness', score: melodyScore, detail: audio?.melody?.detail || 'No decoded song audio was available for melody-contour analysis.' });
+    dimensions.push({ name: 'Harmonic Distinctiveness', score: harmonyScore, detail: audio?.harmony?.detail || 'No decoded song audio was available for harmonic-profile analysis.' });
+    dimensions.push({ name: 'Pie Library Audio Novelty', score: localNovelty, detail: audio?.localLibrary?.compared ? `Compared against ${audio.localLibrary.compared} previously scanned Pie song(s). Closest combined local similarity: ${Math.round(localSimilarity * 100)}%${audio.localLibrary.closestTitle ? ` (${audio.localLibrary.closestTitle})` : ''}.` : 'No previously scanned Pie songs were available for comparison.' });
+
+    if (audio) {
+      evidence.push({ source: 'Pie melodic contour', status: 'Checked', detail: `Melody score ${melodyScore}/100${audio.melody?.voicedFrames != null ? ` from ${audio.melody.voicedFrames} voiced frames` : ''}.` });
+      evidence.push({ source: 'Pie harmonic profile', status: 'Checked', detail: `Harmony score ${harmonyScore}/100${audio.harmony?.key ? `; estimated key ${audio.harmony.key}` : ''}.` });
+      if (audio.localLibrary?.compared) evidence.push({ source: 'Pie private library', status: 'Checked', detail: `Compared fingerprint, melodic contour, and harmonic sequence with ${audio.localLibrary.compared} previously scanned Pie song(s).` });
+    }
+
+    const hasDeepAudio = Boolean(audio);
+    const weights = hasDeepAudio
+      ? { lyric: 0.12, concept: 0.07, mb: 0.08, laion: 0.08, fingerprint: 0.25, melody: 0.16, harmony: 0.14, local: 0.10 }
+      : { lyric: 0.30, concept: 0.15, mb: 0.25, laion: 0.30, fingerprint: 0, melody: 0, harmony: 0, local: 0 };
+
+    const score = clamp(
+      lyricScore * weights.lyric + conceptScore * weights.concept + mbScore * weights.mb + laionScore * weights.laion +
+      fingerprintScore * weights.fingerprint + melodyScore * weights.melody + harmonyScore * weights.harmony + localNovelty * weights.local
+    );
+
+    const checkedPublic = evidence.filter((item) => item.status === 'Checked' && (item.source === 'MusicBrainz' || item.source === 'LAION-DISCO-12M')).length;
+    let confidence = 42 + checkedPublic * 8 + (lyrics.trim() ? 5 : 0) + (prompt.trim() ? 3 : 0);
+    if (audio) confidence += 18;
+    if ((audio?.melody?.voicedFrames || 0) >= 8) confidence += 7;
+    if (audio?.harmony?.key) confidence += 5;
+    if ((audio?.localLibrary?.compared || 0) >= 1) confidence += 5;
+    if (fingerprintChecked) confidence += 15;
+    confidence = clamp(confidence);
+
     const label = score >= 90 ? 'Highly Distinctive' : score >= 80 ? 'Strong Originality Signals' : score >= 70 ? 'Good, with Familiar Elements' : score >= 55 ? 'Mixed Originality Signals' : 'Needs More Differentiation';
+    const trustLabel = confidence >= 90 ? 'High trust' : confidence >= 75 ? 'Strong trust' : confidence >= 60 ? 'Moderate trust' : 'Preliminary';
 
     return NextResponse.json({
       score,
       confidence,
       label,
-      summary: `Pie found ${label.toLowerCase()} based on the evidence available in this scan. The score is designed as a creative-risk indicator, not a copyright or legal determination.`,
+      summary: `Pie found ${label.toLowerCase()}. Evidence trust is ${trustLabel.toLowerCase()} because the score now weights fingerprint, melodic-contour, harmonic-profile, local-library, lyric, and catalog evidence when available.`,
       dimensions,
       evidence,
-      disclaimer: 'Originality Score is an estimate, not legal clearance. Metadata/title matches do not prove musical similarity. A stronger future score should add audio fingerprinting and licensed audio-embedding comparisons against catalogs that permit that use.',
+      disclaimer: 'Originality Score is a similarity-risk estimate, not copyright clearance or a legal opinion. Fingerprint matches are strongest for same/near-same recordings; melodic and harmonic analysis are heuristic and can miss transformations, covers, interpolations, or similarities outside the catalogs Pie can lawfully query.',
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return NextResponse.json({ error: safeClientError(error, 'Originality scan failed.') }, { status: 400 });

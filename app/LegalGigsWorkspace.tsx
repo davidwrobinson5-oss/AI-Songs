@@ -92,6 +92,7 @@ export default function LegalGigsWorkspace({ workspace, onNavigate }: Props) {
         <p className="eyebrow">{isLegal ? 'Protect the Business' : 'Take the Stage'}</p>
         <h1>{isLegal ? 'Legal' : 'Gigs'}</h1>
         <p className="sub">{isLegal ? 'Keep contracts, registrations, deadlines, disputes, compliance records, counsel, and signed evidence organized around the music business. Pie can organize matters and documents, but it is not a substitute for legal advice from qualified counsel.' : 'Manage the full live-show workflow from lead and offer through confirmation, travel, production, performance, settlement, merch, fan capture, and rebooking.'}</p>
+        {isLegal && <button type="button" className="primary" onClick={()=>{window.location.href='/contracts';}} style={{marginTop:12}}>⚖️ Open Contract Studio</button>}
       </section>
 
       {gigSummary && <section className="panel"><div className="controlGrid">
@@ -129,13 +130,14 @@ export default function LegalGigsWorkspace({ workspace, onNavigate }: Props) {
       </section>}
 
       <section className="growthCardGrid">
-        {(isLegal ? legalCards : gigCards).map(([cardTitle,copy])=><article className="panel growthFeatureCard" key={cardTitle}><strong>{cardTitle}</strong><small>{copy}</small><button type="button" className="secondary">Open</button></article>)}
+        {(isLegal ? legalCards : gigCards).map(([cardTitle,copy])=><article className="panel growthFeatureCard" key={cardTitle}><strong>{cardTitle}</strong><small>{copy}</small>{isLegal&&cardTitle==='Contracts'?<button type="button" className="secondary" onClick={()=>{window.location.href='/contracts';}}>Open Contract Studio</button>:<button type="button" className="secondary">Open</button>}</article>)}
       </section>
 
       <section className="panel">
         <h2>Connected Pie Workflows</h2>
         <div className="mixButtons">
           {isLegal ? <>
+            <button type="button" className="secondary" onClick={()=>{window.location.href='/contracts';}}>Contract Studio</button>
             <button type="button" className="secondary" onClick={()=>onNavigate('licensing')}>Licensing</button>
             <button type="button" className="secondary" onClick={()=>onNavigate('business')}>Business</button>
             <button type="button" className="secondary" onClick={()=>onNavigate('accounting')}>Accounting</button>

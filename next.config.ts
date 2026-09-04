@@ -2,6 +2,7 @@ import type { NextConfig } from 'next';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
+const mobileCaptureUploadEdge = 'https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-mobile-process';
 
 const contentSecurityPolicy = [
   "default-src 'self'",
@@ -36,6 +37,18 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  // Android historically posts a complete recording to this Pie URL. Route that
+  // request before the Next.js filesystem so large recordings do not enter a
+  // Vercel Function body, which has a much smaller payload ceiling. The Supabase
+  // edge endpoint authenticates the capture id + one-time capture secret and
+  // writes the recording straight to Pie storage.
+  rewrites: async () => ({
+    beforeFiles: [
+      { source: '/api/sheets/mobile-process', destination: mobileCaptureUploadEdge },
+    ],
+    afterFiles: [],
+    fallback: [],
+  }),
   headers: async () => [
     { source: '/:path*', headers: securityHeaders },
     {

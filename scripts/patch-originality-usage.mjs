@@ -4,9 +4,10 @@ const path='app/api/originality-score/route.ts';
 let source=fs.readFileSync(path,'utf8');
 
 if(!source.includes("from '../../billingConfig'")){
-  source=source.replace("import { NextResponse } from 'next/server';", "import { NextResponse } from 'next/server';\nimport { FREE_LIMITS } from '../../billingConfig';\nimport { consumeUsage, usageDeniedMessage } from '../../usageEntitlements';\nimport { awardPieScore } from '../../scoreServer';");
-} else if(!source.includes("from '../../scoreServer'")) {
-  source=source.replace("import { consumeUsage, usageDeniedMessage } from '../../usageEntitlements';", "import { consumeUsage, usageDeniedMessage } from '../../usageEntitlements';\nimport { awardPieScore } from '../../scoreServer';");
+  source=source.replace("import { NextResponse } from 'next/server';", "import { NextResponse } from 'next/server';\nimport { FREE_LIMITS } from '../../billingConfig';\nimport { consumeUsage, usageDeniedMessage } from '../../usageEntitlements';");
+}
+if(!source.includes("from '../../scoreServer'")) {
+  source=source.replace("import { rateLimit, readJsonObject, safeClientError, textField } from '../../security';", "import { rateLimit, readJsonObject, safeClientError, textField } from '../../security';\nimport { awardPieScore } from '../../scoreServer';");
 }
 
 const tryAnchor='  try {\n    const body = await readJsonObject(req, 96_000);';

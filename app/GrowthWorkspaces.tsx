@@ -15,6 +15,7 @@ const marketingCards = [
   ['Brand Library', 'Keep approved photos, video references, logos, colors, artwork, bios, press copy, and visual references together.'],
   ['Distribution', 'Prepare release metadata and track delivery tasks for social channels and distributor services without losing the marketing plan around them.'],
   ['Fan Database', 'Track opt-in email, phone, text, mailing, messages, notes, segments, superfans, and follow-up schedules.'],
+  ['Business Contacts', 'Build a music-business CRM for venues, promoters, labels, publishers, sync supervisors, music supervisors, brands, agencies, media, radio, playlist contacts, distributors, managers, booking contacts, collaborators, and vendors. Store company, role, email, phone, social links, location, relationship status, tags, notes, last contact, next follow-up, and opportunities.'],
   ['Performance', 'Score campaigns by reach, saves, clicks, follows, streams, conversion, fan growth, and cost per result.'],
 ];
 
@@ -39,7 +40,7 @@ const licensingCards = [
 export default function GrowthWorkspaces({ workspace, onNavigate }: Props) {
   const [notes, setNotes] = useState<Record<Workspace, string>>({ marketing: '', band: '', licensing: '' });
   const content = useMemo(() => {
-    if (workspace === 'marketing') return { eyebrow: 'Grow the Song', title: 'Marketing', intro: 'Turn finished songs into coordinated campaigns, distribution plans, content, fan follow-up, and measurable growth.', cards: marketingCards };
+    if (workspace === 'marketing') return { eyebrow: 'Grow the Song', title: 'Marketing', intro: 'Turn finished songs into coordinated campaigns, distribution plans, content, fan follow-up, business relationships, and measurable growth.', cards: marketingCards };
     if (workspace === 'band') return { eyebrow: 'Create Together', title: 'Band', intro: 'Give invited collaborators one shared place to build on each other’s work while keeping songs, versions, ownership, and decisions organized.', cards: bandCards };
     return { eyebrow: 'Protect + Place', title: 'Licensing', intro: 'Keep ownership, splits, clearances, evidence, metadata, and sync-ready assets organized before a song is pitched or licensed.', cards: licensingCards };
   }, [workspace]);

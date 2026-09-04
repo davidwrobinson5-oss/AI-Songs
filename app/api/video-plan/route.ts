@@ -1,12 +1,23 @@
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
+import { FREE_LIMITS } from '../../billingConfig';
 import { rateLimit, readJsonObject, safeClientError, textField } from '../../security';
+import { consumeUsage, usageDeniedMessage } from '../../usageEntitlements';
 
 export async function POST(req: Request) {
   const limited = rateLimit(req, 'video-plan', 10, 60_000);
   if (limited) return limited;
 
   try {
+    const entitlement = await consumeUsage('video_plans', FREE_LIMITS.videoPlansPerMonth);
+    if (!entitlement.allowed) {
+      return NextResponse.json({
+        error: usageDeniedMessage('video plans', entitlement),
+        code: 'PIE_USAGE_LIMIT',
+        usage: { count: entitlement.usageCount, limit: entitlement.usageLimit },
+      }, { status: entitlement.userId ? 402 : 401, headers: { 'Cache-Control': 'no-store' } });
+    }
+
     const body = await readJsonObject(req, 40_000);
     const videoType = textField(body.videoType, 80, 'Hybrid');
     const ratio = textField(body.ratio, 80, '16:9');
@@ -42,10 +53,14 @@ export async function POST(req: Request) {
           content: `Create a music video treatment and storyboard plan.\n\nVideo type: ${videoType}\nAspect ratio: ${ratio}\nDuration: ${duration}\nVisual style: ${visualStyle}\nCamera language: ${cameraStyle}\nConcept: ${concept || 'Develop the strongest concept from the available direction.'}\nStory/emotional journey: ${story || 'Create a clear visual emotional arc.'}\nPerformance direction: ${performance || 'Use performance strategically where it strengthens the song.'}\nLocations/sets: ${location || 'Choose practical distinctive locations.'}\nWardrobe/character look: ${wardrobe || 'Create a coherent artist look.'}\nColor/lighting: ${colorNotes || 'Choose a strong visual palette.'}\nMust-have visual: ${mustHave || 'Invent one unforgettable hero image.'}\nAvoid: ${avoid || 'Avoid generic AI-video clichés and visual incoherence.'}\nReference filenames: ${referenceNames || 'None supplied.'}\n\nReturn these sections:\n1. One-line concept\n2. Director treatment\n3. Visual rules + continuity bible\n4. Section-by-section storyboard with approximate timestamps, shot framing, camera movement, subject action, environment, emotion, transition, and why the shot matters\n5. Performance coverage plan\n6. B-roll / insert list\n7. Hero frames / thumbnail candidates\n8. AI-generation prompt template for each scene including subject continuity, wardrobe, environment, lens/framing, motion, lighting, mood, duration, and negative constraints\n9. Edit rhythm + transition plan\n10. Social cutdowns (15s, 30s, chorus vertical, teaser loop)\n11. Production checklist + assets still needed.`
         }
       ],
-      max_output_tokens: 5000,
+      max_output_tokens: entitlement.outputQuality === 'premium' ? 5000 : 2600,
     });
 
-    return NextResponse.json({ text: response.output_text.slice(0, 40_000) }, { headers: { 'Cache-Control': 'no-store' } });
+    return NextResponse.json({
+      text: response.output_text.slice(0, 40_000),
+      usage: { count: entitlement.usageCount, limit: entitlement.usageLimit },
+      outputQuality: entitlement.outputQuality,
+    }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('Video plan generation failed');
     return NextResponse.json({ error: safeClientError(error, 'Video plan generation failed.') }, { status: 400 });

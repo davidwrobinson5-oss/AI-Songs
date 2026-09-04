@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { auth, currentUser } from '@clerk/nextjs/server';
 import { getVercelOidcToken } from '@vercel/oidc';
+import { cookies } from 'next/headers';
+import { SESSION_COOKIE, verifySessionToken } from '../../auth';
 
 const CAPTURE_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-capture';
 const SUPABASE_PUBLISHABLE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const LEGACY_OWNER_ID='pie-primary';
 
 function noStore(body:unknown,status=200){
   return NextResponse.json(body,{status,headers:{'Cache-Control':'no-store'}});
@@ -20,13 +24,37 @@ function errorText(value:unknown,fallback:string){
   return fallback;
 }
 
-async function callCapture(action:'create'|'status',id:string,oidc:string){
+async function authenticatedOwnerId(){
+  try{
+    const clerk=await auth();
+    if(clerk.userId){
+      const user=await currentUser().catch(()=>null);
+      const publicMetadata=(user?.publicMetadata||{}) as Record<string,unknown>;
+      const unsafeMetadata=(user?.unsafeMetadata||{}) as Record<string,unknown>;
+      const hasBillingProfile=Boolean(
+        publicMetadata.pieOnboardingCompleted||
+        publicMetadata.piePlanLevel||
+        unsafeMetadata.pieOnboardingStartedAt||
+        unsafeMetadata.pieOnboardingCompleted
+      );
+      return hasBillingProfile?clerk.userId:LEGACY_OWNER_ID;
+    }
+  }catch{}
+
+  const jar=await cookies();
+  const legacyToken=jar.get(SESSION_COOKIE)?.value||'';
+  const legacyValid=await verifySessionToken(legacyToken,process.env.AI_SONGS_SESSION_SECRET);
+  return legacyValid?LEGACY_OWNER_ID:'';
+}
+
+async function callCapture(action:'create'|'status',id:string,oidc:string,ownerId:string){
   const response=await fetch(CAPTURE_URL,{
     method:'POST',
     headers:{
       'Content-Type':'application/json',
       apikey:SUPABASE_PUBLISHABLE_KEY,
       'X-Pie-Vercel-OIDC':oidc,
+      'X-Pie-User-Id':ownerId,
     },
     body:JSON.stringify(action==='status'?{action,id}:{action}),
     cache:'no-store',
@@ -37,6 +65,9 @@ async function callCapture(action:'create'|'status',id:string,oidc:string){
 
 export async function POST(req:NextRequest){
   try{
+    const ownerId=await authenticatedOwnerId();
+    if(!ownerId)return noStore({error:'Authentication required.'},401);
+
     const body=await req.json().catch(()=>({}));
     const action=String(body?.action||'');
     if(action!=='create'&&action!=='status')return noStore({error:'Invalid capture action.'},400);
@@ -45,10 +76,10 @@ export async function POST(req:NextRequest){
     if(!oidc)return noStore({error:'Capture identity is temporarily unavailable. Please try again.'},503);
 
     const id=String(body?.id||'');
-    let {response,data}=await callCapture(action,id,oidc);
+    let {response,data}=await callCapture(action,id,oidc,ownerId);
 
     if(action==='create'&&response.status>=500){
-      ({response,data}=await callCapture(action,id,oidc));
+      ({response,data}=await callCapture(action,id,oidc,ownerId));
     }
 
     if(!response.ok){

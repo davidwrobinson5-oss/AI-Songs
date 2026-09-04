@@ -33,10 +33,11 @@ export async function GET(req: Request, context: { params: Promise<{ jobId: stri
     const result = await getResult(jobId, format);
     const bytes = format === 'pdf' ? await brandPieSheetPdf(result.bytes) : result.bytes;
     const contentType = format === 'pdf' ? 'application/pdf' : result.contentType;
+    const mode = new URL(req.url).searchParams.get('inline') === '1' ? 'inline' : 'attachment';
     return new NextResponse(toArrayBuffer(bytes), {
       headers: {
         'Content-Type': contentType,
-        'Content-Disposition': `attachment; filename="pie-${jobId.slice(0, 18)}.${extension}"`,
+        'Content-Disposition': `${mode}; filename="pie-${jobId.slice(0, 18)}.${extension}"`,
         'Cache-Control': 'private, no-store, max-age=0',
         'X-Content-Type-Options': 'nosniff',
       },

@@ -6,6 +6,7 @@ const items = [
   { id: 'songs', icon: '🎵', label: 'Songs' },
   { id: 'mix', icon: '🎚️', label: 'Mix' },
   { id: 'sheets', icon: '📄', label: 'Sheets' },
+  { id: 'video', icon: '🎬', label: 'Video' },
   { id: 'marketing', icon: '📣', label: 'Marketing' },
   { id: 'band', icon: '👥', label: 'Band' },
   { id: 'licensing', icon: '⚖️', label: 'Licensing' },

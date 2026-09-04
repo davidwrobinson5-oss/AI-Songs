@@ -23,8 +23,6 @@ const oldDownloader=`async function cloudVersionToLocal(version: CloudVersion): 
 
 const fastDownloader=`async function cloudVersionToLocal(version: CloudVersion): Promise<SavedVersion> {
   const local = cloudMetadataVersion(version);
-  // Songs only needs one good playback source to make the thumbnail usable.
-  // Prefer the mastered track, then the generated track, then backing audio.
   const field = (['masterBlob','generatedBlob','backingBlob'] as const).find((candidate) => Boolean(version.files?.[candidate]?.url));
   if (!field) return local;
   const file = version.files?.[field];
@@ -93,8 +91,6 @@ const fastRestore=`  const refreshedLocal = await exportLocalLibrary();
       if (!playable) continue;
       await importCloudLibrary([], [restored]);
       downloadedVersions += 1;
-      // Enable this song's thumbnail immediately instead of waiting for every
-      // other cloud song to finish restoring.
       window.dispatchEvent(new CustomEvent('pie-library-synced', {
         detail: { cloudSongs: cloud.songs.length, uploadedVersions, downloadedVersions },
       }));
@@ -107,6 +103,8 @@ if(!source.includes(fastRestore)){
   if(!source.includes(oldRestore))throw new Error('Patched cloud audio restore block not found.');
   source=source.replace(oldRestore,fastRestore);
 }
+
+source=source.replace('downloadedVersions: downloaded.length,','downloadedVersions,');
 
 fs.writeFileSync(path,source);
 console.log('Cloud Songs now restore one playable track per song and enable thumbnails immediately.');

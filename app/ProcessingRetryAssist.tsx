@@ -6,12 +6,42 @@ const CAPTURE_JOBS_KEY='pieCaptureJobs';
 const CAPTURE_OUTPUTS_KEY='pieCaptureOutputs';
 const CAPTURE_TITLE_KEY='pieCaptureTitle';
 const CAPTURE_STAGED_KEY='pieCaptureStagedPath';
+const ACTIVE_SCREEN_KEY='pieActiveScreen';
+const CAPTURE_LIBRARY_KEY='pie-captured-songs-v1';
 
 function clearProcessingSession(){
   sessionStorage.removeItem(CAPTURE_JOBS_KEY);
   sessionStorage.removeItem(CAPTURE_OUTPUTS_KEY);
   sessionStorage.removeItem(CAPTURE_TITLE_KEY);
   sessionStorage.removeItem(CAPTURE_STAGED_KEY);
+}
+
+function syncRetryIntoCapturedLibrary(data:Record<string,unknown>,jobs:Record<string,string>){
+  try{
+    const raw=JSON.parse(localStorage.getItem(CAPTURE_LIBRARY_KEY)||'[]');
+    if(!Array.isArray(raw)||!raw.length)return;
+    const stagedPath=String(data.stagedPath||'');
+    const outputs=data.outputs&&typeof data.outputs==='object'?data.outputs:{};
+    const title=String(data.title||'Android playback recording');
+
+    let index=stagedPath?raw.findIndex(item=>item&&String(item.stagedPath||'')===stagedPath):-1;
+    if(index<0){
+      index=raw.findIndex(item=>item&&['failed','processing'].includes(String(item.state||'processing')));
+    }
+    if(index<0)return;
+
+    raw[index]={
+      ...raw[index],
+      jobs,
+      outputs,
+      title,
+      stagedPath:stagedPath||String(raw[index]?.stagedPath||''),
+      statuses:{},
+      state:'processing',
+    };
+    localStorage.setItem(CAPTURE_LIBRARY_KEY,JSON.stringify(raw.slice(0,40)));
+    window.dispatchEvent(new Event('pie-captured-songs-changed'));
+  }catch{}
 }
 
 export default function ProcessingRetryAssist(){
@@ -44,23 +74,27 @@ export default function ProcessingRetryAssist(){
         credentials:'same-origin',
         cache:'no-store',
       });
-      const data=await response.json().catch(()=>({}));
+      const data=await response.json().catch(()=>({})) as Record<string,unknown>;
       if(!response.ok){
         if(data?.reset){
           clearProcessingSession();
           setResetRequired(true);
         }
-        throw new Error(data?.error||'Could not retry processing.');
+        throw new Error(typeof data?.error==='string'?data.error:'Could not retry processing.');
       }
-      const jobs=data.jobs&&typeof data.jobs==='object'?data.jobs:{};
+      const jobs=data.jobs&&typeof data.jobs==='object'?data.jobs as Record<string,string>:{};
       if(!Object.keys(jobs).length)throw new Error('Pie did not return any retry jobs.');
 
       sessionStorage.setItem(CAPTURE_JOBS_KEY,JSON.stringify(jobs));
       sessionStorage.setItem(CAPTURE_OUTPUTS_KEY,JSON.stringify(data.outputs||{}));
       sessionStorage.setItem(CAPTURE_TITLE_KEY,String(data.title||'Android playback recording'));
       if(data.stagedPath)sessionStorage.setItem(CAPTURE_STAGED_KEY,String(data.stagedPath));
-      setMessage(data.remainingAttempts===0?'Processing restarted for the final attempt.':`Processing restarted.${typeof data.remainingAttempts==='number'?` ${data.remainingAttempts} attempt${data.remainingAttempts===1?'':'s'} remaining.`:''}`);
-      window.setTimeout(()=>window.location.reload(),500);
+      sessionStorage.setItem(ACTIVE_SCREEN_KEY,'sheets');
+      syncRetryIntoCapturedLibrary(data,jobs);
+
+      const remaining=typeof data.remainingAttempts==='number'?data.remainingAttempts:undefined;
+      setMessage(remaining===0?'Processing restarted for the final attempt.':`Processing restarted.${typeof remaining==='number'?` ${remaining} attempt${remaining===1?'':'s'} remaining.`:''}`);
+      window.setTimeout(()=>window.location.reload(),350);
     }catch(error){
       setMessage(error instanceof Error?error.message:'Could not retry processing.');
     }finally{
@@ -70,10 +104,11 @@ export default function ProcessingRetryAssist(){
 
   function reset(){
     clearProcessingSession();
+    sessionStorage.setItem(ACTIVE_SCREEN_KEY,'sheets');
     setMessage('Processing reset. Start a new recording when you are ready.');
     setResetRequired(false);
     setVisible(false);
-    window.setTimeout(()=>window.location.reload(),500);
+    window.setTimeout(()=>window.location.reload(),350);
   }
 
   if(!visible&&!message)return null;

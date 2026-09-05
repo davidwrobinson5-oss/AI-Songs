@@ -1,6 +1,5 @@
 'use client';
 
-import { useUser } from '@clerk/nextjs';
 import { FormEvent, useMemo, useState } from 'react';
 
 const stageNames = ['','Raw Talent','Hot Prospect','Talent Show Boss','Local Hero','Regional Hit','National Hitmaker','International Rock Star','World Legend'];
@@ -12,15 +11,13 @@ const starterPrompts = [
 ];
 
 export default function PieGuide() {
-  const { user } = useUser();
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState('');
   const [answer, setAnswer] = useState('');
   const [busy, setBusy] = useState(false);
-  const publicMetadata = (user?.publicMetadata || {}) as Record<string, unknown>;
-  const unsafeMetadata = (user?.unsafeMetadata || {}) as Record<string, unknown>;
-  const existingBeta = !Boolean(publicMetadata.piePlanLevel || publicMetadata.pieOnboardingCompleted || unsafeMetadata.pieOnboardingStartedAt);
-  const level = existingBeta ? 8 : Math.max(1, Number(publicMetadata.piePlanLevel || 1));
+  // Until Clerk is explicitly re-enabled, preserve the existing beta experience
+  // without requiring a ClerkProvider during server rendering.
+  const level = 8;
   const stageName = useMemo(()=>stageNames[level] || `Stage ${level}`,[level]);
 
   async function askGuide(event?: FormEvent) {

@@ -3,7 +3,11 @@ import ClerkEmailLogin from './ClerkEmailLogin';
 import styles from './login.module.css';
 
 function clerkConfigured() {
-  return Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
+  return Boolean(
+    process.env.PIE_ENABLE_CLERK === '1' &&
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+    process.env.CLERK_SECRET_KEY,
+  );
 }
 
 export default async function LoginPage({

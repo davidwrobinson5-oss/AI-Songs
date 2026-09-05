@@ -1,4 +1,3 @@
-import ClerkEmailSignUp from './ClerkEmailSignUp';
 import styles from '../login/login.module.css';
 
 export default function SignUpPage() {
@@ -10,15 +9,10 @@ export default function SignUpPage() {
           alt="Pieinears — The Kitchens Open. Let Them Cook!"
           style={{ display: 'block', width: 'min(100%, 560px)', height: 'auto', aspectRatio: '700 / 175', objectFit: 'contain', margin: '0 auto 18px' }}
         />
-        <p className={styles.sub}>Create your Pie account.</p>
-        <ClerkEmailSignUp />
+        <p className={styles.sub}>Pie is currently running in private studio mode.</p>
         <div className={styles.signupBlock}>
-          <span>Already have an account?</span>
-          <a href="/login">Sign In</a>
-        </div>
-        <div className={styles.bottomRow}>
-          <span>Having trouble?</span>
-          <a href="/login?legacy=1">Use Studio Password</a>
+          <span>New account signup is temporarily paused while Clerk is isolated.</span>
+          <a href="/login">Go to Private Studio Login</a>
         </div>
       </section>
     </main>

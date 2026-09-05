@@ -24,18 +24,7 @@ const items = [
   { id: 'cyber', icon: '🛡️', label: 'Cyber Security', minLevel: 1 },
 ] as const;
 
-export default function PieBottomNav({ active, onNavigate }: { active: string; onNavigate: (screen: string) => void }) {
-  const { user } = useUser();
-  const publicMetadata = (user?.publicMetadata || {}) as Record<string, unknown>;
-  const unsafeMetadata = (user?.unsafeMetadata || {}) as Record<string, unknown>;
-  const hasBillingProfile = Boolean(
-    publicMetadata.pieOnboardingCompleted ||
-    publicMetadata.piePlanLevel ||
-    unsafeMetadata.pieOnboardingStartedAt ||
-    unsafeMetadata.pieOnboardingCompleted
-  );
-  const planLevel = hasBillingProfile ? Math.max(1, Number(publicMetadata.piePlanLevel || 1)) : 8;
-
+function Nav({ active, onNavigate, planLevel }: { active: string; onNavigate: (screen: string) => void; planLevel: number }) {
   return (
     <nav className="pieExpandedNav noPrint" aria-label="Main navigation">
       <div className="pieExpandedNavScroller">
@@ -64,4 +53,25 @@ export default function PieBottomNav({ active, onNavigate }: { active: string; o
       </div>
     </nav>
   );
+}
+
+function ClerkPieBottomNav({ active, onNavigate }: { active: string; onNavigate: (screen: string) => void }) {
+  const { user } = useUser();
+  const publicMetadata = (user?.publicMetadata || {}) as Record<string, unknown>;
+  const unsafeMetadata = (user?.unsafeMetadata || {}) as Record<string, unknown>;
+  const hasBillingProfile = Boolean(
+    publicMetadata.pieOnboardingCompleted ||
+    publicMetadata.piePlanLevel ||
+    unsafeMetadata.pieOnboardingStartedAt ||
+    unsafeMetadata.pieOnboardingCompleted
+  );
+  const planLevel = hasBillingProfile ? Math.max(1, Number(publicMetadata.piePlanLevel || 1)) : 8;
+  return <Nav active={active} onNavigate={onNavigate} planLevel={planLevel} />;
+}
+
+export default function PieBottomNav({ active, onNavigate }: { active: string; onNavigate: (screen: string) => void }) {
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+    return <Nav active={active} onNavigate={onNavigate} planLevel={8} />;
+  }
+  return <ClerkPieBottomNav active={active} onNavigate={onNavigate} />;
 }

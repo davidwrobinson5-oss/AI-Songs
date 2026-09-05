@@ -59,7 +59,11 @@ function isCloudConnectRequest(req: NextRequest) {
 }
 
 function clerkConfigured() {
-  return Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
+  return Boolean(
+    process.env.PIE_ENABLE_CLERK === '1' &&
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
+    process.env.CLERK_SECRET_KEY,
+  );
 }
 
 function enforceApiEnvelope(req: NextRequest) {

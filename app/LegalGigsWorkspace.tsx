@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import VenueMapWorkspace from './VenueMapWorkspace';
 
 type Workspace = 'legal' | 'gigs';
 type Props = { workspace: Workspace; onNavigate: (screen: string) => void };
@@ -100,6 +101,8 @@ export default function LegalGigsWorkspace({ workspace, onNavigate }: Props) {
         <div className="statusBox"><small>COMPLETED</small><strong>{gigSummary.completed}</strong></div>
         <div className="statusBox"><small>BOOKED VALUE</small><strong>${gigSummary.bookedValue.toLocaleString(undefined,{maximumFractionDigits:2})}</strong></div>
       </div></section>}
+
+      {!isLegal && <VenueMapWorkspace onNavigate={onNavigate} />}
 
       <section className="panel">
         <p className="eyebrow">Quick Add</p>

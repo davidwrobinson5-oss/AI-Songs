@@ -4,6 +4,7 @@ import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
 import PasskeySetupBanner from './PasskeySetupBanner';
 import AccountControl from './AccountControl';
+import PrivateStudioAccountControl from './PrivateStudioAccountControl';
 import AudioPolicy from './AudioPolicy';
 import CloudSongSync from './CloudSongSync';
 import PwaBoot from './PwaBoot';
@@ -48,7 +49,7 @@ function Document({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  if (!clerkConfigured()) return <Document>{children}</Document>;
+  if (!clerkConfigured()) return <Document>{children}<PrivateStudioAccountControl /></Document>;
 
   return (
     <ClerkProvider

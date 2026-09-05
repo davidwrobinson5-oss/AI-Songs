@@ -1,10 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getVercelOidcToken } from '@vercel/oidc';
+import { auth, currentUser } from '@clerk/nextjs/server';
 import { resolvePieUserId } from '../../usageEntitlements';
 import { awardPieScore } from '../../scoreServer';
 
 const DATA_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-data';
 const SUPABASE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const PRIVATE_STUDIO_OWNER_ID='pie-primary';
+
+async function resolveDataAccess(userId:string){
+  if(userId===PRIVATE_STUDIO_OWNER_ID)return {existingBeta:true,level:8};
+  try{
+    const session=await auth();
+    if(session.userId===userId){
+      const user=await currentUser();
+      const publicMetadata=(user?.publicMetadata||{}) as Record<string,unknown>;
+      const unsafeMetadata=(user?.unsafeMetadata||{}) as Record<string,unknown>;
+      const existingBeta=!Boolean(publicMetadata.piePlanLevel||publicMetadata.pieOnboardingCompleted||unsafeMetadata.pieOnboardingStartedAt);
+      return {existingBeta,level:existingBeta?8:Math.max(1,Math.min(8,Number(publicMetadata.piePlanLevel)||1))};
+    }
+  }catch{}
+  return {existingBeta:false,level:1};
+}
 
 async function callData(body:Record<string,unknown>){
   const userId=await resolvePieUserId();
@@ -18,7 +35,7 @@ async function callData(body:Record<string,unknown>){
 }
 
 export async function GET(){
-  try{const {data}=await callData({action:'list'});return NextResponse.json(data,{headers:{'Cache-Control':'no-store'}});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Could not load data requests.'},{status:400});}
+  try{const {userId,data}=await callData({action:'list'});const access=await resolveDataAccess(userId);return NextResponse.json({...data,access},{headers:{'Cache-Control':'no-store'}});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Could not load data requests.'},{status:400});}
 }
 
 export async function POST(req:NextRequest){

@@ -294,7 +294,12 @@ async function analyzeScore(file:File,setStatus:(s:string)=>void):Promise<Analys
   const r=await fetch('/api/sheets/import-score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stagedPath,name:file.name,type:file.type||'application/pdf'})});
   const raw=await r.text();let d:any={};try{d=JSON.parse(raw)}catch{d={error:raw}}
   if(!r.ok)throw new Error(d?.error||'Could not analyze that score.');
-  const score=d.score||{},notes=(score.parts||[]).flatMap((p:any)=>p.notes||[]).map((n:any)=>Number(n.midi)).filter(Number.isFinite);
+  const score=d.score||{};
+  try{
+    sessionStorage.setItem('pie-last-analyzed-score',JSON.stringify(score));
+    window.dispatchEvent(new CustomEvent('pie-score-analyzed',{detail:score}));
+  }catch{}
+  const notes=(score.parts||[]).flatMap((p:any)=>p.notes||[]).map((n:any)=>Number(n.midi)).filter(Number.isFinite);
   const vocalNotes=(score.parts||[]).filter((p:any)=>p.isVocal||p.choirRole).flatMap((p:any)=>p.notes||[]).map((n:any)=>Number(n.midi)).filter(Number.isFinite);
   const rangeNotes=vocalNotes.length?vocalNotes:notes;
   const low=rangeNotes.length?Math.min(...rangeNotes):null,high=rangeNotes.length?Math.max(...rangeNotes):null;
@@ -332,13 +337,26 @@ export default function SongAnalysisWorkspace({vocalRange,onVocalRangeChange,onA
     setStatus('Analysis ready. Review the results, fit the key to the singer, then choose your render.');
   }
   async function analyzeFile(file:File){
-    setBusy(true);setStatus('Analyzing song…');setApplied('');
+    setBusy(true);setStatus('Turning up the heat…');setApplied('');
     try{
       const lower=file.name.toLowerCase();let result:Analysis;
+      const isAudio=file.type.startsWith('audio/')||/\.(wav|mp3|m4a|aac|ogg|flac)$/i.test(lower);
       if(lower.endsWith('.mid')||lower.endsWith('.midi'))result=parseMidi(new Uint8Array(await file.arrayBuffer()),file.name);
-      else if(file.type.startsWith('audio/')||/\.(wav|mp3|m4a|aac|ogg|flac)$/i.test(lower))result=await analyzeAudio(file);
+      else if(isAudio)result=await analyzeAudio(file);
       else result=await analyzeScore(file,setStatus);
       acceptAnalysis(result);
+      if(isAudio){
+        setStatus('Analysis ready. Uploading once more to start sheet music and stem processing…');
+        const stagedPath=await stagePieFile(file,(p)=>setStatus(`Starting sheet/stem processing… ${p}%`));
+        const processResponse=await fetch('/api/sheets/process-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stagedPath,name:file.name,type:file.type||'audio/mpeg'})});
+        const processRaw=await processResponse.text();let processData:any={};try{processData=JSON.parse(processRaw)}catch{processData={error:processRaw}}
+        if(!processResponse.ok)throw new Error(processData?.error||'Could not start sheet music and stem processing.');
+        try{
+          sessionStorage.setItem('pie-audio-processing-jobs',JSON.stringify(processData.jobs||{}));
+          window.dispatchEvent(new CustomEvent('pie-audio-processing-started',{detail:{jobs:processData.jobs||{},name:file.name}}));
+        }catch{}
+        setStatus('Analysis ready. Sheet music and individual stem processing have started below.');
+      }
     }catch(e){setStatus(e instanceof Error?e.message:'Could not analyze that song.');}
     finally{setBusy(false);}
   }
@@ -362,16 +380,16 @@ export default function SongAnalysisWorkspace({vocalRange,onVocalRangeChange,onA
     return [sourceLine,keyLine,chordLine,renderLine,modeLine,voiceLine].filter(Boolean).join('\n');
   }
   function apply(){
-    if(!analysis)return;const plan=buildPlan();onVocalRangeChange(targetRange);onApply(plan,targetRange);setApplied('Analysis settings added to the song. Continue to the generator below.');
+    if(!analysis)return;const plan=buildPlan();onVocalRangeChange(targetRange);onApply(plan,targetRange);setApplied('Analysis settings applied to Sheets. Your analyzed score is ready below.');
   }
 
   return <section className="panel songAnalysisWorkspace">
     <p className="eyebrow">Auto Analyze</p>
     <h2>Upload → Detect → Fit → Render</h2>
-    <p className="sub">Give Pie audio, MIDI, music sheets, or a lyric/chord chart. Pie detects the musical setup first, then lets you correct anything before generation.</p>
+    <p className="sub">Give Pie MIDI, music sheets, or a lyric/chord chart. Pie detects the musical setup first, then lets you correct anything before generation.</p>
 
     <div className="mixButtons" style={{flexWrap:'wrap'}}>
-      <label className="primary" style={{cursor:'pointer'}}>{busy?'Analyzing…':'⬆ Upload Song / Score'}<input hidden type="file" accept="audio/*,.mid,.midi,application/pdf,image/*,.musicxml,.xml,application/xml,text/xml" disabled={busy} onChange={e=>{const f=e.target.files?.[0];if(f)void analyzeFile(f);e.currentTarget.value='';}}/></label>
+      <label className="primary" style={{cursor:'pointer'}}>{busy?'Turning up the heat…':'⬆ Upload Song / Score'}<input hidden type="file" accept="audio/*,.mid,.midi,application/pdf,image/*,.musicxml,.xml,application/xml,text/xml" disabled={busy} onChange={e=>{const f=e.target.files?.[0];if(f)void analyzeFile(f);e.currentTarget.value='';}}/></label>
       <button type="button" className="secondary" disabled={busy} onClick={()=>setShowChordPaste(v=>!v)}>Paste Lyrics + Chords</button>
     </div>
 
@@ -424,7 +442,7 @@ export default function SongAnalysisWorkspace({vocalRange,onVocalRangeChange,onA
       <div className="statusBox" style={{marginTop:16}}>
         <strong>Ready to use</strong><small style={{display:'block',marginTop:4}}>{currentKey} · {bpm?`${bpm} BPM · `:''}{timeSignature} · {targetRange} · {renderMode}</small><small style={{display:'block',marginTop:3}}>{[...selectedParts].join(', ')||'Full Arrangement'}</small>
       </div>
-      <button type="button" className="primary" style={{marginTop:12,width:'100%'}} onClick={apply}>Use These Settings in Song</button>
+      <button type="button" className="primary" style={{marginTop:12,width:'100%'}} onClick={apply}>Use These Settings in Sheets</button>
       {applied&&<div className="statusBox" style={{marginTop:10}}>{applied}</div>}
     </>}
   </section>;

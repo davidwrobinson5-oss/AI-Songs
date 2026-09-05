@@ -21,13 +21,12 @@ import LegalGigsWorkspace from './LegalGigsWorkspace';
 import DataWorkspace from './DataWorkspace';
 import ScoreboardWorkspace from './ScoreboardWorkspace';
 import CyberSecurityWorkspace from './CyberSecurityWorkspace';
-import VenueMapWorkspace from './VenueMapWorkspace';
 import PieGuide from './PieGuide';
 import LyricsFirstStudio from './LyricsFirstStudio';
 import { getSongVersions, listSongs, renameSong, saveVersion, type SavedSong, type SavedVersion } from './songStore';
 
 type StartMode = 'music' | 'lyrics' | 'melody';
-type Screen = 'create' | 'songs' | 'train' | 'mix' | 'sheets' | 'video' | 'marketing' | 'merch' | 'gigs' | 'map' | 'band' | 'licensing' | 'legal' | 'calendar' | 'travel' | 'business' | 'accounting' | 'data' | 'scoreboard' | 'cyber';
+type Screen = 'create' | 'songs' | 'train' | 'mix' | 'sheets' | 'video' | 'marketing' | 'merch' | 'gigs' | 'band' | 'licensing' | 'legal' | 'calendar' | 'travel' | 'business' | 'accounting' | 'data' | 'scoreboard' | 'cyber';
 
 const modes = [
   { id: 'music' as StartMode, icon: '🎹', title: 'Music First', copy: 'Generate the music first, then build lyrics, melody, and your final vocal around it.' },
@@ -957,16 +956,6 @@ export default function Home() {
     return (
       <>
         <LegalGigsWorkspace workspace={screen} onNavigate={(next) => setScreen(next as Screen)} />
-        <PieGuide />
-        <PieBottomNav active={screen} onNavigate={(next) => setScreen(next as Screen)} />
-      </>
-    );
-  }
-
-  if (screen === 'map') {
-    return (
-      <>
-        <VenueMapWorkspace onNavigate={(next) => setScreen(next as Screen)} />
         <PieGuide />
         <PieBottomNav active={screen} onNavigate={(next) => setScreen(next as Screen)} />
       </>

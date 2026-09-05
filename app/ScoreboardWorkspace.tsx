@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useUser } from '@clerk/nextjs';
 
 type Leader={display_name:string;entity_type:string;current_stage:number;current_score:number;all_time_high:number;completion_points:number;quality_points:number;determination_points:number;connections_points:number;execution_points:number;badges?:unknown[]};
 type Profile=Leader & { user_id?:string; is_public?:boolean };
@@ -9,7 +8,6 @@ type Profile=Leader & { user_id?:string; is_public?:boolean };
 const caps={completion:250,quality:250,determination:150,connections:150,execution:200};
 
 export default function ScoreboardWorkspace(){
-  const {user}=useUser();
   const [leaders,setLeaders]=useState<Leader[]>([]);
   const [profile,setProfile]=useState<Profile|null>(null);
   const [publicOptIn,setPublicOptIn]=useState(false);
@@ -42,8 +40,8 @@ export default function ScoreboardWorkspace(){
   async function saveIdentity(){
     setBusy(true);setStatus('');
     try{
-      const stage=Math.max(1,Number((user?.publicMetadata as Record<string,unknown>|undefined)?.piePlanLevel||1));
-      const data=await call('scoreIdentity',{displayName:user?.fullName||user?.firstName||'Pie Artist',entityType,isPublic:publicOptIn,currentStage:stage});
+      const stage=Math.max(1,Number(profile?.current_stage||1));
+      const data=await call('scoreIdentity',{displayName:profile?.display_name||'Pie Artist',entityType,isPublic:publicOptIn,currentStage:stage});
       setProfile(data.profile||profile);setStatus('Scoreboard profile updated.');await refresh();
     }catch(error){setStatus(error instanceof Error?error.message:'Could not update scoreboard profile.');}
     finally{setBusy(false);}

@@ -40,6 +40,7 @@ function Document({ children }: { children: React.ReactNode }) {
         <ProcessingRetryAssist />
         <OriginalityScoreOverlay />
         <SongScoreOverlay />
+        <CloudSongSync />
         {children}
       </body>
     </html>
@@ -58,7 +59,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <Document>
         {children}
-        <CloudSongSync />
         <PasskeySetupBanner />
         <AccountControl />
       </Document>

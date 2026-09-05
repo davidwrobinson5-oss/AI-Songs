@@ -173,9 +173,23 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   contentSecurityPolicy: { strict: true, directives: { 'media-src': ["'self'", 'blob:', 'data:'], 'connect-src': ['blob:'], 'manifest-src': ["'self'"], 'object-src': ["'none'"], 'frame-ancestors': ["'none'"] } },
 });
 
-export function proxy(req: NextRequest, event: NextFetchEvent) {
+export async function proxy(req: NextRequest, event: NextFetchEvent) {
   if (!clerkConfigured()) return legacyProxy(req);
-  return clerkProxy(req, event);
+
+  try {
+    return await clerkProxy(req, event);
+  } catch (error) {
+    console.error('Clerk middleware failed; falling back to legacy studio authentication.', error);
+
+    if (isLoginRoute(req.nextUrl.pathname) && req.nextUrl.searchParams.get('legacy') !== '1') {
+      const login = req.nextUrl.clone();
+      login.pathname = '/login';
+      login.search = '?legacy=1';
+      return NextResponse.redirect(login);
+    }
+
+    return legacyProxy(req);
+  }
 }
 
 export const config = { matcher: ['/((?!_next/static|_next/image|favicon.ico).*)', '/(api|trpc)(.*)', '/__clerk/(.*)'] };

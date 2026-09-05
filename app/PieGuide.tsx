@@ -11,7 +11,20 @@ const starterPrompts = [
   'How do I grow from where I am now?',
 ];
 
-export default function PieGuide() {
+function PieGuidePreview() {
+  const [open, setOpen] = useState(false);
+  return <>
+    <button type="button" onClick={()=>setOpen(true)} aria-label="Open Pie Guide" style={{position:'fixed',right:16,bottom:'calc(76px + env(safe-area-inset-bottom))',zIndex:19999,width:52,height:52,borderRadius:'50%',border:'1px solid rgba(255,255,255,.14)',background:'#7c3aed',color:'#fff',fontSize:24,boxShadow:'0 12px 30px rgba(0,0,0,.4)'}}>🥧</button>
+    {open && <div role="dialog" aria-modal="true" aria-label="Pie Guide" style={{position:'fixed',inset:0,zIndex:2147483500,background:'rgba(0,0,0,.7)',display:'flex',alignItems:'flex-end',justifyContent:'center',padding:12}}>
+      <section style={{width:'min(680px,100%)',borderRadius:'24px 24px 18px 18px',background:'#111118',border:'1px solid rgba(255,255,255,.12)',padding:18,color:'#fff'}}>
+        <div style={{display:'flex',justifyContent:'space-between',gap:12,alignItems:'flex-start'}}><div><div style={{fontSize:11,color:'#9b7cff',fontWeight:900,letterSpacing:'.1em'}}>PIE GUIDE</div><h2 style={{margin:'5px 0'}}>Pie Preview</h2></div><button type="button" onClick={()=>setOpen(false)} style={{border:0,background:'transparent',color:'#aaa9bd',fontSize:26}}>×</button></div>
+        <p style={{color:'#a8a9b6',fontSize:13,lineHeight:1.5}}>Authentication is disabled only for this protected preview. The production Pie Guide remains connected to the signed-in Pie account.</p>
+      </section>
+    </div>}
+  </>;
+}
+
+function ClerkPieGuide() {
   const { user } = useUser();
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState('');
@@ -61,4 +74,9 @@ export default function PieGuide() {
       </section>
     </div>}
   </>;
+}
+
+export default function PieGuide() {
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) return <PieGuidePreview />;
+  return <ClerkPieGuide />;
 }

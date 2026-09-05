@@ -4,22 +4,23 @@ const items = [
   { id: 'create', icon: '🎶', label: 'Music', minLevel: 1 },
   { id: 'train', icon: '🎤', label: 'Voice', minLevel: 1 },
   { id: 'songs', icon: '🎵', label: 'Songs', minLevel: 1 },
-  { id: 'band', icon: '👥', label: 'Band', minLevel: 6 },
-  { id: 'merch', icon: '👕', label: 'Merch', minLevel: 3 },
-  { id: 'gigs', icon: '🎟️', label: 'Gigs', minLevel: 6 },
   { id: 'mix', icon: '🎚️', label: 'Mix', minLevel: 1 },
   { id: 'sheets', icon: '📄', label: 'Sheets', minLevel: 1 },
   { id: 'video', icon: '🎬', label: 'Video', minLevel: 3 },
+  { id: 'merch', icon: '👕', label: 'Merch', minLevel: 3 },
+  { id: 'band', icon: '👥', label: 'Band', minLevel: 6 },
+  { id: 'gigs', icon: '🎟️', label: 'Gigs', minLevel: 6 },
+  { id: 'calendar', icon: '📅', label: 'Calendar', minLevel: 2 },
+  { id: 'scoreboard', icon: '🏆', label: 'Scoreboard', minLevel: 1 },
+
   { id: 'marketing', icon: '📣', label: 'Marketing', minLevel: 3 },
   { id: 'data', icon: '🗂️', label: 'Data', minLevel: 3 },
   { id: 'licensing', icon: '⚖️', label: 'Licensing', minLevel: 2 },
   { id: 'legal', icon: '📚', label: 'Legal', minLevel: 2 },
-  { id: 'calendar', icon: '📅', label: 'Calendar', minLevel: 2 },
   { id: 'travel', icon: '✈️', label: 'Travel', minLevel: 6 },
   { id: 'business', icon: '💼', label: 'Business', minLevel: 5 },
   { id: 'accounting', icon: '🧾', label: 'Accounting', minLevel: 5 },
   { id: 'cyber', icon: '🛡️', label: 'Cyber Security', minLevel: 1 },
-  { id: 'scoreboard', icon: '🏆', label: 'Scoreboard', minLevel: 1 },
 ] as const;
 
 export default function PieBottomNav({ active, onNavigate }: { active: string; onNavigate: (screen: string) => void }) {

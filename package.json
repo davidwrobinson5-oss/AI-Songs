@@ -13,6 +13,9 @@
   "dependencies": {
     "@breezystack/lamejs": "1.2.7",
     "@clerk/nextjs": "7.8.2",
+    "@react-three/drei": "10.7.8",
+    "@react-three/fiber": "9.7.0",
+    "@react-three/postprocessing": "3.1.1",
     "@supabase/supabase-js": "2.57.4",
     "@vercel/oidc": "3.0.5",
     "bgutils-js": "4.0.3",
@@ -21,9 +24,11 @@
     "next": "16.3.3",
     "openai": "7.5.0",
     "pdf-lib": "1.17.1",
+    "postprocessing": "6.39.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "rusty-chromaprint-wasm": "0.1.5",
+    "three": "0.185.1",
     "tus-js-client": "4.3.1",
     "youtube-dl-exec": "3.1.13",
     "youtubei.js": "18.0.0"
@@ -33,6 +38,7 @@
     "@types/node": "26.4.0",
     "@types/react": "19.2.8",
     "@types/react-dom": "19.2.5",
+    "@types/three": "0.185.4",
     "typescript": "7.0.2"
   }
 }

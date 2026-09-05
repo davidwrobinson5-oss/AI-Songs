@@ -3,7 +3,20 @@
 import { useEffect, useState } from 'react';
 import { useUser } from '@clerk/nextjs';
 
-export default function OnboardingCompletePage() {
+function PreviewFallback() {
+  return (
+    <main style={{ minHeight:'100vh', display:'grid', placeItems:'center', padding:20, background:'#08090d', color:'#fff' }}>
+      <section style={{ width:'min(100%,480px)', padding:24, borderRadius:22, background:'#12141c', border:'1px solid #2e3040', textAlign:'center' }}>
+        <div style={{ fontSize:42 }}>🥧</div>
+        <h1 style={{ margin:'10px 0 8px' }}>Pie Preview</h1>
+        <p style={{ color:'#a7a8b5', lineHeight:1.55 }}>Subscription verification is disabled in this preview because Clerk preview credentials are not configured.</p>
+        <button type="button" onClick={()=>window.location.href='/'} style={{ minHeight:48, padding:'0 18px', border:0, borderRadius:13, background:'#7c3aed', color:'#fff', fontWeight:900 }}>Enter Pie Preview</button>
+      </section>
+    </main>
+  );
+}
+
+function ClerkOnboardingComplete() {
   const { user } = useUser();
   const [status, setStatus] = useState('Verifying your Pie subscription…');
 
@@ -43,4 +56,9 @@ export default function OnboardingCompletePage() {
       </section>
     </main>
   );
+}
+
+export default function OnboardingCompletePage() {
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) return <PreviewFallback />;
+  return <ClerkOnboardingComplete />;
 }

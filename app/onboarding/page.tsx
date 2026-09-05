@@ -5,7 +5,23 @@ import { useRouter } from 'next/navigation';
 import { FormEvent, useMemo, useState } from 'react';
 import { PIE_PLANS, planById } from '../billingConfig';
 
-export default function OnboardingPage() {
+function PreviewOnboarding() {
+  return (
+    <main style={shell}>
+      <section style={card}>
+        <img src="/pieinears-horizontal.svg" alt="Pie" style={{ width: 'min(100%,520px)', margin: '0 auto 6px', display: 'block' }} />
+        <div>
+          <div style={eyebrow}>PIE PREVIEW</div>
+          <h1 style={{ margin: '5px 0 7px', fontSize: '30px' }}>Onboarding preview</h1>
+          <p style={muted}>Authentication is disabled only for this protected preview build. Production onboarding remains connected to the signed-in Pie account and Stripe sandbox flow.</p>
+        </div>
+        <button type="button" style={primary} onClick={()=>{ window.location.href='/'; }}>Enter Pie Preview</button>
+      </section>
+    </main>
+  );
+}
+
+function ClerkOnboardingPage() {
   const { isLoaded, isSignedIn, user } = useUser();
   const router = useRouter();
   const [name, setName] = useState('');
@@ -121,6 +137,11 @@ export default function OnboardingPage() {
       </form>
     </main>
   );
+}
+
+export default function OnboardingPage() {
+  if (!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) return <PreviewOnboarding />;
+  return <ClerkOnboardingPage />;
 }
 
 const shell: React.CSSProperties = { minHeight:'100vh', padding:'22px 14px 40px', background:'radial-gradient(circle at top,#24163b 0,#090a0f 42%,#06070a 100%)', color:'#fff' };

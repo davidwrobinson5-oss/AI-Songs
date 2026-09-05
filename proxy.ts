@@ -62,6 +62,10 @@ function clerkConfigured() {
   return Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
 }
 
+function isPreviewEnvironment() {
+  return process.env.VERCEL_ENV === 'preview';
+}
+
 function enforceApiEnvelope(req: NextRequest) {
   if (!req.nextUrl.pathname.startsWith('/api/')) return null;
   const method = req.method.toUpperCase();
@@ -116,6 +120,9 @@ async function legacyProxy(req: NextRequest) {
   if (!authConfigured()) {
     if (isLoginRoute(pathname)) return NextResponse.next();
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Studio authentication is not configured.' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
+    // Preview deployments are for UI review. When studio secrets are intentionally
+    // absent, allow page rendering but keep every protected API locked above.
+    if (isPreviewEnvironment()) return NextResponse.next();
     const login = req.nextUrl.clone(); login.pathname = '/login'; login.search = ''; return NextResponse.redirect(login);
   }
 

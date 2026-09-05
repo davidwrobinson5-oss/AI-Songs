@@ -1,7 +1,5 @@
 'use client';
 
-import { useUser } from '@clerk/nextjs';
-
 const items = [
   { id: 'create', icon: '🎶', label: 'Music', minLevel: 1 },
   { id: 'train', icon: '🎤', label: 'Voice', minLevel: 1 },
@@ -25,16 +23,10 @@ const items = [
 ] as const;
 
 export default function PieBottomNav({ active, onNavigate }: { active: string; onNavigate: (screen: string) => void }) {
-  const { user } = useUser();
-  const publicMetadata = (user?.publicMetadata || {}) as Record<string, unknown>;
-  const unsafeMetadata = (user?.unsafeMetadata || {}) as Record<string, unknown>;
-  const hasBillingProfile = Boolean(
-    publicMetadata.pieOnboardingCompleted ||
-    publicMetadata.piePlanLevel ||
-    unsafeMetadata.pieOnboardingStartedAt ||
-    unsafeMetadata.pieOnboardingCompleted
-  );
-  const planLevel = hasBillingProfile ? Math.max(1, Number(publicMetadata.piePlanLevel || 1)) : 8;
+  // Private beta/studio mode intentionally exposes all workspaces without
+  // requiring Clerk during server rendering. Stage gating can be restored
+  // when Clerk is explicitly re-enabled.
+  const planLevel = 8;
 
   return (
     <nav className="pieExpandedNav noPrint" aria-label="Main navigation">

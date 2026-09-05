@@ -9,7 +9,7 @@ function monthOffset(date: Date, offset: number) {
 
 export async function GET(request: NextRequest) {
   const apiKey = process.env.SIMILARWEB_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: 'Similarweb is not connected yet.' }, { status: 503 });
+  if (!apiKey) return NextResponse.json({ error: 'Website intelligence is not connected yet.' }, { status: 503 });
 
   const rawDomain = request.nextUrl.searchParams.get('domain')?.trim().toLowerCase() || '';
   const country = (request.nextUrl.searchParams.get('country') || 'us').trim().toLowerCase();
@@ -41,12 +41,13 @@ export async function GET(request: NextRequest) {
     try { payload = JSON.parse(text); } catch { payload = { raw: text }; }
 
     if (!response.ok) {
-      const message = payload?.meta?.error_message || payload?.error || payload?.message || `Similarweb returned ${response.status}`;
-      return NextResponse.json({ error: message }, { status: response.status >= 400 && response.status < 600 ? response.status : 502 });
+      console.error('Pie website intelligence upstream error', { status: response.status, payload });
+      return NextResponse.json({ error: 'Website intelligence is temporarily unavailable.' }, { status: response.status >= 400 && response.status < 600 ? response.status : 502 });
     }
 
     return NextResponse.json({ domain, country, startDate, endDate, ...payload });
   } catch (error) {
-    return NextResponse.json({ error: error instanceof Error ? error.message : 'Similarweb request failed.' }, { status: 502 });
+    console.error('Pie website intelligence request failed', error);
+    return NextResponse.json({ error: 'Website intelligence request failed.' }, { status: 502 });
   }
 }

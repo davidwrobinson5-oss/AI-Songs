@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useUser } from '@clerk/nextjs';
 
 const categories = [
   ['🎧','Genre Fan Base','Audience segments by genre, geography, platform, live-music behavior, and adjacent artists.'],
@@ -23,15 +22,12 @@ type DataRequest={id:string;genre:string;geography:string;categories:string[];no
 function creditsForLevel(level:number){return [0,0,25,100,250,500,1000,5000,25000][Math.max(0,Math.min(8,level))]||0;}
 
 export default function DataWorkspace(){
-  const {user}=useUser();
-  const publicMetadata=(user?.publicMetadata||{}) as Record<string,unknown>;
-  const unsafeMetadata=(user?.unsafeMetadata||{}) as Record<string,unknown>;
-  const existingBeta=!Boolean(publicMetadata.piePlanLevel||publicMetadata.pieOnboardingCompleted||unsafeMetadata.pieOnboardingStartedAt);
-  const level=existingBeta?8:Math.max(1,Number(publicMetadata.piePlanLevel||1));
+  const [access,setAccess]=useState({existingBeta:false,level:1});
+  const {existingBeta,level}=access;
   const credits=creditsForLevel(level);
   const [selected,setSelected]=useState<string[]>([]);const [genre,setGenre]=useState('All genres');const [geo,setGeo]=useState('Local');const [notes,setNotes]=useState('');const [requests,setRequests]=useState<DataRequest[]>([]);const [busy,setBusy]=useState(false);const [status,setStatus]=useState('');
 
-  async function load(){try{const r=await fetch('/api/data',{cache:'no-store'});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Could not load data requests.');setRequests(Array.isArray(d.requests)?d.requests:[]);}catch(e){setStatus(e instanceof Error?e.message:'Could not load data requests.');}}
+  async function load(){try{const r=await fetch('/api/data',{cache:'no-store'});const d=await r.json().catch(()=>({}));if(!r.ok)throw new Error(d.error||'Could not load data requests.');setRequests(Array.isArray(d.requests)?d.requests:[]);if(d.access)setAccess({existingBeta:Boolean(d.access.existingBeta),level:Math.max(1,Math.min(8,Number(d.access.level)||1))});}catch(e){setStatus(e instanceof Error?e.message:'Could not load data requests.');}}
   useEffect(()=>{load();},[]);
   const selectedLabels=useMemo(()=>categories.filter(([,label])=>selected.includes(label)).map(([,label])=>label),[selected]);
   const stats=useMemo(()=>{const counts=new Map<string,number>();const markets=new Set<string>();let lists=0;for(const request of requests){markets.add(request.geography);lists+=request.categories.length;for(const c of request.categories)counts.set(c,(counts.get(c)||0)+1);}return {total:requests.length,lists,markets:markets.size,delivered:requests.reduce((n,r)=>n+Number(r.delivered_count||0),0),top:[...counts.entries()].sort((a,b)=>b[1]-a[1]).slice(0,3)};},[requests]);

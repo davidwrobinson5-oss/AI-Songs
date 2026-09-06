@@ -313,13 +313,14 @@ export default function VoiceWorkspace({ backingUrl, lyrics, songTitle, onUseVoc
     return (
       <section className="panel">
         <p className="eyebrow">Voice</p>
-        <h2>What do you want to do?</h2>
+        <h1>Build your voice.</h1>
+        <p className="sub">Record a live vocal or train your voice for faster production using Pie’s built-in AI tools.</p>
         <div className="modeGrid">
           <button className="modeCard" onClick={() => setChoice('record')}>
             <span className="icon">🎙️</span><strong>Record Live</strong><small>Sing over music you already created. See the lyrics, record takes, fix timing, clean up the vocal, compress, de-ess, brighten, add space, and render a polished vocal.</small>
           </button>
           <button className="modeCard" onClick={() => setChoice('train')}>
-            <span className="icon">🧬</span><strong>Train Voice</strong><small>Train a custom AI singing voice in Pie with Voice-Swap as the primary provider and Kits kept as a backup.</small>
+            <span className="icon">🧬</span><strong>Train Voice</strong><small>Train your voice for more efficient production using Pie’s built-in AI tools. Create a custom singing voice you can reuse for recording, layering, and production.</small>
           </button>
         </div>
       </section>

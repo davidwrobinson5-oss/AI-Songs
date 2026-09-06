@@ -71,6 +71,31 @@
   letter-spacing:0!important;
 }
 
+/* Keep native browser dropdowns inside Pie on-brand, including Android/Samsung browsers. */
+select{
+  color-scheme:dark!important;
+  -webkit-appearance:none!important;
+  appearance:none!important;
+  background-color:#10131d!important;
+  background-image:linear-gradient(45deg,transparent 50%,#cfd3df 50%),linear-gradient(135deg,#cfd3df 50%,transparent 50%)!important;
+  background-position:calc(100% - 14px) 50%,calc(100% - 9px) 50%!important;
+  background-size:5px 5px,5px 5px!important;
+  background-repeat:no-repeat!important;
+  color:#f7f8ff!important;
+  border:1px solid rgba(255,255,255,.16)!important;
+  border-radius:10px!important;
+  padding:8px 30px 8px 10px!important;
+}
+
+select option{
+  background:#10131d!important;
+  color:#f7f8ff!important;
+}
+
+select:disabled{
+  opacity:.6;
+}
+
 @media(max-width:430px){
   .brand{
     width:calc(100% - 8px)!important;

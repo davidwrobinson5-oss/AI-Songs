@@ -23,7 +23,7 @@ async function isAuthenticated() {
 async function projectIdentity() { return getVercelOidcToken().catch(() => ''); }
 function safeStoragePath(value:unknown){
   const path=textField(value,500);
-  if(!path||path.startsWith('/')||path.includes('..')||!^[A-Za-z0-9._/-]+$/.test(path))throw new Error('INVALID_PATH');
+  if(!path||path.startsWith('/')||path.includes('..')||!/^[A-Za-z0-9._/-]+$/.test(path))throw new Error('INVALID_PATH');
   return path;
 }
 

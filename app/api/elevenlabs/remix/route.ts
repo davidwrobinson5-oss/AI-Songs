@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
+import { FREE_LIMITS } from '../../../billingConfig';
 import { boundedNumber, rateLimit, readResponseBytesLimited, safeClientError, textField, validateAudioFile } from '../../../security';
+import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../../usageEntitlements';
 
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io';
 const STRENGTHS = new Set(['medium', 'high', 'xhigh']);
@@ -40,6 +42,9 @@ export async function POST(req: Request) {
   if (limited) return limited;
 
   try {
+    const userId = await resolvePieUserId();
+    if (!userId) return NextResponse.json({ error: 'Sign in to create a remix.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
+
     const apiKey = process.env.ELEVENLABS_API_KEY;
     if (!apiKey) return NextResponse.json({ error: 'AI remixing is temporarily unavailable.' }, { status: 503 });
 
@@ -58,6 +63,15 @@ export async function POST(req: Request) {
     if (!(file instanceof File)) return NextResponse.json({ error: 'A song or backing track is required.' }, { status: 400 });
     validateAudioFile(file, 30 * 1024 * 1024);
     if (!style) return NextResponse.json({ error: 'Choose or describe a remix style.' }, { status: 400 });
+
+    const entitlement = await consumeUsage('elevenlabs_remixes', FREE_LIMITS.musicGenerationsPerMonth);
+    if (!entitlement.allowed) {
+      return NextResponse.json({
+        error: usageDeniedMessage('remixes', entitlement),
+        code: 'PIE_USAGE_LIMIT',
+        usage: { count: entitlement.usageCount, limit: entitlement.usageLimit },
+      }, { status: entitlement.userId ? 402 : 401, headers: { 'Cache-Control': 'no-store' } });
+    }
 
     const safeName = (file.name || 'remix-source').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
     const uploadForm = new FormData();
@@ -132,6 +146,6 @@ export async function POST(req: Request) {
     });
   } catch (error) {
     console.error('AI remix request failed');
-    return NextResponse.json({ error: safeClientError(error, 'Could not create the remix.') }, { status: 400 });
+    return NextResponse.json({ error: safeClientError(error, 'Could not create the remix.') }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
   }
 }

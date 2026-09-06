@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import VocalLayerBuilder from './VocalLayerBuilder';
 
 function pauseMedia(except?: HTMLMediaElement | null) {
   document.querySelectorAll<HTMLMediaElement>('audio, video').forEach((media) => {
@@ -9,32 +10,35 @@ function pauseMedia(except?: HTMLMediaElement | null) {
   });
 }
 
+function stopWebAudio() {
+  window.dispatchEvent(new Event('ai-songs-stop-webaudio'));
+}
+
 function stopAllAudio(except?: HTMLMediaElement | null) {
   pauseMedia(except);
-  window.dispatchEvent(new Event('ai-songs-stop-webaudio'));
+  stopWebAudio();
 }
 
 export default function AudioPolicy() {
   useEffect(() => {
-    const contexts = new Set<AudioContext>();
-    const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    let restoreDecode: (() => void) | null = null;
+    let navigationGuard: number | null = null;
 
-    if (AudioContextCtor) {
-      const proto = AudioContextCtor.prototype as AudioContext & { decodeAudioData: AudioContext['decodeAudioData'] };
-      const originalDecode = proto.decodeAudioData;
-      proto.decodeAudioData = function(...args: Parameters<AudioContext['decodeAudioData']>) {
-        contexts.add(this as AudioContext);
-        return originalDecode.apply(this, args as Parameters<AudioContext['decodeAudioData']>);
-      } as AudioContext['decodeAudioData'];
-      restoreDecode = () => { proto.decodeAudioData = originalDecode; };
-    }
+    const clearNavigationGuard = () => {
+      if (navigationGuard !== null) window.clearInterval(navigationGuard);
+      navigationGuard = null;
+    };
 
-    const stopContexts = () => {
-      contexts.forEach((context) => {
-        if (context.state !== 'closed') void context.close().catch(() => undefined);
-      });
-      contexts.clear();
+    const guardAgainstLateMixPlayback = () => {
+      clearNavigationGuard();
+      const startedAt = Date.now();
+      navigationGuard = window.setInterval(() => {
+        if (document.querySelector('.mixConsole') || Date.now() - startedAt > 15_000) {
+          clearNavigationGuard();
+          return;
+        }
+        pauseMedia();
+        stopWebAudio();
+      }, 250);
     };
 
     const onPlay = (event: Event) => {
@@ -44,19 +48,15 @@ export default function AudioPolicy() {
     };
 
     const onVisibility = () => {
-      if (document.visibilityState === 'hidden') {
-        stopAllAudio();
-        stopContexts();
-      }
+      if (document.visibilityState === 'hidden') stopAllAudio();
     };
 
-    const onPageHide = () => {
-      stopAllAudio();
-      stopContexts();
-    };
+    const onPageHide = () => stopAllAudio();
     const onStopAll = () => {
       stopAllAudio();
-      stopContexts();
+      // A screen change dispatches this after Mix has left the DOM. Keep sending
+      // stop signals briefly so an in-flight decode cannot start playing later.
+      if (!document.querySelector('.mixConsole')) guardAgainstLateMixPlayback();
     };
 
     document.addEventListener('play', onPlay, true);
@@ -69,10 +69,9 @@ export default function AudioPolicy() {
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('ai-songs-stop-all-audio', onStopAll);
-      stopContexts();
-      restoreDecode?.();
+      clearNavigationGuard();
     };
   }, []);
 
-  return null;
+  return <VocalLayerBuilder />;
 }

@@ -1,0 +1,77 @@
+name: Add Voice-Swap primary training provider
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/add-voice-swap-primary.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Voice Lab provider UX
+        shell: python
+        run: |
+          from pathlib import Path
+
+          voice=Path('app/VoiceWorkspace.tsx')
+          text=voice.read_text()
+          text=text.replace(
+            'Record or upload clean solo vocals and prepare the Kits training package for your custom AI singing voice.',
+            'Train a custom AI singing voice in Pie with Voice-Swap as the primary provider and Kits kept as a backup.'
+          )
+          voice.write_text(text)
+
+          path=Path('app/TrainVoiceWorkspace.tsx')
+          text=path.read_text()
+
+          old="  const [advancedOpen, setAdvancedOpen] = useState(false);"
+          new="""  const [advancedOpen, setAdvancedOpen] = useState(false);\n  const [voiceSwapState, setVoiceSwapState] = useState<'idle' | 'checking' | 'ready' | 'missing' | 'error'>('idle');\n  const [voiceSwapModels, setVoiceSwapModels] = useState(0);"""
+          if old not in text: raise SystemExit('state target missing')
+          text=text.replace(old,new,1)
+
+          anchor="  async function prepareForKits() {"
+          fn="""  async function checkVoiceSwap() {\n    setVoiceSwapState('checking');\n    setStatus('Checking Voice-Swap connection…');\n    try {\n      const response = await fetch('/api/voice-swap/models', { cache: 'no-store' });\n      const payload = await response.json().catch(() => ({}));\n      if (response.ok) {\n        const models = Array.isArray(payload) ? payload : Array.isArray(payload?.models) ? payload.models : Array.isArray(payload?.data) ? payload.data : [];\n        setVoiceSwapModels(models.length);\n        setVoiceSwapState('ready');\n        setStatus(`✓ Voice-Swap connected${models.length ? ` · ${models.length} model${models.length === 1 ? '' : 's'} available` : ''}. Pie will use Voice-Swap first and keep Kits as backup.`);\n        return;\n      }\n      if (response.status === 503 && payload?.code === 'VOICE_SWAP_NOT_CONFIGURED') {\n        setVoiceSwapState('missing');\n        setStatus('Voice-Swap is built into Pie but the secure VOICE_SWAP_API_TOKEN has not been added to Vercel yet. Kits remains available as backup.');\n        return;\n      }\n      setVoiceSwapState('error');\n      setStatus(typeof payload?.error === 'string' ? payload.error : 'Voice-Swap connection check failed.');\n    } catch {\n      setVoiceSwapState('error');\n      setStatus('Voice-Swap connection check failed. Kits remains available as backup.');\n    }\n  }\n\n"""
+          if anchor not in text: raise SystemExit('function anchor missing')
+          text=text.replace(anchor,fn+anchor,1)
+
+          text=text.replace("target: 'Kits Professional Voice Cloning',","target: 'Voice-Swap primary singing model; Kits Professional Voice Cloning backup',",1)
+          text=text.replace("'AI Songs — Drob Guided Training Package',","'Pie — Drob Guided Voice Training Package',",1)
+          text=text.replace(
+            "'Final step: open Kits Professional Voice Cloning, upload the WAV files, and submit training.',",
+            "'Primary target: Voice-Swap custom singing model. Backup target: Kits Professional Voice Cloning.',\n        'Voice-Swap standard models target roughly 20–40 minutes of clean acapella audio; this guided session targets 30 minutes.',",
+            1
+          )
+          text=text.replace(
+            "setStatus('Drob guided training package created. Extract it, review the WAV files, then upload the clean takes to Kits Professional Voice Cloning.');",
+            "setStatus('Drob guided training package created for backup/manual use. Voice-Swap is the primary provider in Pie; Kits remains the fallback.');",
+            1
+          )
+
+          old_block="""      <div className=\"playerCard\">\n        <strong>4. Prepare the new Drob model</strong>\n        <small>AI Songs converts the selected recordings to 44.1 kHz mono WAV, separates them into guided training folders, and includes a quality/range manifest.</small>\n        <button className=\"primary\" onClick={prepareForKits} disabled={!selectedTakes.length || processing}>{processing ? 'Turning up the heat…' : 'Prepare Drob Training Package'}</button>\n        <a className=\"secondary\" href=\"https://app.kits.ai/voices/train\" target=\"_blank\" rel=\"noreferrer\">Open Kits Voice Training</a>\n        <small>Kits still requires the final upload/train confirmation on its site because new custom-voice training is not exposed through its public API.</small>\n      </div>"""
+          new_block="""      <div className=\"playerCard\">\n        <strong>4. Train the new Drob model</strong>\n        <div className=\"statusBox\" style={{ display: 'grid', gap: 6 }}>\n          <strong>🥇 Primary · Voice-Swap</strong>\n          <small>Custom singing-model training + voice conversion through Pie. Standard training targets about 20–40 minutes of clean acapella; this guided session targets 30 minutes.</small>\n          <span>{voiceSwapState === 'ready' ? `✓ Connected${voiceSwapModels ? ` · ${voiceSwapModels} model${voiceSwapModels === 1 ? '' : 's'}` : ''}` : voiceSwapState === 'missing' ? 'Setup needed · secure API token not connected yet' : voiceSwapState === 'error' ? 'Connection check failed' : voiceSwapState === 'checking' ? 'Checking…' : 'Not checked yet'}</span>\n        </div>\n        <button className=\"primary\" type=\"button\" onClick={checkVoiceSwap} disabled={voiceSwapState === 'checking'}>{voiceSwapState === 'checking' ? 'Checking Voice-Swap…' : voiceSwapState === 'ready' ? '✓ Voice-Swap Connected' : 'Check Voice-Swap Connection'}</button>\n        <div className=\"statusBox\" style={{ display: 'grid', gap: 6 }}>\n          <strong>🥈 Backup · Kits</strong>\n          <small>Kept as the fallback so the same clean training set can still be used if Voice-Swap is unavailable or we prefer the Kits result in an A/B test.</small>\n        </div>\n        <small>Pie converts selected recordings to 44.1 kHz mono WAV and preserves the guided training categories plus a quality/range manifest.</small>\n        <button className=\"secondary\" onClick={prepareForKits} disabled={!selectedTakes.length || processing}>{processing ? 'Turning up the heat…' : 'Download Backup Training Package'}</button>\n        <a className=\"secondary\" href=\"https://app.kits.ai/voices/train\" target=\"_blank\" rel=\"noreferrer\">Open Kits Backup Training</a>\n      </div>"""
+          if old_block not in text: raise SystemExit('provider UI block missing')
+          text=text.replace(old_block,new_block,1)
+          path.write_text(text)
+
+      - name: Commit provider changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- app/VoiceWorkspace.tsx app/TrainVoiceWorkspace.tsx; then
+            echo 'No provider UX changes required.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/VoiceWorkspace.tsx app/TrainVoiceWorkspace.tsx
+          git commit -m 'Use Voice-Swap primary with Kits backup in Voice Lab'
+          git push

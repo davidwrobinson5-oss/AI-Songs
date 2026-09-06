@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
 import { rateLimit, readJsonObject, safeClientError, textField } from '../../../security';
+import { resolvePieUserId } from '../../../usageEntitlements';
 
 const contractTypes=[
   'Band Partnership / Operating Agreement','Artist Management Agreement','Producer Agreement','Featured Artist Agreement','Songwriter Split Sheet','Work-for-Hire / Contractor Agreement','Master Ownership / Assignment Agreement','Publishing Administration Agreement','Co-Publishing Agreement','Synchronization / Master Use License','Booking / Live Performance Agreement','Brand Endorsement / Sponsorship Agreement','Merchandise License Agreement','Distribution Agreement Review Draft','NDA / Confidentiality Agreement','IP Assignment / License Agreement','Collaboration Agreement','Tax + Accounting Professional Engagement Letter',
@@ -9,6 +10,8 @@ const contractTypes=[
 export async function POST(req:Request){
   const limited=rateLimit(req,'contract-draft',8,60_000);if(limited)return limited;
   try{
+    const userId=await resolvePieUserId();
+    if(!userId)return NextResponse.json({error:'Authentication required.'},{status:401,headers:{'Cache-Control':'no-store'}});
     const body=await readJsonObject(req,80_000);
     const contractType=textField(body.contractType,160);
     const jurisdiction=textField(body.jurisdiction,160,'Washington, USA');
@@ -18,8 +21,8 @@ export async function POST(req:Request){
     const taxNotes=textField(body.taxNotes,5000);
     const ipNotes=textField(body.ipNotes,5000);
     const negotiationPosition=textField(body.negotiationPosition,5000);
-    if(!contractTypes.includes(contractType))return NextResponse.json({error:'Choose a supported contract type.'},{status:400});
-    if(!process.env.OPENAI_API_KEY)return NextResponse.json({error:'Advanced contract drafting is temporarily unavailable.'},{status:503});
+    if(!contractTypes.includes(contractType))return NextResponse.json({error:'Choose a supported contract type.'},{status:400,headers:{'Cache-Control':'no-store'}});
+    if(!process.env.OPENAI_API_KEY)return NextResponse.json({error:'Advanced contract drafting is temporarily unavailable.'},{status:503,headers:{'Cache-Control':'no-store'}});
 
     const client=new OpenAI({apiKey:process.env.OPENAI_API_KEY});
     const response=await client.responses.create({
@@ -31,5 +34,5 @@ export async function POST(req:Request){
       max_output_tokens:9000,
     });
     return NextResponse.json({text:response.output_text.slice(0,70000),disclaimer:'Drafting assistance only. Have qualified entertainment counsel and tax professionals review the agreement before signing or relying on it.'},{headers:{'Cache-Control':'no-store'}});
-  }catch(error){return NextResponse.json({error:safeClientError(error,'Contract drafting failed.')},{status:400});}
+  }catch(error){return NextResponse.json({error:safeClientError(error,'Contract drafting failed.')},{status:400,headers:{'Cache-Control':'no-store'}});}
 }

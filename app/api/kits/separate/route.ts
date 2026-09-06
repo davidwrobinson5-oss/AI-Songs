@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
+import { FREE_LIMITS } from '../../../billingConfig';
 import { rateLimit, safeClientError, validateAudioFile } from '../../../security';
+import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../../usageEntitlements';
 
 const KITS_BASE = 'https://arpeggi.io/api/kits/v1';
 
@@ -7,30 +9,28 @@ export async function POST(req: Request) {
   const limited = rateLimit(req, 'kits-separate', 4, 60_000);
   if (limited) return limited;
 
-  const apiKey = process.env.KITS_API_KEY;
-  if (!apiKey) return NextResponse.json({ error: 'Vocal separation is temporarily unavailable.' }, { status: 503 });
-
   try {
-    const declared = Number(req.headers.get('content-length') || 0);
-    if (declared && declared > 82 * 1024 * 1024) {
-      return NextResponse.json({ error: 'Audio upload is too large.' }, { status: 413 });
-    }
+    const userId = await resolvePieUserId();
+    if (!userId) return NextResponse.json({ error: 'Sign in to separate vocals.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
 
+    const apiKey = process.env.KITS_API_KEY;
+    if (!apiKey) return NextResponse.json({ error: 'Vocal separation is temporarily unavailable.' }, { status: 503 });
+
+    const declared = Number(req.headers.get('content-length') || 0);
+    if (declared && declared > 82 * 1024 * 1024) return NextResponse.json({ error: 'Audio upload is too large.' }, { status: 413 });
     const incoming = await req.formData();
     const file = incoming.get('file');
     if (!(file instanceof Blob)) return NextResponse.json({ error: 'Audio file is required.' }, { status: 400 });
     validateAudioFile(file, 80 * 1024 * 1024);
 
+    const entitlement = await consumeUsage('kits_vocal_separations', FREE_LIMITS.musicGenerationsPerMonth);
+    if (!entitlement.allowed) {
+      return NextResponse.json({ error: usageDeniedMessage('vocal separations', entitlement), code: 'PIE_USAGE_LIMIT', usage: { count: entitlement.usageCount, limit: entitlement.usageLimit } }, { status: entitlement.userId ? 402 : 401, headers: { 'Cache-Control': 'no-store' } });
+    }
+
     const form = new FormData();
     form.append('inputFile', file, 'generated-song.mp3');
-
-    const response = await fetch(`${KITS_BASE}/vocal-separations`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${apiKey}` },
-      body: form,
-      cache: 'no-store',
-    });
-
+    const response = await fetch(`${KITS_BASE}/vocal-separations`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form, cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       console.error('Kits vocal separation failed', response.status);
@@ -39,6 +39,6 @@ export async function POST(req: Request) {
     return NextResponse.json(data, { status: 200, headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     console.error('Kits vocal separation failed');
-    return NextResponse.json({ error: safeClientError(error, 'Vocal separation failed.') }, { status: 400 });
+    return NextResponse.json({ error: safeClientError(error, 'Vocal separation failed.') }, { status: 400, headers: { 'Cache-Control': 'no-store' } });
   }
 }

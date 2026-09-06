@@ -1,6 +1,10 @@
 name: Pie Nationwide Venue Import
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/pie-venue-import.yml"
   workflow_dispatch:
     inputs:
       release:

@@ -1,0 +1,61 @@
+name: Add longer Pie song durations
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/add-song-duration-options.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add 4, 4:30, and 5 minute choices
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('app/page.tsx')
+          text = path.read_text()
+          old = """const durations = [
+  { label: '30 sec', value: 30000 },
+  { label: '1 min', value: 60000 },
+  { label: '2 min', value: 120000 },
+  { label: '3 min', value: 180000 },
+  { label: '3:30', value: 210000 },
+];"""
+          new = """const durations = [
+  { label: '30 sec', value: 30000 },
+  { label: '1 min', value: 60000 },
+  { label: '2 min', value: 120000 },
+  { label: '3 min', value: 180000 },
+  { label: '3:30', value: 210000 },
+  { label: '4 min', value: 240000 },
+  { label: '4:30', value: 270000 },
+  { label: '5 min', value: 300000 },
+];"""
+          if new in text:
+              raise SystemExit(0)
+          if old not in text:
+              raise SystemExit('Expected duration list was not found; refusing to make a broad replacement.')
+          path.write_text(text.replace(old, new, 1))
+
+      - name: Commit longer duration choices
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- app/page.tsx; then
+            echo 'Longer duration choices are already present.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/page.tsx
+          git commit -m 'Add 4 to 5 minute song generation lengths'
+          git push

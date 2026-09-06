@@ -36,7 +36,8 @@ export default function AudioPolicy() {
           clearNavigationGuard();
           return;
         }
-        pauseMedia();
+        // Mix playback is WebAudio. Keep stopping only WebAudio here so a song
+        // the user intentionally starts in Songs (HTMLAudioElement) is not paused.
         stopWebAudio();
       }, 250);
     };
@@ -55,7 +56,7 @@ export default function AudioPolicy() {
     const onStopAll = () => {
       stopAllAudio();
       // A screen change dispatches this after Mix has left the DOM. Keep sending
-      // stop signals briefly so an in-flight decode cannot start playing later.
+      // WebAudio stop signals briefly so an in-flight Mix decode cannot start later.
       if (!document.querySelector('.mixConsole')) guardAgainstLateMixPlayback();
     };
 

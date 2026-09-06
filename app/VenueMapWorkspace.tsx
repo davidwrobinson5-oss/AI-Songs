@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 
 type Venue = { id:string; name:string; address:string; bookerName:string; bookerEmail:string; bookerPhone:string; venueType:string; setting:'Indoor'|'Outdoor'|'Indoor + Outdoor'; seats:number; calendarUrl:string };
-const venueTypes=['Club / Bar','Concert Hall','Theater','Festival / Outdoor Stage','Church / Faith Event','Campground / Retreat Center','Coffeehouse / Listening Room','Arena','Casino / Resort','Lodge','Event / Convention Center','TV / News Station','Radio Station','Talent Showcase','Other'];
+const venueTypes=['Club / Bar','Concert Hall','Theater / Performing Arts Center','Festival / Fair / Outdoor Stage','Church / Faith Event','Campground / Retreat Center','Coffeehouse / Listening Room','Arena / Sports Venue','Casino / Resort','Lodge','Event / Convention Center','Racetrack / Speedway','Boardwalk / Waterfront','Park / Public Space','College / University','Mall / Market','Museum / Cultural Center','Cruise / Ferry Event','Corporate / Private Event','TV / News Station','Radio Station','Talent Showcase','Other'];
 const discoveryModes=[
   ['All Music Opportunities','live music venues bars breweries event spaces open mic'],
   ['Open Mics','open mic music venues'],
@@ -15,6 +15,16 @@ const discoveryModes=[
   ['Event Centers','event centers convention centers that book bands musicians'],
   ['Churches','churches worship events concerts that book musicians bands guest artists'],
   ['Campgrounds + Retreats','campgrounds retreat centers camps with live music festivals concerts worship events'],
+  ['Racetracks','racetracks speedways live music concerts entertainment events booking'],
+  ['Boardwalks + Waterfronts','boardwalk waterfront marina live music concerts festivals events'],
+  ['Fairs + Festivals','music festivals fairs community festivals artist applications band submissions'],
+  ['Parks + Public Events','parks public plazas community events concert series live music artist applications'],
+  ['Colleges + Universities','college university campus events concerts student activities music booking'],
+  ['Markets + Malls','farmers markets public markets malls live music entertainment booking'],
+  ['Museums + Cultural Centers','museums cultural centers arts events live music performances booking'],
+  ['Sports Venues','stadiums arenas sports venues pregame halftime live music entertainment booking'],
+  ['Cruise + Ferry Events','cruise ships ferries waterfront cruises live music entertainment auditions'],
+  ['Corporate + Private Events','corporate events private events weddings galas band musician booking opportunities'],
   ['TV + News','TV stations news channels local music interviews live performances artist opportunities'],
   ['Radio','radio stations music interviews in-studio performances local artist submissions'],
   ['Talent Showcases','music talent showcases artist auditions band submissions'],
@@ -44,7 +54,7 @@ export default function VenueMapWorkspace({onNavigate}:{onNavigate:(screen:strin
   function saveVenue(event:FormEvent){event.preventDefault();if(!complete)return;persist([{id:crypto.randomUUID(),name:name.trim(),address:address.trim(),bookerName:bookerName.trim(),bookerEmail:bookerEmail.trim(),bookerPhone:bookerPhone.trim(),venueType,setting,seats:Number(seats),calendarUrl:calendarUrl.trim()},...venues]);setName('');setAddress('');setBookerName('');setBookerEmail('');setBookerPhone('');setSeats('');setCalendarUrl('');setStatus('Venue saved to the booking directory.')}
 
   return <div style={{display:'grid',gap:16}}>
-    <section className="panel"><p className="eyebrow">Live Opportunity Map</p><h2>Find stages, media, and showcases.</h2><p className="sub">Search open mics, bands, bars, casinos, lodges, event centers, churches, campgrounds, TV, radio, and talent showcases separately so opportunities do not disappear inside one narrow result list.</p>
+    <section className="panel"><p className="eyebrow">Live Opportunity Map</p><h2>Find every kind of performance opportunity.</h2><p className="sub">Search music venues, open mics, media, showcases, casinos, churches, campgrounds, racetracks, waterfronts, festivals, parks, campuses, cultural centers, sports venues, and private events separately so opportunities do not disappear inside one narrow result list.</p>
       <form onSubmit={search} style={{display:'grid',gap:10,marginTop:14}}><input value={location} onChange={e=>setLocation(e.target.value)} placeholder="City, ZIP code, or address"/><select value={filter} onChange={e=>setFilter(e.target.value)}>{discoveryModes.map(([label])=><option key={label}>{label}</option>)}</select><div className="mixButtons"><button className="primary" type="submit">🔎 Find Music Opportunities</button><button className="secondary" type="button" onClick={useMyLocation}>◎ Near Me</button></div></form>{status&&<div className="statusBox" style={{marginTop:12}}>{status}</div>}
     </section>
     <section className="panel" style={{padding:10,overflow:'hidden'}}><iframe title="Google Maps live music opportunity search" src={mapUrl} loading="lazy" referrerPolicy="no-referrer-when-downgrade" allowFullScreen style={{display:'block',width:'100%',height:'52vh',minHeight:390,border:0,borderRadius:16}}/><div className="mixButtons"><a className="primary" href={mapsSearchUrl} target="_blank" rel="noreferrer" style={{display:'block',textAlign:'center',textDecoration:'none'}}>Open Full Google Maps</a><a className="secondary" href={calendarSearchUrl} target="_blank" rel="noreferrer" style={{display:'block',textAlign:'center',textDecoration:'none'}}>Verify Booking + Opportunities</a></div></section>

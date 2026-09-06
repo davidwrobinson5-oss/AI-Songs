@@ -277,6 +277,8 @@ export default function TrainVoiceWorkspace() {
   const [sectionId, setSectionId] = useState('identity');
   const [promptIndex, setPromptIndex] = useState(0);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [voiceSwapState, setVoiceSwapState] = useState<'idle' | 'checking' | 'ready' | 'missing' | 'error'>('idle');
+  const [voiceSwapModels, setVoiceSwapModels] = useState(0);
 
   const sectionPrompts = useMemo(() => PROMPTS.filter((prompt) => prompt.sectionId === sectionId), [sectionId]);
   const currentPrompt = sectionPrompts[Math.min(promptIndex, Math.max(0, sectionPrompts.length - 1))];
@@ -411,6 +413,32 @@ export default function TrainVoiceWorkspace() {
     window.setTimeout(() => context.close().catch(() => undefined), total * 1000);
   }
 
+  async function checkVoiceSwap() {
+    setVoiceSwapState('checking');
+    setStatus('Checking Voice-Swap connection…');
+    try {
+      const response = await fetch('/api/voice-swap/models', { cache: 'no-store' });
+      const payload = await response.json().catch(() => ({}));
+      if (response.ok) {
+        const models = Array.isArray(payload) ? payload : Array.isArray(payload?.models) ? payload.models : Array.isArray(payload?.data) ? payload.data : [];
+        setVoiceSwapModels(models.length);
+        setVoiceSwapState('ready');
+        setStatus(`✓ Voice-Swap connected${models.length ? ` · ${models.length} model${models.length === 1 ? '' : 's'} available` : ''}. Pie will use Voice-Swap first and keep Kits as backup.`);
+        return;
+      }
+      if (response.status === 503 && payload?.code === 'VOICE_SWAP_NOT_CONFIGURED') {
+        setVoiceSwapState('missing');
+        setStatus('Voice-Swap is built into Pie but the secure VOICE_SWAP_API_TOKEN has not been added to Vercel yet. Kits remains available as backup.');
+        return;
+      }
+      setVoiceSwapState('error');
+      setStatus(typeof payload?.error === 'string' ? payload.error : 'Voice-Swap connection check failed.');
+    } catch {
+      setVoiceSwapState('error');
+      setStatus('Voice-Swap connection check failed. Kits remains available as backup.');
+    }
+  }
+
   async function prepareForKits() {
     if (!selectedTakes.length) return;
     setProcessing(true);
@@ -438,7 +466,7 @@ export default function TrainVoiceWorkspace() {
         selectedMinutes: selectedSeconds / 60,
         selectedTakeCount: selectedTakes.length,
         detectedRange: overallLow !== undefined && overallHigh !== undefined ? `${midiName(overallLow)}-${midiName(overallHigh)}` : null,
-        target: 'Kits Professional Voice Cloning',
+        target: 'Voice-Swap primary singing model; Kits Professional Voice Cloning backup',
         trainingStyle: 'AI Songs guided speaking + singing curriculum',
         progress,
         guidance: 'Use only clean, dry, monophonic recordings. The upper-register section is intentionally overrepresented to improve high-note behavior.',
@@ -459,14 +487,15 @@ export default function TrainVoiceWorkspace() {
         })),
       };
       files['README-DROB.txt'] = strToU8([
-        'AI Songs — Drob Guided Training Package',
+        'Pie — Drob Guided Voice Training Package',
         '',
         'These files are 44.1 kHz mono PCM WAV files prepared from the guided speaking + singing session.',
         'Listen through every included take before training. Remove anything with music, effects, doubles, another voice, clipping, heavy room noise, strain, or a bad high note.',
         'The folders preserve the training categories: speaking identity, core singing, range, upper register, and expression.',
         'For the strongest Drob identity, do not replace weak high-note recordings with another singer. Re-record them in your real upper voice at a comfortable volume.',
         '',
-        'Final step: open Kits Professional Voice Cloning, upload the WAV files, and submit training.',
+        'Primary target: Voice-Swap custom singing model. Backup target: Kits Professional Voice Cloning.',
+        'Voice-Swap standard models target roughly 20–40 minutes of clean acapella audio; this guided session targets 30 minutes.',
       ].join('\n'));
       files['training-manifest.json'] = strToU8(JSON.stringify(manifest, null, 2));
 
@@ -478,7 +507,7 @@ export default function TrainVoiceWorkspace() {
       anchor.download = 'AI-Songs-Drob-Guided-Training.zip';
       anchor.click();
       setTimeout(() => URL.revokeObjectURL(url), 2000);
-      setStatus('Drob guided training package created. Extract it, review the WAV files, then upload the clean takes to Kits Professional Voice Cloning.');
+      setStatus('Drob guided training package created for backup/manual use. Voice-Swap is the primary provider in Pie; Kits remains the fallback.');
     } catch (error) {
       setStatus(error instanceof Error ? error.message : 'Could not prepare the Drob training package.');
     } finally {
@@ -574,11 +603,20 @@ export default function TrainVoiceWorkspace() {
       )}
 
       <div className="playerCard">
-        <strong>4. Prepare the new Drob model</strong>
-        <small>AI Songs converts the selected recordings to 44.1 kHz mono WAV, separates them into guided training folders, and includes a quality/range manifest.</small>
-        <button className="primary" onClick={prepareForKits} disabled={!selectedTakes.length || processing}>{processing ? 'Turning up the heat…' : 'Prepare Drob Training Package'}</button>
-        <a className="secondary" href="https://app.kits.ai/voices/train" target="_blank" rel="noreferrer">Open Kits Voice Training</a>
-        <small>Kits still requires the final upload/train confirmation on its site because new custom-voice training is not exposed through its public API.</small>
+        <strong>4. Train the new Drob model</strong>
+        <div className="statusBox" style={{ display: 'grid', gap: 6 }}>
+          <strong>🥇 Primary · Voice-Swap</strong>
+          <small>Custom singing-model training + voice conversion through Pie. Standard training targets about 20–40 minutes of clean acapella; this guided session targets 30 minutes.</small>
+          <span>{voiceSwapState === 'ready' ? `✓ Connected${voiceSwapModels ? ` · ${voiceSwapModels} model${voiceSwapModels === 1 ? '' : 's'}` : ''}` : voiceSwapState === 'missing' ? 'Setup needed · secure API token not connected yet' : voiceSwapState === 'error' ? 'Connection check failed' : voiceSwapState === 'checking' ? 'Checking…' : 'Not checked yet'}</span>
+        </div>
+        <button className="primary" type="button" onClick={checkVoiceSwap} disabled={voiceSwapState === 'checking'}>{voiceSwapState === 'checking' ? 'Checking Voice-Swap…' : voiceSwapState === 'ready' ? '✓ Voice-Swap Connected' : 'Check Voice-Swap Connection'}</button>
+        <div className="statusBox" style={{ display: 'grid', gap: 6 }}>
+          <strong>🥈 Backup · Kits</strong>
+          <small>Kept as the fallback so the same clean training set can still be used if Voice-Swap is unavailable or we prefer the Kits result in an A/B test.</small>
+        </div>
+        <small>Pie converts selected recordings to 44.1 kHz mono WAV and preserves the guided training categories plus a quality/range manifest.</small>
+        <button className="secondary" onClick={prepareForKits} disabled={!selectedTakes.length || processing}>{processing ? 'Turning up the heat…' : 'Download Backup Training Package'}</button>
+        <a className="secondary" href="https://app.kits.ai/voices/train" target="_blank" rel="noreferrer">Open Kits Backup Training</a>
       </div>
 
       <details className="playerCard" open={advancedOpen} onToggle={(event) => setAdvancedOpen((event.currentTarget as HTMLDetailsElement).open)}>

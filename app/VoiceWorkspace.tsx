@@ -319,7 +319,7 @@ export default function VoiceWorkspace({ backingUrl, lyrics, songTitle, onUseVoc
             <span className="icon">🎙️</span><strong>Record Live</strong><small>Sing over music you already created. See the lyrics, record takes, fix timing, clean up the vocal, compress, de-ess, brighten, add space, and render a polished vocal.</small>
           </button>
           <button className="modeCard" onClick={() => setChoice('train')}>
-            <span className="icon">🧬</span><strong>Train Voice</strong><small>Record or upload clean solo vocals and prepare the Kits training package for your custom AI singing voice.</small>
+            <span className="icon">🧬</span><strong>Train Voice</strong><small>Train a custom AI singing voice in Pie with Voice-Swap as the primary provider and Kits kept as a backup.</small>
           </button>
         </div>
       </section>

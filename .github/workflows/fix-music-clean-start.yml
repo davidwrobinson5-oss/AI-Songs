@@ -1,0 +1,72 @@
+name: Make Music tab start clean
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-music-clean-start.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Stop auto-restoring the last song into Music
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path('app/page.tsx')
+          text = path.read_text()
+
+          start = text.find('  async function restoreLatestPlayableMusic() {')
+          end_marker = "  useEffect(() => {\n    if (screen === 'songs') refreshLibrary();\n    if (screen === 'create') void restoreLatestPlayableMusic();\n  }, [screen]);"
+          end = text.find(end_marker)
+          if start != -1 and end != -1:
+              replacement = "  useEffect(() => {\n    if (screen === 'songs') refreshLibrary();\n  }, [screen]);"
+              text = text[:start] + replacement + text[end + len(end_marker):]
+          elif "if (screen === 'create') void restoreLatestPlayableMusic();" in text:
+              text = text.replace("    if (screen === 'create') void restoreLatestPlayableMusic();\n", '')
+
+          new_song_end = """    setScreen('create');
+  }
+"""
+          nav_helper = """    setScreen('create');
+  }
+
+  function navigateFromTabs(next: string) {
+    if (next === 'create') {
+      newSong();
+      return;
+    }
+    setScreen(next as Screen);
+  }
+"""
+          if 'function navigateFromTabs(next: string)' not in text:
+              idx = text.find(new_song_end, text.find('  function newSong()'))
+              if idx == -1:
+                  raise SystemExit('Could not find newSong() end')
+              text = text[:idx] + text[idx:].replace(new_song_end, nav_helper, 1)
+
+          old_nav = '<PieBottomNav active={screen} onNavigate={(next) => setScreen(next as Screen)} />'
+          text = text.replace(old_nav, '<PieBottomNav active={screen} onNavigate={navigateFromTabs} />')
+          path.write_text(text)
+
+      - name: Commit clean Music start
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- app/page.tsx; then
+            echo 'Music tab already starts clean.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/page.tsx
+          git commit -m 'Make Music tab open a clean new song workspace'
+          git push

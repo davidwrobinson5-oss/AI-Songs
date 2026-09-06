@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server';
 import { unzipSync } from 'fflate';
+import { FREE_LIMITS } from '../../../billingConfig';
 import { rateLimit, readResponseBytesLimited, safeHttpsUrl, safeId } from '../../../security';
+import { verifyTaskToken } from '../../../taskAuthorization';
+import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../../usageEntitlements';
 
 const MUREKA_BASE = 'https://api.mureka.ai';
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io';
@@ -80,7 +83,22 @@ function audioMime(name: string) {
 }
 
 export async function GET(req: Request) {
-  const limited = rateLimit(req, 'mureka-stems', 4, 60_000);
+  const userId = await resolvePieUserId();
+  if (!userId) return NextResponse.json({ error: 'Sign in to retrieve this precision guide.' }, { status: 401 });
+
+  const requestUrl = new URL(req.url);
+  let taskId: string;
+  try {
+    taskId = safeId(requestUrl.searchParams.get('fileId'), 160);
+  } catch {
+    return NextResponse.json({ error: 'Invalid precision-guide task.' }, { status: 400 });
+  }
+  const taskToken = req.headers.get('x-pie-task-token') || '';
+  if (!(await verifyTaskToken(taskToken, userId, taskId, 'precision-guide'))) {
+    return NextResponse.json({ error: 'This precision-guide task does not belong to the signed-in account.' }, { status: 403 });
+  }
+
+  const limited = rateLimit(req, `mureka-stems:${userId}:${taskId}`, 2, 15 * 60_000);
   if (limited) return limited;
 
   const murekaKey = process.env.MUREKA_API_KEY?.trim();
@@ -89,9 +107,16 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Precision vocal processing is temporarily unavailable.' }, { status: 503 });
   }
 
+  const entitlement = await consumeUsage('precision_stem_separations', FREE_LIMITS.musicGenerationsPerMonth);
+  if (!entitlement.allowed) {
+    return NextResponse.json({
+      error: usageDeniedMessage('precision stem separations', entitlement),
+      code: 'PIE_USAGE_LIMIT',
+      usage: { count: entitlement.usageCount, limit: entitlement.usageLimit },
+    }, { status: entitlement.userId ? 402 : 401, headers: { 'Cache-Control': 'no-store' } });
+  }
+
   try {
-    const requestUrl = new URL(req.url);
-    const taskId = safeId(requestUrl.searchParams.get('fileId'), 160);
     const archiveRequested = requestUrl.searchParams.get('archive') === '1';
 
     const song = await fetchMurekaSong(murekaKey, taskId);
@@ -106,7 +131,7 @@ export async function GET(req: Request) {
       cache: 'no-store',
     });
     if (!stemsRes.ok) {
-      console.error('ElevenLabs stem separation failed', stemsRes.status);
+      console.error('Music Engine stem separation failed', stemsRes.status);
       return NextResponse.json({ error: 'Stem separation provider rejected the request.' }, { status: stemsRes.status >= 500 ? 502 : 400 });
     }
 

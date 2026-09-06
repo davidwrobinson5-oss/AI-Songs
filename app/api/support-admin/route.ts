@@ -1,26 +1,10 @@
-import { auth, currentUser } from '@clerk/nextjs/server';
-import { cookies } from 'next/headers';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { NextRequest, NextResponse } from 'next/server';
-import { SESSION_COOKIE, verifySessionToken } from '../../auth';
+import { isPieAdmin } from '../../adminAuth';
+import { rateLimit, readJsonObject, safeId, textField } from '../../security';
 
 const SUPPORT_ADMIN_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-support-admin';
 const SUPABASE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
-
-async function isAdmin(){
-  try{
-    const {userId}=await auth();
-    if(userId){
-      const user=await currentUser().catch(()=>null);
-      const pub=(user?.publicMetadata||{}) as Record<string,unknown>;
-      const allowedIds=(process.env.PIE_ADMIN_USER_IDS||'').split(',').map(x=>x.trim()).filter(Boolean);
-      return pub.pieAdmin===true||pub.pieSupportAdmin===true||allowedIds.includes(userId);
-    }
-  }catch{}
-  const jar=await cookies();
-  const token=jar.get(SESSION_COOKIE)?.value||'';
-  return verifySessionToken(token,process.env.AI_SONGS_SESSION_SECRET);
-}
 
 async function callSupportAdmin(body:Record<string,unknown>){
   const oidc=await getVercelOidcToken().catch(()=>'');
@@ -31,17 +15,29 @@ async function callSupportAdmin(body:Record<string,unknown>){
   return data;
 }
 
-export async function GET(){
-  if(!(await isAdmin()))return NextResponse.json({error:'Support operations are restricted to Pie administration.'},{status:403});
+export async function GET(req:NextRequest){
+  const limited=rateLimit(req,'support-admin-read',30,60_000);if(limited)return limited;
+  if(!(await isPieAdmin('support')))return NextResponse.json({error:'Support operations are restricted to Pie administration.'},{status:403});
   try{return NextResponse.json(await callSupportAdmin({action:'list'}),{headers:{'Cache-Control':'no-store'}});}catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Could not load support operations.'},{status:500});}
 }
 
 export async function POST(req:NextRequest){
-  if(!(await isAdmin()))return NextResponse.json({error:'Support operations are restricted to Pie administration.'},{status:403});
+  const limited=rateLimit(req,'support-admin-write',20,60_000);if(limited)return limited;
+  if(!(await isPieAdmin('support')))return NextResponse.json({error:'Support operations are restricted to Pie administration.'},{status:403});
   try{
-    const body=await req.json().catch(()=>({}));
-    const action=String(body?.action||'');
+    const body=await readJsonObject(req,24_000);
+    const action=textField(body.action,24);
     if(!['messages','reply','update'].includes(action))return NextResponse.json({error:'Unsupported support operation.'},{status:400});
-    return NextResponse.json(await callSupportAdmin({...body,action}),{headers:{'Cache-Control':'no-store'}});
+    const caseId=safeId(body.caseId,160);
+    const payload:Record<string,unknown>={action,caseId};
+    if(action==='reply')payload.message=textField(body.message,10_000);
+    if(action==='update'){
+      payload.assignedTo=textField(body.assignedTo,160);
+      payload.specialistType=textField(body.specialistType,160);
+      payload.priority=textField(body.priority,24);
+      payload.status=textField(body.status,24);
+      payload.escalate=body.escalate===true;
+    }
+    return NextResponse.json(await callSupportAdmin(payload),{headers:{'Cache-Control':'no-store'}});
   }catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Support operation failed.'},{status:500});}
 }

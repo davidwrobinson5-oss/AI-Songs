@@ -112,7 +112,7 @@ export default function ClerkEmailSignUp() {
       {formError ? <p className={styles.authError}>{formError}</p> : null}
 
       <div id="clerk-captcha" />
-      <button className={styles.primaryAuthButton} type="submit" disabled={busy || !email.trim() || !password}>{busy ? 'Creating account…' : 'Create Account'}</button>
+      <button className={styles.primaryAuthButton} type="submit" disabled={busy || !email.trim() || !password}>{busy ? 'Turning up the heat…' : 'Create Account'}</button>
     </form>
   );
 }

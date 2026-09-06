@@ -38,6 +38,6 @@ export default function PrivateStudioAccountControl(){
         <button type="button" role="menuitem" onClick={signOut} disabled={busy} style={{...menuButtonStyle,color:'#ffb4bf'}}>{busy?'Signing out…':'↪ Sign out'}</button>
       </div>}
     </div>
-    {supportOpen&&<LiveSupportCenter onClose={()=>setSupportOpen(false)}/>}
+    {supportOpen&&<LiveSupportCenter onClose={()=>setSupportOpen(false)}/>} 
   </>;
 }

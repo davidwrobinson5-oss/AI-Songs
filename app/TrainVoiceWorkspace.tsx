@@ -414,12 +414,12 @@ export default function TrainVoiceWorkspace() {
   async function prepareForKits() {
     if (!selectedTakes.length) return;
     setProcessing(true);
-    setStatus('Converting selected takes to 44.1 kHz mono WAV files for Drob training…');
+    setStatus('Turning up the heat…');
     try {
       const files: Record<string, Uint8Array> = {};
       for (let i = 0; i < selectedTakes.length; i++) {
         const take = selectedTakes[i];
-        setStatus(`Preparing training WAV ${i + 1} of ${selectedTakes.length}…`);
+        setStatus(`Turning up the heat…`);
         const wav = await toMonoWav(take.blob);
         const folder = take.sectionId ? `Drob-Guided-Training/${take.sectionId}` : 'Drob-Guided-Training/manual';
         files[`${folder}/${String(i + 1).padStart(3, '0')}-${safeName(take.name.replace(/\.[^.]+$/, ''))}.wav`] = wav;
@@ -576,7 +576,7 @@ export default function TrainVoiceWorkspace() {
       <div className="playerCard">
         <strong>4. Prepare the new Drob model</strong>
         <small>AI Songs converts the selected recordings to 44.1 kHz mono WAV, separates them into guided training folders, and includes a quality/range manifest.</small>
-        <button className="primary" onClick={prepareForKits} disabled={!selectedTakes.length || processing}>{processing ? 'Preparing Drob Files…' : 'Prepare Drob Training Package'}</button>
+        <button className="primary" onClick={prepareForKits} disabled={!selectedTakes.length || processing}>{processing ? 'Turning up the heat…' : 'Prepare Drob Training Package'}</button>
         <a className="secondary" href="https://app.kits.ai/voices/train" target="_blank" rel="noreferrer">Open Kits Voice Training</a>
         <small>Kits still requires the final upload/train confirmation on its site because new custom-voice training is not exposed through its public API.</small>
       </div>

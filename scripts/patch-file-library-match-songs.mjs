@@ -4,6 +4,12 @@ import fs from 'node:fs';
 const savedPath = 'app/SavedSheetsStemsLibrary.tsx';
 let saved = fs.readFileSync(savedPath, 'utf8');
 
+const capturedCurrent = fs.readFileSync('app/CapturedSongResults.tsx', 'utf8');
+if (saved.includes('songsLibraryPanel fileLibraryPanel') && capturedCurrent.includes('capturedLibraryPanel')) {
+  console.log('Sheets, stems, and captured files already match the Songs library.');
+  process.exit(0);
+}
+
 const savedReturnStart = saved.indexOf('  return <div className="sheetSourceCard" style={{marginTop:16}}>');
 if (savedReturnStart < 0) throw new Error('Saved Sheets & Stems return block not found.');
 const savedReturnEnd = saved.lastIndexOf('\n}')

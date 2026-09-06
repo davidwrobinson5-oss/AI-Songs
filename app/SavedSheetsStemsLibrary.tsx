@@ -59,16 +59,23 @@ export default function SavedSheetsStemsLibrary(){
     window.dispatchEvent(new Event('pie-sheets-stems-library-changed'));
   }
 
-  return <div className="sheetSourceCard" style={{marginTop:16}}>
-    <p className="eyebrow">SAVED SHEETS & STEMS</p>
-    <h2>Recent audio jobs</h2>
-    <p className="sub">{library.length?'Your saved transcription jobs stay available when you switch screens.':'No saved jobs yet. Your next audio transcription will appear here automatically.'}</p>
-    {library.length>0&&<div style={{display:'grid',gap:10}}>{library.map(item=><div className="statusBox" key={item.id} style={{display:'grid',gap:8}}>
-      <div><strong>{item.sourceName}</strong><small style={{display:'block',marginTop:4}}>{new Date(item.updatedAt).toLocaleString()}</small>{item.status&&<small style={{display:'block',marginTop:4}}>{item.status}</small>}</div>
-      <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-        <button type="button" className="secondary" onClick={()=>openSession(item.id)} disabled={activeId===item.id}>Open</button>
-        <button type="button" className="secondary" onClick={()=>deleteSession(item.id)}>Delete</button>
-      </div>
-    </div>)}</div>}
-  </div>;
+  return <section className="songsLibraryPanel fileLibraryPanel" style={{marginTop:16}}>
+    <div className="songsSectionHead"><strong>Saved Sheets & Stems</strong><span>{library.length} {library.length===1?'file':'files'}</span></div>
+    {library.length===0&&<div className="songsEmpty"><span>▤</span><strong>No saved files yet</strong><small>Your next sheet or stem job will appear here automatically.</small></div>}
+    <div className="songsList fileLibraryList">
+      {library.map((item,index)=><article className={`songListRow fileLibraryRow ${activeId===item.id?'fileLibraryRowActive':''}`} key={item.id}>
+        <button type="button" className={`songCoverButton songCoverTone${index%4} fileThumb`} aria-label={`Open ${item.sourceName}`} onClick={()=>openSession(item.id)}>
+          <span>▤</span>
+        </button>
+        <button type="button" className="songRowInfo" onClick={()=>openSession(item.id)}>
+          <div className="songTitleLine"><strong>{item.sourceName}</strong>{activeId===item.id&&<span>OPEN</span>}</div>
+          <small className="songDescription">Sheets & stems</small>
+          <div className="songMeta"><span>{new Date(item.updatedAt).toLocaleDateString()}</span>{item.status&&<span>{item.status}</span>}</div>
+        </button>
+        <div className="songMenuWrap">
+          <button type="button" className="songMenuButton" aria-label={`Options for ${item.sourceName}`} onClick={()=>deleteSession(item.id)}>•••</button>
+        </div>
+      </article>)}
+    </div>
+  </section>;
 }

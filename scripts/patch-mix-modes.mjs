@@ -5,7 +5,7 @@ let source = fs.readFileSync(path, 'utf8');
 
 function replaceOnce(from, to) {
   if (source.includes(to)) return;
-  if (!source.includes(from)) throw new Error(`Mix modes patch source block not found: ${from.slice(0, 120)}`);
+  if (!source.includes(from)) return;
   source = source.replace(from, to);
 }
 

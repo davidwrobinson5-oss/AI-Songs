@@ -179,7 +179,7 @@ export default function ClerkChoiceLogin() {
           <div className={styles.authError}>{message || errors.fields.identifier?.message}</div>
         )}
         <button className={styles.primaryAuthButton} type="submit" disabled={busy || !identifier.trim()}>
-          {busy ? 'Sending…' : isPhone ? 'Send Text Code' : 'Send Email Code'}
+          {busy ? 'Turning up the heat…' : isPhone ? 'Send Text Code' : 'Send Email Code'}
         </button>
       </form>
     );

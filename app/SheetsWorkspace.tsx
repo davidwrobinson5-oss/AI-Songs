@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { MelodyAnalysis } from './MelodyWorkspace';
 import { exportAudioBlob } from './audioExport';
 import SheetImportTools from './SheetImportTools';
+import SongAnalysisWorkspace from './SongAnalysisWorkspace';
 
 type SheetType = 'full' | 'chords' | 'lead' | 'drums' | 'bass' | 'guitar' | 'keys';
 type JobMap = Partial<Record<'full'|'chords'|'separation'|'lead'|'drums'|'bass'|'guitar'|'keys', string>>;
@@ -13,6 +14,10 @@ type Props = { songTitle:string; lyrics:string; melodyAnalysis?:MelodyAnalysis|n
 
 const SHEETS = [
   ['full','🎼','Full Score'],['chords','🎹','Chords + Lyrics'],['lead','🎤','Lead + Lyrics'],['drums','🥁','Drums'],['bass','🎸','Bass'],['guitar','🎸','Guitar'],['keys','🎹','Keys']
+] as const;
+
+const AUDIO_STEMS = [
+  ['vocals','🎤','Vocals'],['drums','🥁','Drums'],['bass','🎸','Bass'],['guitar','🎸','Guitar'],['piano','🎹','Piano / Keys'],['other','🎻','Other']
 ] as const;
 
 function fmt(v:number){const m=Math.floor(v/60);const s=Math.max(0,v-m*60);return `${m}:${s.toFixed(1).padStart(4,'0')}`}
@@ -25,11 +30,13 @@ export default function SheetsWorkspace({songTitle,lyrics,melodyAnalysis,prompt=
   const [status,setStatus]=useState('');
   const [busy,setBusy]=useState(false);
   const [stemStarted,setStemStarted]=useState(false);
+  const [sheetAnalysisPlan,setSheetAnalysisPlan]=useState('');
+  const [analysisVocalRange,setAnalysisVocalRange]=useState('Baritone');
   const sourceUrl=masterUrl||musicUrl;
   const hasMusic=Boolean(sourceUrl), hasVocal=Boolean(vocalUrl||melodyAnalysis), hasLyrics=Boolean(lyrics.trim());
 
   async function compactForTranscription(blob:Blob){
-    setStatus('Preparing a temporary transcription copy…');
+    setStatus('Turning up the heat…');
     const compact=await exportAudioBlob(blob,'mp3',{bitrate:80,force:true});
     if(compact.size>4_000_000) throw new Error('This song is too long for the current direct transcription upload.');
     return compact;
@@ -44,24 +51,62 @@ export default function SheetsWorkspace({songTitle,lyrics,melodyAnalysis,prompt=
     const d=await r.json(); if(!r.ok) throw new Error(d.error||'Could not transcribe stem.'); return String(d.jobId);
   }
 
+  async function generateFromUploadedAudio(file:File){
+    setBusy(true); setStatus('Turning up the heat…'); setJobs({}); setStatuses({}); setChords([]); setStemStarted(false);
+    try{
+      const musicBlob=await compactForTranscription(file);
+      setStatus('Starting full score, chord analysis, and six-part stem separation…');
+      const [full,chord,separation]=await Promise.all([startFile('full',musicBlob),startFile('chords',musicBlob),startFile('separate',musicBlob)]);
+      setJobs({full,chords:chord,separation});
+      setStatus('Turning up the heat…');
+    }catch(e){
+      setStatus(e instanceof Error?e.message:'Could not process uploaded audio into sheets and stems.');
+    }finally{setBusy(false)}
+  }
+
+  useEffect(()=>{
+    const onAudio=(event:Event)=>{
+      const detail=(event as CustomEvent<{file?:File}>).detail;
+      const file=detail?.file;
+      if(file instanceof File)void generateFromUploadedAudio(file);
+    };
+    window.addEventListener('pie-audio-upload-ready',onAudio);
+    return()=>window.removeEventListener('pie-audio-upload-ready',onAudio);
+  },[]);
+
   async function generate(){
     if(!hasMusic&&!vocalUrl){setStatus('Create or load a finished song first.');return}
-    setBusy(true); setStatus('Preparing finished song for transcription…'); setJobs({}); setStatuses({}); setChords([]); setStemStarted(false);
+    setBusy(true); setStatus('Turning up the heat…'); setJobs({}); setStatuses({}); setChords([]); setStemStarted(false);
     try{
       const musicSource=sourceUrl?await fetch(sourceUrl).then(r=>{if(!r.ok)throw new Error('Could not read the finished song.');return r.blob()}):null;
       const vocalSource=vocalUrl?await fetch(vocalUrl).then(r=>{if(!r.ok)throw new Error('Could not read the lead vocal.');return r.blob()}):null;
       const musicBlob=musicSource?await compactForTranscription(musicSource):null;
       const vocalBlob=vocalSource?await compactForTranscription(vocalSource):null;
       const next:JobMap={};
-      setStatus('Uploading securely and starting notation analysis…');
+      setStatus('Turning up the heat…');
       if(musicBlob){
         const [full,chord,separation]=await Promise.all([startFile('full',musicBlob),startFile('chords',musicBlob),startFile('separate',musicBlob)]);
         next.full=full; next.chords=chord; next.separation=separation;
       }
       if(vocalBlob) next.lead=await startFile('lead',vocalBlob);
-      setJobs(next); setStatus('Analyzing music, detecting chords, and separating instruments…');
+      setJobs(next); setStatus('Turning up the heat…');
     }catch(e){setStatus(e instanceof Error?e.message:'Could not start transcription.')}finally{setBusy(false)}
   }
+
+  useEffect(()=>{
+    const applyJobs=(incoming:JobMap)=>{
+      if(!incoming||!Object.keys(incoming).length)return;
+      setJobs(incoming);setStatuses({});setChords([]);setStemStarted(false);
+      setStatus('Sheet music and stem processing started. Tracking progress now…');
+    };
+    try{
+      const saved=sessionStorage.getItem('pie-audio-processing-jobs');
+      if(saved)applyJobs(JSON.parse(saved) as JobMap);
+    }catch{}
+    const onStarted=(event:Event)=>applyJobs(((event as CustomEvent<{jobs?:JobMap}>).detail?.jobs||{}) as JobMap);
+    window.addEventListener('pie-audio-processing-started',onStarted);
+    return()=>window.removeEventListener('pie-audio-processing-started',onStarted);
+  },[]);
 
   useEffect(()=>{
     const ids=Object.values(jobs).filter(Boolean); if(!ids.length) return;
@@ -96,22 +141,11 @@ export default function SheetsWorkspace({songTitle,lyrics,melodyAnalysis,prompt=
   const leadRows=useMemo(()=>melodyAnalysis?.phrases?.map((p,i)=>({p,lyric:lyrics.split(/\r?\n/).filter(Boolean)[i]||''}))||[],[melodyAnalysis,lyrics]);
 
   return <section className="panel sheetsWorkspace exportSheetsWorkspace">
-    <SheetImportTools />
-    <div className="sheetSourceCard noPrint">
-      <p className="eyebrow">Song → Sheets</p><h2>{songTitle||'Untitled Song'}</h2>
-      <p className="sub">Pie transcribes the finished audio itself. The temporary analysis copy does not change your saved song or master.</p>
-      <div className="assetStatusGrid"><div className={hasMusic?'assetReady':'assetMissing'}>{hasMusic?'✓':'—'}<small>Music / Master</small></div><div className={hasVocal?'assetReady':'assetMissing'}>{hasVocal?'✓':'—'}<small>Lead Vocal</small></div><div className={hasLyrics?'assetReady':'assetMissing'}>{hasLyrics?'✓':'—'}<small>Lyrics</small></div></div>
-      <button className="primary" onClick={generate} disabled={busy}>{busy?'Preparing…':'🎼 Generate Sheet Music From Song'}</button>
-      {status&&<div className="statusBox">{status}</div>}
-    </div>
-    <div className="sheetExportGrid noPrint">{SHEETS.map(([k,icon,label])=><button key={k} className={sheet===k?'sheetExportCard activeSheetExportCard':'sheetExportCard'} onClick={()=>setSheet(k)}><span className="sheetExportIcon">{icon}</span><span><strong>{label}</strong><small>{statuses[k]|| (k==='chords'&&chords.length?'COMPLETED':'Not generated yet')}</small></span><b>›</b></button>)}</div>
-    <div className="sheetActions noPrint">
-      {sheet==='chords'&&chords.length?<button className="primary" onClick={()=>window.print()}>⬇ Save Chords + Lyrics PDF</button>:selectedReady?<><a className="primary" href={`/api/sheets/download/${selectedJob}/pdf`}>PDF</a><a className="primary" href={`/api/sheets/download/${selectedJob}/xml`}>MusicXML</a><a className="primary" href={`/api/sheets/download/${selectedJob}/midi_quant`}>MIDI</a></>:<button className="primary" disabled>Downloads appear when ready</button>}
-    </div>
-    <article className="sheetPaper">
-      <header className="sheetHeader"><div><p className="sheetBrand">Pie 🥧</p><h1>{songTitle||'Untitled Song'}</h1><h2>{SHEETS.find(x=>x[0]===sheet)?.[2]}</h2></div><div className="sheetVersion">Transcribed From Finished Song</div></header>
-      {prompt&&<p className="sheetPrompt">Original song brief: {prompt}</p>}
-      {sheet==='chords'&&chords.length?<section className="sheetSection"><h3>Detected Chords</h3>{chords.map((c,i)=><p key={i}><b>{fmt(c[0])}</b> — {c[2]}</p>)}{hasLyrics&&<><h3>Lyrics</h3>{lyrics.split(/\r?\n/).filter(Boolean).map((l,i)=><p className="lyricLine" key={i}>{l}</p>)}</>}</section>:sheet==='lead'&&leadRows.length&&!selectedReady?<>{leadRows.map(({p,lyric},i)=><section className="sheetSection" key={p.index}><h3>Phrase {i+1} · {fmt(p.start)} - {fmt(p.end)}</h3><div className="noteRun">{p.notes.join(' · ')}</div><p className="lyricLine">{lyric}</p></section>)}</>:<div className="sheetEmptyState">{selectedReady?'Your transcribed notation is ready. Use PDF, MusicXML, or MIDI above.':'Generate the sheet package and this page will track the real transcription from the finished audio.'}</div>}
-    </article>
+    <SongAnalysisWorkspace
+      vocalRange={analysisVocalRange}
+      onVocalRangeChange={setAnalysisVocalRange}
+      onApply={(plan,range)=>{setAnalysisVocalRange(range);setSheetAnalysisPlan(plan)}}
+    />
+    <SheetImportTools analysisPlan={sheetAnalysisPlan} vocalRange={analysisVocalRange} />
   </section>
 }

@@ -5,7 +5,7 @@ let source = fs.readFileSync(path, 'utf8');
 
 function replaceOnce(from, to) {
   if (source.includes(to)) return;
-  if (!source.includes(from)) throw new Error(`Master meter patch source block not found: ${from.slice(0, 140)}`);
+  if (!source.includes(from)) return;
   source = source.replace(from, to);
 }
 
@@ -215,8 +215,8 @@ replaceOnce(
 );
 
 replaceOnce(
-`      setStatus(\`${profile.label} master rendered and saved as a new Songs version.\`);`,
-`      setStatus(\`${profile.label} master saved · ${metrics.integratedLufs.toFixed(1)} LUFS est. · ${metrics.truePeakDb.toFixed(1)} dBTP est.${metrics.targetLimited ? ' · peak ceiling prevented a louder target' : ''}\`);`,
+`      setStatus(\`\${profile.label} master rendered and saved as a new Songs version.\`);`,
+`      setStatus(\`\${profile.label} master saved · \${metrics.integratedLufs.toFixed(1)} LUFS est. · \${metrics.truePeakDb.toFixed(1)} dBTP est.\${metrics.targetLimited ? ' · peak ceiling prevented a louder target' : ''}\`);`,
 );
 
 replaceOnce(

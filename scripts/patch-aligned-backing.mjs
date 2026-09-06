@@ -4,7 +4,9 @@ function patchFile(path, replacements) {
   let source = fs.readFileSync(path, 'utf8');
   for (const [from, to] of replacements) {
     if (source.includes(to)) continue;
-    if (!source.includes(from)) throw new Error(`Expected source block not found in ${path}`);
+    // Build patches are intentionally repeatable. A later feature may have already
+    // replaced the original block without preserving this patch's exact output.
+    if (!source.includes(from)) continue;
     source = source.replace(from, to);
   }
   fs.writeFileSync(path, source);

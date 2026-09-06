@@ -14,6 +14,11 @@ if(!store.includes(newImport)){if(!store.includes(oldImport))throw new Error('Cl
 
 const syncPath='app/CloudSongSync.tsx';
 let sync=fs.readFileSync(syncPath,'utf8');
+const capturedCurrent=fs.readFileSync('app/CapturedSongResults.tsx','utf8');
+if(store.includes('versionStore.put(existing ? { ...existing, ...version } : version)')&&capturedCurrent.includes('toggleInlineFileAudio')){
+  console.log('Inline audio and cloud restoration are already present.');
+  process.exit(0);
+}
 const oldRestore=`  const refreshedLocal = await exportLocalLibrary();
   const localVersionIds = new Set(refreshedLocal.versions.map((version) => version.id));
   const missingCloudVersions = cloud.versions.filter((version) => !localVersionIds.has(version.id));

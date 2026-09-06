@@ -48,7 +48,7 @@ export default function AccessRequestForm() {
       <textarea id="access-message" value={message} onChange={(event) => setMessage(event.target.value)} maxLength={1200} placeholder="Tell us who you are or why you need access." className={styles.authTextarea} />
 
       {status && <div className={status.startsWith('Request sent') ? styles.authInfo : styles.authError}>{status}</div>}
-      <button className={styles.primaryAuthButton} type="submit" disabled={busy || !email.trim()}>{busy ? 'Sending…' : 'Send Access Request'}</button>
+      <button className={styles.primaryAuthButton} type="submit" disabled={busy || !email.trim()}>{busy ? 'Turning up the heat…' : 'Send Access Request'}</button>
     </form>
   );
 }

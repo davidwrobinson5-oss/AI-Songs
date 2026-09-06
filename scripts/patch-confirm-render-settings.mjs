@@ -3,6 +3,11 @@ import fs from 'node:fs';
 const path='app/SheetImportTools.tsx';
 let source=fs.readFileSync(path,'utf8');
 
+if(source.includes('Final Render Confirmation')){
+  console.log('Final render confirmation already present.');
+  process.exit(0);
+}
+
 if(!source.includes('type ConfirmedRenderSettings =')){
   const anchor="type RenderedPart = { key:string; label:string; blob:Blob; url:string; extension:string };";
   if(!source.includes(anchor)) throw new Error('Confirm render patch could not find type anchor.');

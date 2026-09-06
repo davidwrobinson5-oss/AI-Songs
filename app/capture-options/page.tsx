@@ -15,7 +15,7 @@ export default function CaptureOptionsPage(){
   const [captureId,setCaptureId]=useState('');
   const [ready,setReady]=useState<CaptureReady|null>(null);
   const [selection,setSelection]=useState<Selection>({sheets:false,chords:false,stems:false});
-  const [status,setStatus]=useState('Loading your recording…');
+  const [status,setStatus]=useState('Turning up the heat…');
   const [processing,setProcessing]=useState(false);
 
   useEffect(()=>{

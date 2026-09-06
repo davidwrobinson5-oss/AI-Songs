@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
+import { FREE_LIMITS } from '../../../billingConfig';
 import { rateLimit, readJsonObject, safeClientError } from '../../../security';
+import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../../usageEntitlements';
 
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io';
 const MAX_PROMPT_CHARS = 4100;
@@ -44,6 +46,9 @@ export async function POST(req: Request) {
   if (limited) return limited;
 
   try {
+    const userId = await resolvePieUserId();
+    if (!userId) return NextResponse.json({ error: 'Sign in to generate music.' }, { status: 401 });
+
     const apiKey = process.env.ELEVENLABS_API_KEY;
     if (!apiKey) {
       return NextResponse.json({ error: 'Music generation is temporarily unavailable.' }, { status: 503 });
@@ -57,11 +62,20 @@ export async function POST(req: Request) {
     if (prompt.length > MAX_PROMPT_CHARS) {
       return NextResponse.json(
         {
-          error: `The song description and attached lyrics are too long for ElevenLabs Music v2 (${prompt.length.toLocaleString()} characters). The maximum is ${MAX_PROMPT_CHARS.toLocaleString()}. Shorten the description or lyrics, then try again.`,
+          error: `The song description and attached lyrics are too long for Music Generator (${prompt.length.toLocaleString()} characters). The maximum is ${MAX_PROMPT_CHARS.toLocaleString()}. Shorten the description or lyrics, then try again.`,
           detail: { status: 'prompt_too_long' },
         },
         { status: 400 },
       );
+    }
+
+    const entitlement = await consumeUsage('elevenlabs_music_generations', FREE_LIMITS.musicGenerationsPerMonth);
+    if (!entitlement.allowed) {
+      return NextResponse.json({
+        error: usageDeniedMessage('music generations', entitlement),
+        code: 'PIE_USAGE_LIMIT',
+        usage: { count: entitlement.usageCount, limit: entitlement.usageLimit },
+      }, { status: entitlement.userId ? 402 : 401, headers: { 'Cache-Control': 'no-store' } });
     }
 
     let response = await requestMusic(apiKey, body);
@@ -71,44 +85,21 @@ export async function POST(req: Request) {
       const status = providerError.detail?.status || '';
       const suggestion = providerError.detail?.data?.prompt_suggestion?.trim();
 
-      // ElevenLabs returns a compliant prompt suggestion for some bad_prompt
-      // rejections (for example, copyrighted artist/style references). Retry once
-      // with that provider-approved suggestion instead of making the user rewrite it.
       if (status === 'bad_prompt' && suggestion && suggestion.length <= MAX_PROMPT_CHARS) {
-        response = await requestMusic(apiKey, { ...body, prompt: suggestion });
-        if (response.ok) {
-          const audio = await response.arrayBuffer();
-          if (!audio.byteLength || audio.byteLength > 80 * 1024 * 1024) {
-            return NextResponse.json({ error: 'Music generation returned an invalid audio file.' }, { status: 502 });
-          }
-          return new NextResponse(audio, {
-            status: 200,
-            headers: {
-              'Content-Type': response.headers.get('content-type') || 'audio/mpeg',
-              'Cache-Control': 'no-store',
-              'X-Content-Type-Options': 'nosniff',
-              'X-AI-Songs-Prompt-Adjusted': '1',
-            },
-          });
-        }
-
-        const retryError = await parseProviderError(response);
-        const retryMessage = retryError.detail?.message || retryError.message || retryError.error;
-        console.error('ElevenLabs generation retry failed', response.status, retryError.detail?.status || 'unknown');
         return NextResponse.json(
           {
-            error: retryMessage || 'ElevenLabs rejected the adjusted music request.',
+            error: providerError.detail?.message || 'Music Engine rejected this prompt. Review the suggested wording before trying again.',
             detail: {
-              status: retryError.detail?.status || 'provider_rejected',
-              data: retryError.detail?.data,
+              status,
+              promptSuggestion: suggestion,
             },
           },
-          { status: response.status >= 500 ? 502 : 400 },
+          { status: 400 },
         );
       }
 
       const providerMessage = providerError.detail?.message || providerError.message || providerError.error;
-      console.error('ElevenLabs generation failed', response.status, status || 'unknown');
+      console.error('Music Engine generation failed', response.status, status || 'unknown');
       return NextResponse.json(
         {
           error: providerMessage || 'Music generation provider rejected the request.',
@@ -135,7 +126,7 @@ export async function POST(req: Request) {
       },
     });
   } catch (error) {
-    console.error('ElevenLabs generation request failed');
+    console.error('Music Engine generation request failed');
     return NextResponse.json({ error: safeClientError(error, 'Music generation request failed.') }, { status: 400 });
   }
 }

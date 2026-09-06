@@ -1,4 +1,8 @@
 import { NextResponse } from 'next/server';
+import { FREE_LIMITS } from '../../billingConfig';
+import { rateLimit } from '../../security';
+import { createTaskToken } from '../../taskAuthorization';
+import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../usageEntitlements';
 
 const BASE = 'https://api.mureka.ai';
 
@@ -7,6 +11,12 @@ function messageFrom(data: any, fallback: string) {
 }
 
 export async function POST(req: Request) {
+  const limited = rateLimit(req, 'precision-guide-start', 3, 10 * 60_000);
+  if (limited) return limited;
+
+  const userId = await resolvePieUserId();
+  if (!userId) return NextResponse.json({ error: 'Sign in to create a precision guide.' }, { status: 401 });
+
   const apiKey = process.env.MUREKA_API_KEY?.trim();
   if (!apiKey) {
     return NextResponse.json({ error: 'MUREKA_API_KEY is not configured.' }, { status: 503 });
@@ -23,6 +33,15 @@ export async function POST(req: Request) {
 
     if (melody.size > 10 * 1024 * 1024) {
       return NextResponse.json({ error: 'Melody audio must be 10 MB or smaller.' }, { status: 400 });
+    }
+
+    const entitlement = await consumeUsage('precision_guides', FREE_LIMITS.musicGenerationsPerMonth);
+    if (!entitlement.allowed) {
+      return NextResponse.json({
+        error: usageDeniedMessage('precision guides', entitlement),
+        code: 'PIE_USAGE_LIMIT',
+        usage: { count: entitlement.usageCount, limit: entitlement.usageLimit },
+      }, { status: entitlement.userId ? 402 : 401, headers: { 'Cache-Control': 'no-store' } });
     }
 
     const uploadForm = new FormData();
@@ -74,10 +93,14 @@ export async function POST(req: Request) {
       melodyId: String(melodyId),
     });
 
+    const normalizedTaskId = String(taskId);
+    const taskToken = await createTaskToken(userId, normalizedTaskId, 'precision-guide');
+
     return NextResponse.json({
       provider: 'mureka',
       stage: 'song',
-      taskId: String(taskId),
+      taskId: normalizedTaskId,
+      taskToken,
       status: generation?.status || 'preparing',
       melodyId: String(melodyId),
       model: generation?.model || 'auto',

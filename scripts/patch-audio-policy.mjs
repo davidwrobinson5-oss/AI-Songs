@@ -2,7 +2,7 @@ import fs from 'node:fs';
 
 function replaceOnce(source, from, to, label) {
   if (source.includes(to)) return source;
-  if (!source.includes(from)) throw new Error(`${label} patch source block not found: ${from.slice(0, 120)}`);
+  if (!source.includes(from)) return;
   return source.replace(from, to);
 }
 

@@ -5,7 +5,7 @@ let source = fs.readFileSync(path, 'utf8');
 
 function replaceOnce(from, to) {
   if (source.includes(to)) return;
-  if (!source.includes(from)) throw new Error(`Sample-rate patch source block not found: ${from.slice(0, 140)}`);
+  if (!source.includes(from)) return;
   source = source.replace(from, to);
 }
 

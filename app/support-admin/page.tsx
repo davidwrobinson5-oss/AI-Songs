@@ -23,8 +23,10 @@ export default function SupportAdminPage(){
   const [status,setStatus]=useState('open');
   const [busy,setBusy]=useState(false);
   const [notice,setNotice]=useState('');
+  const [authorizationChecked,setAuthorizationChecked]=useState(false);
+  const [authorized,setAuthorized]=useState(false);
 
-  async function load(){setBusy(true);setNotice('');try{const d=await api();const next=Array.isArray(d.cases)?d.cases:[];setCases(next);if(selected){const updated=next.find((x:SupportCase)=>x.id===selected.id);if(updated)setSelected(updated);}}catch(e){setNotice(e instanceof Error?e.message:'Could not load support cases.');}finally{setBusy(false);}}
+  async function load(){setBusy(true);setNotice('');try{const d=await api();setAuthorized(true);const next=Array.isArray(d.cases)?d.cases:[];setCases(next);if(selected){const updated=next.find((x:SupportCase)=>x.id===selected.id);if(updated)setSelected(updated);}}catch(e){setAuthorized(false);setNotice(e instanceof Error?e.message:'Could not load support cases.');}finally{setAuthorizationChecked(true);setBusy(false);}}
   useEffect(()=>{load();},[]);
 
   async function openCase(item:SupportCase){setSelected(item);setAssignedTo(item.assigned_to||'');setSpecialistType(item.specialist_type||'');setPriority(item.priority||'normal');setStatus(item.status||'open');setMessages([]);try{const d=await api('POST',{action:'messages',caseId:item.id});setMessages(Array.isArray(d.messages)?d.messages:[]);}catch(e){setNotice(e instanceof Error?e.message:'Could not load case messages.');}}
@@ -32,6 +34,8 @@ export default function SupportAdminPage(){
   async function sendReply(){if(!selected||!reply.trim())return;setBusy(true);setNotice('');try{await api('POST',{action:'reply',caseId:selected.id,message:reply.trim()});setReply('');await openCase(selected);await load();}catch(e){setNotice(e instanceof Error?e.message:'Could not send reply.');}finally{setBusy(false);}}
 
   const stats=useMemo(()=>({open:cases.filter(x=>!['resolved','closed'].includes(x.status)).length,urgent:cases.filter(x=>x.priority==='urgent').length,high:cases.filter(x=>x.priority==='high').length,unassigned:cases.filter(x=>!x.assigned_to&&!['resolved','closed'].includes(x.status)).length}),[cases]);
+
+  if(!authorizationChecked||!authorized)return <main style={{minHeight:'100vh',background:'#080910',color:'#fff',padding:'24px 16px'}}><div style={{width:'min(100%,680px)',margin:'0 auto',...panel}}><a href="/" style={{color:'#a78bfa'}}>← Back to Pie</a><h1>Support Operations</h1><p>{authorizationChecked?(notice||'This area is restricted to authorized Pie administrators.'):'Verifying administrator access…'}</p></div></main>;
 
   return <main style={{minHeight:'100vh',background:'#080910',color:'#fff',padding:'18px 14px 60px'}}><div style={{width:'min(100%,1180px)',margin:'0 auto',display:'grid',gap:14}}>
     <header><a href="/" style={{color:'#a78bfa',textDecoration:'none'}}>← Back to Pie</a><h1 style={{fontSize:32,margin:'10px 0 4px'}}>🛟 Support Operations</h1><p style={{color:'#9ca3af'}}>Assignment, specialist routing, priorities, escalations, replies, and case history.</p></header>
@@ -43,7 +47,7 @@ export default function SupportAdminPage(){
         <div style={grid}><label style={label}>Status<select value={status} onChange={e=>setStatus(e.target.value)} style={input}><option>open</option><option>pending</option><option>investigating</option><option>resolved</option><option>closed</option></select></label><label style={label}>Priority<select value={priority} onChange={e=>setPriority(e.target.value)} style={input}><option>low</option><option>normal</option><option>high</option><option>urgent</option></select></label><label style={label}>Assigned to<input value={assignedTo} onChange={e=>setAssignedTo(e.target.value)} style={input} placeholder="Support owner"/></label><label style={label}>Specialist<input value={specialistType} onChange={e=>setSpecialistType(e.target.value)} style={input} placeholder="Attorney, CPA/EA, booking, technical…"/></label></div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}><button onClick={()=>saveCase()} disabled={busy} style={primary}>Save Case</button><button onClick={()=>saveCase({escalate:true,status:'investigating'})} disabled={busy} style={secondary}>Escalate</button><button onClick={()=>saveCase({status:'resolved'})} disabled={busy} style={secondary}>Resolve</button></div>
         <div style={{display:'grid',gap:8,maxHeight:330,overflow:'auto',padding:10,borderRadius:12,background:'#090a10',border:'1px solid #252836'}}>{messages.length===0?<small style={{color:'#8b8e9a'}}>No messages loaded.</small>:messages.map(m=><div key={m.id} style={{padding:10,borderRadius:10,background:m.sender_role==='support'?'#151d25':'#17162b'}}><strong style={{fontSize:11}}>{m.sender_role==='support'?'Pie Support':'User'}</strong><div style={{whiteSpace:'pre-wrap',marginTop:4,fontSize:13,lineHeight:1.45}}>{m.body}</div><small style={{display:'block',marginTop:5,color:'#767985'}}>{new Date(m.created_at).toLocaleString()}</small></div>)}</div>
-        <textarea value={reply} onChange={e=>setReply(e.target.value)} style={{...input,minHeight:110}} placeholder="Reply as Pie Support…"/><button onClick={sendReply} disabled={busy||!reply.trim()} style={primary}>{busy?'Sending…':'Send Support Reply'}</button>
+        <textarea value={reply} onChange={e=>setReply(e.target.value)} style={{...input,minHeight:110}} placeholder="Reply as Pie Support…"/><button onClick={sendReply} disabled={busy||!reply.trim()} style={primary}>{busy?'Turning up the heat…':'Send Support Reply'}</button>
       </div>}</div>
     </section>{notice&&<div style={{...panel,color:'#c4b5fd'}}>{notice}</div>}
   </div></main>;

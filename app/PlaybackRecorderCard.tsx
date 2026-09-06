@@ -239,7 +239,7 @@ export default function PlaybackRecorderCard(){
         if(statuses.separation==='COMPLETED'&&outputs.partSheets&&!jobs.lead)void startPartSheets(jobs.separation);
         else if(allDone(statuses,jobs)) setStatus('Ready — the items you selected are complete.');
         else if(statuses.separation==='COMPLETED') setStatus('Stems are ready. Pie is finishing your other selected items.');
-        else setStatus('Working on your selected items…');
+        else setStatus('Turning up the heat…');
       }catch(error){
         if(!dead)setStatus(error instanceof Error?error.message:'Could not check processing status.');
       }
@@ -296,7 +296,7 @@ export default function PlaybackRecorderCard(){
     sessionStorage.removeItem(CAPTURE_OUTPUTS_KEY);
     sessionStorage.removeItem(CAPTURE_TITLE_KEY);
     sessionStorage.removeItem(CAPTURE_STAGED_KEY);
-    setStatus('Preparing secure Pie capture…');
+    setStatus('Turning up the heat…');
 
     try{
       const res=await fetch('/api/capture-session',{

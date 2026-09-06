@@ -1,8 +1,6 @@
-import { auth, currentUser } from '@clerk/nextjs/server';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { NextResponse } from 'next/server';
-import { cookies } from 'next/headers';
-import { SESSION_COOKIE, verifySessionToken } from '../../auth';
+import { isPieAdmin } from '../../adminAuth';
 
 const SECURITY_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-security';
 const SUPABASE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
@@ -10,20 +8,6 @@ const REPO='davidwrobinson5-oss/AI-Songs';
 const SECURITY_WORKFLOWS=['Pie Runtime Security Alarm','Pie Code Health Agent','Pie CodeQL Security','CodeQL'];
 
 type WorkflowRun={id:string;name:string;status:string;conclusion:string;event:string;headSha:string;branch:string;createdAt:string;updatedAt:string;htmlUrl:string};
-
-async function isPieSecurityAdmin(){
-  try{
-    const session=await auth();
-    if(session.userId){
-      const user=await currentUser().catch(()=>null);
-      const pub=(user?.publicMetadata||{}) as Record<string,unknown>;
-      const allowedIds=(process.env.PIE_ADMIN_USER_IDS||'').split(',').map(x=>x.trim()).filter(Boolean);
-      return Boolean(pub.pieAdmin===true||pub.pieSecurityAdmin===true||allowedIds.includes(session.userId));
-    }
-  }catch{}
-  const jar=await cookies();
-  return verifySessionToken(jar.get(SESSION_COOKIE)?.value||'',process.env.AI_SONGS_SESSION_SECRET);
-}
 
 async function pieSecurity(action:string,extra:Record<string,unknown>={}){
   const oidc=await getVercelOidcToken().catch(()=>'');
@@ -64,7 +48,7 @@ async function persistWorkflowRuns(runs:WorkflowRun[]){
 }
 
 export async function GET(){
-  if(!(await isPieSecurityAdmin()))return NextResponse.json({error:'Cyber Security is restricted to Pie administration.'},{status:403});
+  if(!(await isPieAdmin('security')))return NextResponse.json({error:'Cyber Security is restricted to Pie administration.'},{status:403});
   try{
     const workflowRuns=await githubWorkflowRuns();
     await persistWorkflowRuns(workflowRuns);
@@ -74,7 +58,7 @@ export async function GET(){
 }
 
 export async function POST(req:Request){
-  if(!(await isPieSecurityAdmin()))return NextResponse.json({error:'Cyber Security is restricted to Pie administration.'},{status:403});
+  if(!(await isPieAdmin('security')))return NextResponse.json({error:'Cyber Security is restricted to Pie administration.'},{status:403});
   try{
     const body=await req.json().catch(()=>({}));
     const action=String(body?.action||'');

@@ -78,6 +78,27 @@ export default function AudioProcessorWorkspace(){
   },[]);
 
   useEffect(()=>{
+    const handler=(event:Event)=>{
+      const detail=(event as CustomEvent<{action?:string;id?:string}>).detail||{};
+      const saved=readLibrary();
+      setLibrary(saved);
+      if(detail.action==='open'&&detail.id){
+        const item=saved.find(entry=>entry.id===detail.id);
+        if(item)restoreSession(item);
+      }else if(detail.action==='delete'&&detail.id===sessionId){
+        const replacement=saved[0];
+        if(replacement)restoreSession(replacement);
+        else{
+          setSessionId('');setSourceName('');setJobs({});setStatuses({});setChords([]);setStemStarted(false);
+          setStatus('Choose an audio file to create sheet music and stems.');
+        }
+      }
+    };
+    window.addEventListener('pie-sheets-stems-library-action',handler);
+    return()=>window.removeEventListener('pie-sheets-stems-library-action',handler);
+  },[sessionId]);
+
+  useEffect(()=>{
     if(!hydrated||!sessionId||!sourceName)return;
     const now=Date.now();
     setLibrary(prev=>{
@@ -96,6 +117,7 @@ export default function AudioProcessorWorkspace(){
       const next=[entry,...prev.filter(item=>item.id!==sessionId)].sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,20);
       localStorage.setItem(STORAGE_KEY,JSON.stringify(next));
       localStorage.setItem(ACTIVE_KEY,sessionId);
+      window.dispatchEvent(new Event('pie-sheets-stems-library-changed'));
       return next;
     });
   },[hydrated,sessionId,sourceName,jobs,statuses,chords,status,stemStarted]);
@@ -133,7 +155,7 @@ export default function AudioProcessorWorkspace(){
       const next=(data.jobs||{}) as Jobs;
       if(!next.full||!next.chords||!next.separation)throw new Error('Pie did not receive all processing job IDs.');
       setJobs(next);
-      setStatus('Processing started. Pie is transcribing the full score, detecting chords, and separating instruments…');
+      setStatus('Turning up the heat…');
     }catch(error){
       setStatus(error instanceof Error?error.message:'Could not process that audio file.');
     }finally{
@@ -221,27 +243,14 @@ export default function AudioProcessorWorkspace(){
       <h2 style={{marginTop:4}}>Audio → Sheets & Stems</h2>
       <p className="sub">Upload the WAV or MP3 here. Progress, transcription, and downloads stay on this Sheets screen and the job is saved when you switch screens.</p>
       <label className="primary" style={{display:'inline-block',cursor:'pointer',marginTop:10}}>
-        {busy?'Uploading…':'Upload Audio'}
+        {busy?'Turning up the heat…':'Upload Audio'}
         <input hidden type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.flac" disabled={busy} onChange={event=>{const file=event.target.files?.[0];if(file)void processFile(file);event.currentTarget.value='';}}/>
       </label>
       <div className="statusBox" style={{marginTop:14}}>{status}</div>
       {sourceName&&<small style={{display:'block',marginTop:8}}>Source: {sourceName}</small>}
     </section>
 
-    {library.length>0&&<section className="panel" style={{padding:20,marginTop:16}}>
-      <p className="eyebrow">SAVED SHEETS & STEMS</p>
-      <h2>Recent audio jobs</h2>
-      <p className="sub">Saved on this device so switching between Music, Songs, Mix, Voice, and Sheets does not erase the job.</p>
-      <div style={{display:'grid',gap:10}}>{library.map(item=><div className="statusBox" key={item.id} style={{display:'grid',gap:8}}>
-        <div><strong>{item.sourceName}</strong><small style={{display:'block',marginTop:4}}>{new Date(item.updatedAt).toLocaleString()}</small></div>
-        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
-          <button className="secondary" onClick={()=>restoreSession(item)} disabled={item.id===sessionId}>Open</button>
-          <button className="secondary" onClick={()=>deleteSession(item.id)}>Delete</button>
-        </div>
-      </div>)}</div>
-    </section>}
-
-    {hasStarted&&<section className="panel" style={{padding:20,marginTop:16}}>
+        {hasStarted&&<section className="panel" style={{padding:20,marginTop:16}}>
       <p className="eyebrow">LIVE JOB STATUS</p>
       <div style={{display:'grid',gap:8}}>{progress.map(item=><div className="statusBox" key={item.key} style={{display:'flex',justifyContent:'space-between',gap:12}}><strong>{item.key}</strong><span>{item.status}</span></div>)}</div>
     </section>}

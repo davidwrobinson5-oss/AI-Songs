@@ -233,7 +233,7 @@ export async function importCloudLibrary(songs: SavedSong[], versions: SavedVers
 
     for (const version of versions) {
       const existing = await requestToPromise(versionStore.get(version.id) as IDBRequest<SavedVersion | undefined>);
-      if (!existing) versionStore.put(version);
+      versionStore.put(existing ? { ...existing, ...version } : version);
     }
 
     await transactionDone(tx);
@@ -286,6 +286,26 @@ export async function importRecoveredAudio(input: {
     await transactionDone(tx);
     window.dispatchEvent(new CustomEvent('pie-local-library-changed'));
     return { imported: true, song };
+  } finally {
+    db.close();
+  }
+}
+
+export async function renameSong(songId: string, title: string) {
+  const cleanTitle = title.trim().slice(0, 120);
+  if (!cleanTitle) throw new Error('Song title cannot be empty.');
+  const db = await openDb();
+  try {
+    const readTx = db.transaction(SONGS, 'readonly');
+    const song = await requestToPromise(readTx.objectStore(SONGS).get(songId) as IDBRequest<SavedSong | undefined>);
+    await transactionDone(readTx);
+    if (!song) throw new Error('Song not found.');
+
+    const updated: SavedSong = { ...song, title: cleanTitle, updatedAt: new Date().toISOString() };
+    const writeTx = db.transaction(SONGS, 'readwrite');
+    writeTx.objectStore(SONGS).put(updated);
+    await transactionDone(writeTx);
+    return updated;
   } finally {
     db.close();
   }

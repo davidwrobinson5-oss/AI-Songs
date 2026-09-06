@@ -158,7 +158,7 @@ export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyrics
           ))}
         </div>
         <button type="button" className="primary" onClick={() => void runTool('plan')} disabled={Boolean(loading)}>
-          {loading === 'plan' ? 'Building Outline…' : 'Build My Exact Song Outline'}
+          {loading === 'plan' ? 'Turning up the heat…' : 'Build My Exact Song Outline'}
         </button>
       </div>
 
@@ -166,7 +166,7 @@ export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyrics
         <strong>4. Hook Lab</strong>
         <small>Turn your story into title ideas, chorus hooks, repeatable phrases, and one-line emotional payoffs.</small>
         <button type="button" className="primary" onClick={() => void runTool('hook')} disabled={Boolean(loading)}>
-          {loading === 'hook' ? 'Finding Hooks…' : 'Give Me 12 Hook + Title Ideas'}
+          {loading === 'hook' ? 'Turning up the heat…' : 'Give Me 12 Hook + Title Ideas'}
         </button>
       </div>
 
@@ -175,7 +175,7 @@ export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyrics
         <small>Context-aware thesaurus + rhyme lab: stronger verbs, concrete nouns, conversational alternatives, perfect/near rhymes, sensory images, and singable open-vowel words.</small>
         <input value={wordQuery} onChange={(event) => setWordQuery(event.target.value)} placeholder="Word, phrase, feeling, or idea…" />
         <button type="button" className="secondary" onClick={() => void runTool('word-bank')} disabled={Boolean(loading) || !wordQuery.trim()}>
-          {loading === 'word-bank' ? 'Building Word Bank…' : 'Find the Best-Fit Words'}
+          {loading === 'word-bank' ? 'Turning up the heat…' : 'Find the Best-Fit Words'}
         </button>
       </div>
 
@@ -184,7 +184,7 @@ export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyrics
         <small>Test a line for clarity, prosody, cliché, rhyme, imagery, conversational flow, syllable pressure, and singability.</small>
         <textarea value={lineQuery} onChange={(event) => setLineQuery(event.target.value)} placeholder="Paste one lyric line here…" />
         <button type="button" className="secondary" onClick={() => void runTool('line-polish')} disabled={Boolean(loading) || !lineQuery.trim()}>
-          {loading === 'line-polish' ? 'Polishing Line…' : 'Give Me 8 Stronger Versions'}
+          {loading === 'line-polish' ? 'Turning up the heat…' : 'Give Me 8 Stronger Versions'}
         </button>
       </div>
 
@@ -206,10 +206,10 @@ export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyrics
         <small>Pie uses your answers, emotional arc, song direction, vocal range, and the structure above to create the draft.</small>
         <div className="mixButtons">
           <button type="button" className="primary" onClick={() => void runTool('generate')} disabled={Boolean(loading)}>
-            {loading === 'generate' ? 'Writing…' : 'Build Structured Draft'}
+            {loading === 'generate' ? 'Turning up the heat…' : 'Build Structured Draft'}
           </button>
           <button type="button" className="secondary" onClick={() => void runTool('rewrite')} disabled={Boolean(loading) || !lyrics.trim()}>
-            {loading === 'rewrite' ? 'Polishing…' : 'Polish Full Song'}
+            {loading === 'rewrite' ? 'Turning up the heat…' : 'Polish Full Song'}
           </button>
         </div>
         <textarea

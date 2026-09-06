@@ -1,6 +1,7 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { analyzeVocalAlignment, type VocalAlignmentPlan } from './vocalAlignment';
 
 type Props = {
   backingUrl: string;
@@ -197,6 +198,57 @@ function writeString(view: DataView, offset: number, value: string) {
   for (let i = 0; i < value.length; i++) view.setUint8(offset + i, value.charCodeAt(i));
 }
 
+function scheduleAlignedVocal(
+  context: BaseAudioContext,
+  buffer: AudioBuffer,
+  plan: VocalAlignmentPlan,
+  input: AudioNode,
+  baseStart: number,
+  fineTimingMs: number,
+) {
+  const sources: AudioBufferSourceNode[] = [];
+  const fineSeconds = fineTimingMs / 1000;
+
+  for (const segment of plan.segments) {
+    let sourceStart = segment.sourceStart;
+    let duration = segment.duration;
+    let outputStart = segment.outputStart + fineSeconds;
+
+    if (outputStart < 0) {
+      const trim = -outputStart;
+      sourceStart += trim;
+      duration -= trim;
+      outputStart = 0;
+    }
+    if (duration <= 0.02 || sourceStart >= buffer.duration) continue;
+    duration = Math.min(duration, buffer.duration - sourceStart);
+
+    const sourceNode = context.createBufferSource();
+    const edgeGain = context.createGain();
+    sourceNode.buffer = buffer;
+    sourceNode.connect(edgeGain).connect(input);
+
+    const startTime = baseStart + outputStart;
+    const fade = Math.min(0.012, duration / 6);
+    edgeGain.gain.setValueAtTime(0, startTime);
+    edgeGain.gain.linearRampToValueAtTime(1, startTime + fade);
+    edgeGain.gain.setValueAtTime(1, Math.max(startTime + fade, startTime + duration - fade));
+    edgeGain.gain.linearRampToValueAtTime(0, startTime + duration);
+    sourceNode.start(startTime, sourceStart, duration);
+    sources.push(sourceNode);
+  }
+
+  return sources;
+}
+
+function alignmentLabel(plan: VocalAlignmentPlan, fineTimingMs: number) {
+  const offsetMs = Math.round(plan.offsetSeconds * 1000) + fineTimingMs;
+  const confidence = Math.round(plan.confidence * 100);
+  const phrases = plan.segments.length;
+  const method = plan.method === 'tight-sync' ? 'Tight Sync' : 'onset fallback';
+  return `${method} · ${phrases} phrase${phrases === 1 ? '' : 's'} · ${offsetMs >= 0 ? '' : '−'}${Math.abs(offsetMs)} ms · ${plan.driftMs >= 0 ? '+' : '−'}${Math.abs(plan.driftMs)} ms drift · ${confidence}% match`;
+}
+
 function audioBufferToWav(buffer: AudioBuffer) {
   const channels = Math.min(2, Math.max(1, buffer.numberOfChannels));
   const sampleRate = buffer.sampleRate;
@@ -238,6 +290,7 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl,
   const [masterUrl, setMasterUrl] = useState('');
   const [settings, setSettings] = useState<VocalSettings>(PRESETS.Natural);
   const [presetName, setPresetName] = useState('Natural');
+  const [fineTimingMs, setFineTimingMs] = useState(0);
 
   function stop() {
     for (const source of sourcesRef.current) {
@@ -246,6 +299,12 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl,
     sourcesRef.current = [];
     setStatus('Stopped');
   }
+
+  useEffect(() => {
+    const stopWebAudio = () => stop();
+    window.addEventListener('ai-songs-stop-webaudio', stopWebAudio);
+    return () => window.removeEventListener('ai-songs-stop-webaudio', stopWebAudio);
+  }, []);
 
   function applyPreset(name: string) {
     const preset = PRESETS[name];
@@ -279,84 +338,69 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl,
   }
 
   async function playAligned() {
+    window.dispatchEvent(new Event('ai-songs-stop-all-audio'));
     stop();
-    setStatus('Analyzing vocal timing and applying Drob polish…');
+    setStatus('Turning up the heat…');
     try {
       const { context, backing, guide, drob } = await loadAudio();
-      const { playbackRate, desiredOffset, drobSourceOffset } = getAlignment(guide, drob);
+      const alignment = analyzeVocalAlignment(guide, drob);
       const backingSource = context.createBufferSource();
-      const vocalSource = context.createBufferSource();
       const backingGain = context.createGain();
       const vocalChain = createVocalChain(context, settings);
       const master = createMasterBus(context);
 
       backingSource.buffer = backing;
-      vocalSource.buffer = drob;
-      vocalSource.playbackRate.value = playbackRate;
       backingGain.gain.value = 0.9;
-
       backingSource.connect(backingGain).connect(master.input);
-      vocalSource.connect(vocalChain.input);
       vocalChain.output.connect(master.input);
       master.output.connect(context.destination);
 
       const startAt = context.currentTime + 0.15;
       backingSource.start(startAt);
-      if (desiredOffset >= 0) vocalSource.start(startAt + desiredOffset);
-      else vocalSource.start(startAt, drobSourceOffset);
-      sourcesRef.current = [backingSource, vocalSource];
-      const offsetMs = Math.round(desiredOffset * 1000);
-      const driftPct = Math.round((playbackRate - 1) * 10000) / 100;
-      setStatus(`${presetName} polish · ${offsetMs} ms offset · ${driftPct >= 0 ? '+' : ''}${driftPct}% timing correction`);
+      const vocalSources = scheduleAlignedVocal(context, drob, alignment, vocalChain.input, startAt, fineTimingMs);
+      sourcesRef.current = [backingSource, ...vocalSources];
+      setStatus(`${presetName} polish · ${alignmentLabel(alignment, fineTimingMs)} · pitch preserved`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Could not auto-align these stems.');
+      setStatus(error instanceof Error ? error.message : 'Could not Tight Sync these stems.');
     }
   }
 
   async function renderMaster() {
     setRendering(true);
-    setStatus('Rendering polished, aligned Drob master…');
+    setStatus('Turning up the heat…');
     if (masterUrl) {
       URL.revokeObjectURL(masterUrl);
       setMasterUrl('');
     }
     try {
       const { backing, guide, drob } = await loadAudio();
-      const { playbackRate, desiredOffset, drobSourceOffset } = getAlignment(guide, drob);
+      const alignment = analyzeVocalAlignment(guide, drob);
       const sampleRate = 44100;
-      const vocalStart = Math.max(0, desiredOffset);
-      const vocalPlayableDuration = Math.max(0, drob.duration - drobSourceOffset) / playbackRate;
-      const totalDuration = Math.max(backing.duration, vocalStart + vocalPlayableDuration) + 1.4;
+      const fineSeconds = fineTimingMs / 1000;
+      const finalVocalEnd = alignment.segments.reduce((max, segment) => Math.max(max, segment.outputStart + fineSeconds + segment.duration), 0);
+      const totalDuration = Math.max(backing.duration, finalVocalEnd) + 1.4;
       const offline = new OfflineAudioContext(2, Math.ceil(totalDuration * sampleRate), sampleRate);
       const backingSource = offline.createBufferSource();
-      const vocalSource = offline.createBufferSource();
       const backingGain = offline.createGain();
       const vocalChain = createVocalChain(offline, settings);
       const master = createMasterBus(offline);
 
       backingSource.buffer = backing;
-      vocalSource.buffer = drob;
-      vocalSource.playbackRate.value = playbackRate;
       backingGain.gain.value = 0.9;
-
       backingSource.connect(backingGain).connect(master.input);
-      vocalSource.connect(vocalChain.input);
       vocalChain.output.connect(master.input);
       master.output.connect(offline.destination);
 
       backingSource.start(0);
-      if (desiredOffset >= 0) vocalSource.start(desiredOffset);
-      else vocalSource.start(0, drobSourceOffset);
+      scheduleAlignedVocal(offline, drob, alignment, vocalChain.input, 0, fineTimingMs);
       const rendered = await offline.startRendering();
       const wav = audioBufferToWav(rendered);
       onMasterRendered?.(wav);
       const url = URL.createObjectURL(wav);
       setMasterUrl(url);
-      const offsetMs = Math.round(desiredOffset * 1000);
-      const driftPct = Math.round((playbackRate - 1) * 10000) / 100;
-      setStatus(`Polished master rendered · ${offsetMs} ms offset · ${driftPct >= 0 ? '+' : ''}${driftPct}% timing correction`);
+      setStatus(`Polished master rendered · ${alignmentLabel(alignment, fineTimingMs)} · no speed/pitch shift`);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Could not render the Drob master.');
+      setStatus(error instanceof Error ? error.message : 'Could not render the Tight Sync Drob master.');
     } finally {
       setRendering(false);
     }
@@ -364,8 +408,8 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl,
 
   return (
     <div className="playerCard">
-      <strong>Drob Vocal Polish + Precision Mix</strong>
-      <small>Non-destructive cleanup: low-cut, mud reduction, presence, de-essing, compression, air, light room space, and master protection.</small>
+      <strong>Drob Vocal Polish + Tight Sync Mix</strong>
+      <small>Phrase-aware timing correction plus non-destructive cleanup. Tight Sync keeps playback speed at 1.0 so Drob stays in pitch.</small>
 
       <div className="chips">
         {Object.keys(PRESETS).map((name) => (
@@ -395,12 +439,84 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl,
         </label>
       </details>
 
+      <div className="playerCard">
+        <strong>Timing · Tight Sync</strong>
+        <small>AI Songs matches Drob to the original guide across the whole performance and moves phrase boundaries without changing vocal pitch.</small>
+        <label className="controlLabel">Fine Timing · {fineTimingMs >= 0 ? '+' : ''}{fineTimingMs} ms
+          <input type="range" min="-250" max="250" step="5" value={fineTimingMs} onChange={(e) => setFineTimingMs(Number(e.target.value))} />
+        </label>
+        <button className="secondary" onClick={() => setFineTimingMs(0)}>Reset Fine Timing</button>
+      </div>
+
+      <div className="playerCard">
+        <strong>Timing · Tight Sync</strong>
+        <small>AI Songs matches Drob to the original guide across the whole performance and moves phrase boundaries without changing vocal pitch.</small>
+        <label className="controlLabel">Fine Timing · {fineTimingMs >= 0 ? '+' : ''}{fineTimingMs} ms
+          <input type="range" min="-250" max="250" step="5" value={fineTimingMs} onChange={(e) => setFineTimingMs(Number(e.target.value))} />
+        </label>
+        <button className="secondary" onClick={() => setFineTimingMs(0)}>Reset Fine Timing</button>
+      </div>
+
+      <div className="playerCard">
+        <strong>Timing · Tight Sync</strong>
+        <small>AI Songs matches Drob to the original guide across the whole performance and moves phrase boundaries without changing vocal pitch.</small>
+        <label className="controlLabel">Fine Timing · {fineTimingMs >= 0 ? '+' : ''}{fineTimingMs} ms
+          <input type="range" min="-250" max="250" step="5" value={fineTimingMs} onChange={(e) => setFineTimingMs(Number(e.target.value))} />
+        </label>
+        <button className="secondary" onClick={() => setFineTimingMs(0)}>Reset Fine Timing</button>
+      </div>
+
+      <div className="playerCard">
+        <strong>Timing · Tight Sync</strong>
+        <small>AI Songs matches Drob to the original guide across the whole performance and moves phrase boundaries without changing vocal pitch.</small>
+        <label className="controlLabel">Fine Timing · {fineTimingMs >= 0 ? '+' : ''}{fineTimingMs} ms
+          <input type="range" min="-250" max="250" step="5" value={fineTimingMs} onChange={(e) => setFineTimingMs(Number(e.target.value))} />
+        </label>
+        <button className="secondary" onClick={() => setFineTimingMs(0)}>Reset Fine Timing</button>
+      </div>
+
+      <div className="playerCard">
+        <strong>Timing · Tight Sync</strong>
+        <small>AI Songs matches Drob to the original guide across the whole performance and moves phrase boundaries without changing vocal pitch.</small>
+        <label className="controlLabel">Fine Timing · {fineTimingMs >= 0 ? '+' : ''}{fineTimingMs} ms
+          <input type="range" min="-250" max="250" step="5" value={fineTimingMs} onChange={(e) => setFineTimingMs(Number(e.target.value))} />
+        </label>
+        <button className="secondary" onClick={() => setFineTimingMs(0)}>Reset Fine Timing</button>
+      </div>
+
+      <div className="playerCard">
+        <strong>Timing · Tight Sync</strong>
+        <small>AI Songs matches Drob to the original guide across the whole performance and moves phrase boundaries without changing vocal pitch.</small>
+        <label className="controlLabel">Fine Timing · {fineTimingMs >= 0 ? '+' : ''}{fineTimingMs} ms
+          <input type="range" min="-250" max="250" step="5" value={fineTimingMs} onChange={(e) => setFineTimingMs(Number(e.target.value))} />
+        </label>
+        <button className="secondary" onClick={() => setFineTimingMs(0)}>Reset Fine Timing</button>
+      </div>
+
+      <div className="playerCard">
+        <strong>Timing · Tight Sync</strong>
+        <small>AI Songs matches Drob to the original guide across the whole performance and moves phrase boundaries without changing vocal pitch.</small>
+        <label className="controlLabel">Fine Timing · {fineTimingMs >= 0 ? '+' : ''}{fineTimingMs} ms
+          <input type="range" min="-250" max="250" step="5" value={fineTimingMs} onChange={(e) => setFineTimingMs(Number(e.target.value))} />
+        </label>
+        <button className="secondary" onClick={() => setFineTimingMs(0)}>Reset Fine Timing</button>
+      </div>
+
+      <div className="playerCard">
+        <strong>Timing · Tight Sync</strong>
+        <small>AI Songs matches Drob to the original guide across the whole performance and moves phrase boundaries without changing vocal pitch.</small>
+        <label className="controlLabel">Fine Timing · {fineTimingMs >= 0 ? '+' : ''}{fineTimingMs} ms
+          <input type="range" min="-250" max="250" step="5" value={fineTimingMs} onChange={(e) => setFineTimingMs(Number(e.target.value))} />
+        </label>
+        <button className="secondary" onClick={() => setFineTimingMs(0)}>Reset Fine Timing</button>
+      </div>
+
       <div className="mixButtons">
         <button className="primary" onClick={playAligned}>▶ Play Polished Mix</button>
         <button className="secondary" onClick={stop}>■ Stop</button>
       </div>
       {status && <small>{status}</small>}
-      <button className="primary" onClick={renderMaster} disabled={rendering}>{rendering ? 'Rendering Polished Master…' : 'Render Polished Drob Master'}</button>
+      <button className="primary" onClick={renderMaster} disabled={rendering}>{rendering ? 'Turning up the heat…' : 'Render Polished Drob Master'}</button>
       {masterUrl && (
         <div className="playerCard">
           <strong>Rendered Polished Drob Master</strong>

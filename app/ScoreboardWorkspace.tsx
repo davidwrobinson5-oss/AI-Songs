@@ -76,7 +76,7 @@ export default function ScoreboardWorkspace(){
         <label>Profile type<select value={entityType} onChange={e=>setEntityType(e.target.value==='band'?'band':'artist')}><option value="artist">Artist</option><option value="band">Band</option></select></label>
         <label style={{display:'flex',gap:8,alignItems:'center',marginTop:24}}><input type="checkbox" checked={publicOptIn} onChange={e=>setPublicOptIn(e.target.checked)} /> Show me on public Top 100</label>
       </div>
-      <button type="button" className="primary" onClick={saveIdentity} disabled={busy} style={{marginTop:12}}>{busy?'Saving…':'Save Scoreboard Settings'}</button>
+      <button type="button" className="primary" onClick={saveIdentity} disabled={busy} style={{marginTop:12}}>{busy?'Turning up the heat…':'Save Scoreboard Settings'}</button>
       {status&&<small style={{display:'block',marginTop:10}}>{status}</small>}
     </section>
 

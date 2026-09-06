@@ -4,7 +4,10 @@ const path='app/SheetImportTools.tsx';
 let source=fs.readFileSync(path,'utf8');
 
 const start=source.lastIndexOf('    <div className="sheetSourceCard">\n      <p className="eyebrow">Link → Stems</p><h2>Analyze Music Link</h2>');
-if(start<0)throw new Error('Analyze Music Link card not found.');
+if(start<0){
+  console.log('Analyze Music Link section is already absent.');
+  process.exit(0);
+}
 
 // Remove the entire final Analyze Music Link section, including its heading,
 // description, input/actions/options, and anything below it inside this tool.

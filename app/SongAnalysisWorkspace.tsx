@@ -346,6 +346,10 @@ export default function SongAnalysisWorkspace({vocalRange,onVocalRangeChange,onA
       else result=await analyzeScore(file,setStatus);
       acceptAnalysis(result);
       if(isAudio){
+        try{window.dispatchEvent(new CustomEvent('pie-audio-upload-ready',{detail:{file,name:file.name}}));}catch{}
+        setStatus('Analysis ready. Pie is also creating sheet music and separating individual stems below…');
+      }
+      if(isAudio){
         setStatus('Analysis ready. Uploading once more to start sheet music and stem processing…');
         const stagedPath=await stagePieFile(file,(p)=>setStatus(`Starting sheet/stem processing… ${p}%`));
         const processResponse=await fetch('/api/sheets/process-upload',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stagedPath,name:file.name,type:file.type||'audio/mpeg'})});

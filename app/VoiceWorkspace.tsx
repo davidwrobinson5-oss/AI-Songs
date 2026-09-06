@@ -229,7 +229,7 @@ export default function VoiceWorkspace({ backingUrl, lyrics, songTitle, onUseVoc
   async function previewMix() {
     if (!selectedTake || !backingUrl) return;
     stopPreview();
-    setStatus('Loading preview mix…');
+    setStatus('Turning up the heat…');
     try {
       const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AudioContextCtor) throw new Error('This browser does not support live audio preview.');
@@ -272,7 +272,7 @@ export default function VoiceWorkspace({ backingUrl, lyrics, songTitle, onUseVoc
 
   async function renderPolishedVocal() {
     if (!selectedTake) return;
-    setStatus('Rendering polished vocal…');
+    setStatus('Turning up the heat…');
     try {
       const AudioContextCtor = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!AudioContextCtor) throw new Error('This browser cannot render the vocal.');

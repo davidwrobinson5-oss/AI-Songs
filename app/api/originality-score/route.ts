@@ -1,4 +1,6 @@
 import { NextResponse } from 'next/server';
+import { FREE_LIMITS } from '../../billingConfig';
+import { consumeUsage, usageDeniedMessage } from '../../usageEntitlements';
 import { rateLimit, readJsonObject, safeClientError, textField } from '../../security';
 import { awardPieScore } from '../../scoreServer';
 
@@ -100,10 +102,20 @@ export async function POST(req: Request) {
   if (limited) return limited;
 
   try {
+    const entitlement = await consumeUsage('originality_scores', FREE_LIMITS.originalityScoresPerMonth);
+    if (!entitlement.allowed) {
+      return NextResponse.json({
+        error: usageDeniedMessage('originality scans', entitlement),
+        code: 'PIE_USAGE_LIMIT',
+        usage: { count: entitlement.usageCount, limit: entitlement.usageLimit },
+      }, { status: entitlement.userId ? 402 : 401, headers: { 'Cache-Control': 'no-store' } });
+    }
+
     const body = await readJsonObject(req, 96_000);
     const title = textField(body.title, 220, 'Untitled Song');
     const lyrics = textField(body.lyrics, 24_000);
     const prompt = textField(body.prompt, 6_000);
+    const scoreSourceRef = textField(body.songId, 180);
     const audio = (body.audioAnalysis && typeof body.audioAnalysis === 'object' ? body.audioAnalysis : null) as AudioAnalysis | null;
 
     const evidence: Array<{ source: string; status: string; detail: string }> = [];
@@ -195,6 +207,8 @@ export async function POST(req: Request) {
     if (fingerprintChecked) confidence += 15;
     confidence = clamp(confidence);
 
+    if (scoreSourceRef) await awardPieScore('originality_scan', scoreSourceRef, score, { title, confidence });
+
     const label = score >= 90 ? 'Highly Distinctive' : score >= 80 ? 'Strong Originality Signals' : score >= 70 ? 'Good, with Familiar Elements' : score >= 55 ? 'Mixed Originality Signals' : 'Needs More Differentiation';
     const trustLabel = confidence >= 90 ? 'High trust' : confidence >= 75 ? 'Strong trust' : confidence >= 60 ? 'Moderate trust' : 'Preliminary';
     const scoreRef = textField(body.songId, 180, title.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,120) || 'untitled');
@@ -208,6 +222,8 @@ export async function POST(req: Request) {
       dimensions,
       evidence,
       disclaimer: 'Originality Score is a similarity-risk estimate, not copyright clearance or a legal opinion. Fingerprint matches are strongest for same/near-same recordings; melodic and harmonic analysis are heuristic and can miss transformations, covers, interpolations, or similarities outside the catalogs Pie can lawfully query.',
+      pieUsage: { count: entitlement.usageCount, limit: entitlement.usageLimit },
+      pieOutputQuality: entitlement.outputQuality,
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
     return NextResponse.json({ error: safeClientError(error, 'Originality scan failed.') }, { status: 400 });

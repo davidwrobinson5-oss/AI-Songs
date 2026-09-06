@@ -38,7 +38,7 @@ export default function OriginalityScoreOverlay() {
       setLoading(true);
       setResult(null);
       setAudio(null);
-      setAudioStatus(detail.audioUrl ? 'Analyzing audio fingerprint, melody, and harmony…' : 'No playable song audio was attached to this scan.');
+      setAudioStatus(detail.audioUrl ? 'Turning up the heat…' : 'No playable song audio was attached to this scan.');
       setError('');
 
       const audioTask = detail.audioUrl

@@ -2,12 +2,15 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { stagePieFile } from './stagedUpload';
+import SavedSheetsStemsLibrary from './SavedSheetsStemsLibrary';
+import { saveVersion } from './songStore';
 import PlaybackRecorderCard from './PlaybackRecorderCard';
 
 type ScoreNote = { midi:number; startBeat:number; durationBeats:number; velocity:number };
 type ScorePart = { name:string; instrument:string; isVocal:boolean; choirRole?:string; lyrics?:string; notes:ScoreNote[] };
 type Score = { title:string; composer?:string; tempo:number; key?:string; timeSignature?:string; style?:string; lyrics?:string; parts:ScorePart[]; noteCount:number };
 type RenderedPart = { key:string; label:string; blob:Blob; url:string; extension:string };
+type ConfirmedRenderSettings = { key:string; bpm:number; timeSignature:string; vocalRange:string; renderMode:string };
 
 const STEMS = [
   ['vocals','🎤','Vocals'],
@@ -19,6 +22,21 @@ const STEMS = [
 ] as const;
 
 const NOTE_NAMES=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+async function readApiResponse(response:Response){
+  const raw=await response.text();
+  let data:any={};
+  if(raw){
+    try{data=JSON.parse(raw);}catch{}
+  }
+  if(!response.ok){
+    if(response.status===504) throw new Error('Score analysis took too long. Please try again; larger scores can take a few minutes.');
+    throw new Error(data?.error||raw||('Request failed ('+response.status+').'));
+  }
+  if(!raw) return {};
+  if(!data||typeof data!=='object'||Array.isArray(data)) throw new Error('Pie received an invalid response from the analysis service. Please try again.');
+  return data;
+}
 
 function partLabel(part: ScorePart) {
   const role = String(part.choirRole || '').toLowerCase();
@@ -67,6 +85,30 @@ function singerDescription(part:ScorePart){
   return 'one natural human lead singer';
 }
 
+function pieLeadVoiceLock(vocalRange:string,parts:ScorePart[]){
+  const target=String(vocalRange||'Baritone').trim();
+  const hasLead=parts.some(part=>part.isVocal&&!part.choirRole);
+  if(!hasLead)return '';
+  const profiles:Record<string,{voice:string;exclude:string}>={
+    Bass:{voice:'adult male bass lead singer with a true low bass register',exclude:'female, alto, soprano, tenor, or high male lead'},
+    Baritone:{voice:'adult male baritone lead singer with a warm low-to-mid male register',exclude:'female, alto, soprano, tenor, falsetto, or high male lead'},
+    Tenor:{voice:'adult male tenor lead singer with a true tenor register',exclude:'female, alto, soprano, baritone, or bass lead'},
+    Alto:{voice:'adult female alto lead singer with a true low female alto register',exclude:'male, tenor, baritone, bass, or soprano lead'},
+    Soprano:{voice:'adult female soprano lead singer with a true soprano register',exclude:'male, tenor, baritone, bass, or alto lead'},
+  };
+  const profile=profiles[target]||profiles.Baritone;
+  return 'LEAD VOCAL LOCK: The lead vocalist MUST be an '+profile.voice+'. Do not substitute a '+profile.exclude+'. Keep the lead melody inside the selected '+target+' range. If choir parts are included, choir singers may keep their written SATB roles, but they must not replace or change the lead vocalist.';
+}
+
+function pieMandatorySettings(score:Score,parts:ScorePart[],analysisPlan:string,vocalRange:string){
+  const names=parts.map(partLabel).join(', ')||'Full Arrangement';
+  const plan=analysisPlan.trim();
+  let text='MANDATORY PIE RENDER SETTINGS — DO NOT OVERRIDE OR SUBSTITUTE THEM. Selected lead vocal range: '+vocalRange+'. Selected/rendered parts: '+names+'. The selected Pie settings for key, transposition, BPM, time signature, render mode, parts, and vocal target take priority over conflicting defaults or creative choices. Preserve the written song identity, note contour, harmony, timing, and structure.';
+  const voiceLock=pieLeadVoiceLock(vocalRange,parts);
+  if(voiceLock)text+=' '+voiceLock;
+  if(plan)text+='\nPIE ANALYSIS SETTINGS (MANDATORY):\n'+plan;
+  return text;
+}
 function productionPrompt(score:Score,parts:ScorePart[],full:boolean){
   const bpm=Math.max(35,Math.min(240,Number(score.tempo)||100));
   const names=parts.map(partLabel).join(', ');
@@ -98,8 +140,10 @@ async function responseJson(response:Response, fallback:string){
   }
 }
 
-async function productionRender(score:Score,parts:ScorePart[],full:boolean){
-  const prompt=productionPrompt(score,parts,full);
+async function productionRender(score:Score,parts:ScorePart[],full:boolean,analysisPlan='',vocalRange='Baritone'){
+  const basePrompt=productionPrompt(score,parts,full);
+  const requiredSettings=pieMandatorySettings(score,parts,analysisPlan,vocalRange);
+  const prompt=requiredSettings+'\n\n'+basePrompt;
   const vocal=parts.some(part=>part.isVocal||part.choirRole);
   const response=await fetch('/api/elevenlabs/generate',{
     method:'POST',
@@ -120,10 +164,11 @@ async function productionRender(score:Score,parts:ScorePart[],full:boolean){
   return {blob,extension:type.includes('wav')?'wav':'mp3'};
 }
 
-export default function SheetImportTools(){
+export default function SheetImportTools({analysisPlan='',vocalRange='Baritone'}:{analysisPlan?:string;vocalRange?:string}){
   const scoreInput=useRef<HTMLInputElement>(null);
   const mediaInput=useRef<HTMLInputElement>(null);
   const chooserRef=useRef<HTMLDivElement>(null);
+  const renderResultsRef=useRef<HTMLDivElement>(null);
   const [score,setScore]=useState<Score|null>(null);
   const [scoreStatus,setScoreStatus]=useState('');
   const [scoreBusy,setScoreBusy]=useState(false);
@@ -131,11 +176,25 @@ export default function SheetImportTools(){
   const [fullArrangement,setFullArrangement]=useState(false);
   const [renders,setRenders]=useState<RenderedPart[]>([]);
   const [renderBusy,setRenderBusy]=useState(false);
+  const [showRenderConfirm,setShowRenderConfirm]=useState(false);
+  const [confirmKey,setConfirmKey]=useState('');
+  const [confirmBpm,setConfirmBpm]=useState(100);
+  const [confirmTimeSignature,setConfirmTimeSignature]=useState('4/4');
+  const [confirmVocalRange,setConfirmVocalRange]=useState(vocalRange||'Baritone');
+  const [confirmRenderMode,setConfirmRenderMode]=useState('Hybrid');
+  const [savedSongId,setSavedSongId]=useState('');
   const [link,setLink]=useState('');
   const [linkStatus,setLinkStatus]=useState('');
   const [linkBusy,setLinkBusy]=useState(false);
   const [stemJob,setStemJob]=useState('');
   const [stemReady,setStemReady]=useState(false);
+  const [linkJobs,setLinkJobs]=useState<Record<string,string>>({});
+  const [linkStatuses,setLinkStatuses]=useState<Record<string,string>>({});
+  const [linkChords,setLinkChords]=useState<Array<[number,number,string]>>([]);
+  const [linkStemStarted,setLinkStemStarted]=useState(false);
+  const [linkSourceName,setLinkSourceName]=useState('');
+  const [linkSessionId,setLinkSessionId]=useState('');
+  const [linkOutputs,setLinkOutputs]=useState({stems:true,fullSheet:true,partSheets:false,chords:true});
 
   const choirParts=useMemo(()=>score?.parts.map((part,index)=>({part,index})).filter(({part})=>Boolean(part.choirRole))||[],[score]);
   const vocalParts=useMemo(()=>score?.parts.map((part,index)=>({part,index})).filter(({part})=>part.isVocal&&!part.choirRole)||[],[score]);
@@ -143,27 +202,56 @@ export default function SheetImportTools(){
 
   useEffect(()=>()=>{for(const item of renders)URL.revokeObjectURL(item.url)},[renders]);
 
+  useEffect(()=>{
+    const useAnalyzedScore=(next:Score|null)=>{
+      if(!next||!Array.isArray(next.parts)||!next.parts.length)return;
+      setScore(next); setRenders([]); setSelected({}); setFullArrangement(false); setSavedSongId('');
+      setScoreStatus('Score already analyzed. Choose the parts you want to render — no second upload needed.');
+      setTimeout(()=>chooserRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),140);
+    };
+    try{
+      const saved=sessionStorage.getItem('pie-last-analyzed-score');
+      if(saved)useAnalyzedScore(JSON.parse(saved) as Score);
+    }catch{}
+    const onAnalyzed=(event:Event)=>useAnalyzedScore((event as CustomEvent<Score>).detail||null);
+    window.addEventListener('pie-score-analyzed',onAnalyzed);
+    return()=>window.removeEventListener('pie-score-analyzed',onAnalyzed);
+  },[]);
+
   async function analyzeScore(file:File){
     setScoreBusy(true); setScoreStatus('Preparing music sheets for secure upload…'); setScore(null); setRenders([]); setSelected({}); setFullArrangement(false);
     try{
       if(file.size>20*1024*1024) throw new Error('Music-sheet files must be 20 MB or smaller.');
       const stagedPath=await stagePieFile(file,percent=>setScoreStatus('Uploading music sheets… '+percent+'%'));
       setScoreStatus('Reading notes, lyrics, instruments, and choir parts…');
-      const r=await fetch('/api/sheets/import-score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stagedPath,name:file.name,type:file.type||'application/pdf'})});
-      const d=await responseJson(r,'Could not read music sheets.');
-      if(!r.ok) throw new Error(d.error||'Could not read music sheets.');
-      setScore(d.score as Score); setScoreStatus('Score analyzed. Choose the parts you want, then render them with realistic instruments and singers.');
-      setTimeout(()=>chooserRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),120);
+      const r=await fetch('/api/sheets/import-score',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stagedPath,name:file.name,type:file.type||'application/pdf'})}); const d=await readApiResponse(r);
+      setScore(d.score as Score); setScoreStatus('Score analyzed. What parts do you want to render?');
     }catch(e){setScoreStatus(e instanceof Error?e.message:'Could not read music sheets.')}finally{setScoreBusy(false)}
   }
 
   function toggle(index:number){setSelected(prev=>({...prev,[index]:!prev[index]}));}
 
-  async function renderSelected(){
+  function openRenderConfirmation(){
     if(!score)return;
+    const modeMatch=analysisPlan.match(/Render mode:\s*(Real Performance|Note-Perfect|Hybrid)/i);
+    setConfirmKey(score.key||'C Major');
+    setConfirmBpm(Math.max(35,Math.min(240,Math.round(Number(score.tempo)||100))));
+    setConfirmTimeSignature(score.timeSignature||'4/4');
+    setConfirmVocalRange(vocalRange||'Baritone');
+    setConfirmRenderMode(modeMatch?.[1]||'Hybrid');
+    setShowRenderConfirm(true);
+    setScoreStatus('Review the final settings below. Nothing will render until you confirm them.');
+  }
+
+  async function renderSelected(confirmed?:ConfirmedRenderSettings){
+    if(!score)return;
+    const renderScore:Score={...score,key:confirmed?.key||score.key,tempo:confirmed?.bpm||score.tempo,timeSignature:confirmed?.timeSignature||score.timeSignature};
+    const renderVocalRange=confirmed?.vocalRange||vocalRange;
+    const renderPlan=`${analysisPlan}${confirmed?.renderMode?`\nFINAL CONFIRMED RENDER MODE: ${confirmed.renderMode}`:''}`;
     const indexes=Object.keys(selected).map(Number).filter(i=>selected[i]);
     if(!fullArrangement&&!indexes.length){setScoreStatus('Choose at least one part or Full Arrangement.');return}
     setRenderBusy(true);
+    let librarySaveNote='';
     try{
       for(const item of renders)URL.revokeObjectURL(item.url);
       const next:RenderedPart[]=[];
@@ -171,38 +259,64 @@ export default function SheetImportTools(){
       const total=indexes.length+(fullArrangement?1:0);
 
       for(const index of indexes){
-        const part=score.parts[index]; if(!part)continue;
+        const part=renderScore.parts[index]; if(!part)continue;
         setScoreStatus(`Creating realistic ${partLabel(part)} performance… ${completed+1} of ${total}`);
-        const result=await productionRender(score,[part],false);
+        const result=await productionRender(renderScore,[part],false,renderPlan,renderVocalRange);
         next.push({key:`part-${index}`,label:partLabel(part),blob:result.blob,url:URL.createObjectURL(result.blob),extension:result.extension});
         completed+=1;
         setRenders([...next]);
       }
 
       if(fullArrangement){
-        const parts=indexes.length?indexes.map(i=>score.parts[i]).filter(Boolean):score.parts;
+        const parts=indexes.length?indexes.map(i=>renderScore.parts[i]).filter(Boolean):renderScore.parts;
         setScoreStatus(`Creating full studio arrangement… ${completed+1} of ${total}`);
-        const result=await productionRender(score,parts,true);
+        const result=await productionRender(renderScore,parts,true,renderPlan,renderVocalRange);
         next.unshift({key:'full',label:'Full Arrangement',blob:result.blob,url:URL.createObjectURL(result.blob),extension:result.extension});
         setRenders([...next]);
+        try{
+          const vocal=parts.some(part=>part.isVocal||part.choirRole);
+          const lyrics=(parts.filter(part=>part.isVocal||part.choirRole).map(part=>part.lyrics||'').filter(Boolean).join('\n')||renderScore.lyrics||'').trim();
+          const saved=await saveVersion({
+            songId:savedSongId||undefined,
+            title:renderScore.title||'Untitled Song',
+            prompt:renderPlan.trim()||'Rendered automatically from imported music sheets.',
+            mode:'music',
+            vocalRange:renderVocalRange,
+            durationMs:durationFor(renderScore,parts),
+            instrumental:!vocal,
+            lyrics:lyrics||undefined,
+            generatedBlob:result.blob,
+            masterBlob:result.blob,
+          });
+          setSavedSongId(saved.song.id);
+          librarySaveNote=' Saved automatically to Songs.';
+        }catch{
+          librarySaveNote=' The render finished, but Pie could not save the copy to Songs.';
+        }
       }
 
-      setScoreStatus('Production render complete. These are realistic performance renders of the written parts.');
+      setScoreStatus(`Production render complete.${librarySaveNote}`);
+      setTimeout(()=>renderResultsRef.current?.scrollIntoView({behavior:'smooth',block:'start'}),180);
     }catch(e){setScoreStatus(e instanceof Error?e.message:'Could not render selected parts.')}finally{setRenderBusy(false)}
   }
 
-  async function beginStemAnalysis(body:BodyInit,headers?:HeadersInit){
-    setLinkBusy(true); setStemReady(false); setStemJob(''); setLinkStatus('Starting six-part stem analysis…');
+  async function beginLinkProcessing(payload:Record<string,unknown>){
+    setLinkBusy(true); setStemReady(false); setStemJob(''); setLinkJobs({}); setLinkStatuses({}); setLinkChords([]); setLinkStemStarted(false); setLinkStatus('Starting selected analysis…');
     try{
-      const r=await fetch('/api/sheets/link-stems',{method:'POST',headers,body}); const d=await responseJson(r,'Could not analyze this music source.');
+      const r=await fetch('/api/sheets/link-process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+      const d=await responseJson(r,'Could not analyze this music source.');
       if(!r.ok) throw new Error(d.error||'Could not analyze this music source.');
-      setStemJob(String(d.jobId)); setLinkStatus('Separating vocals, drums, bass, guitar, keys, and other instruments…');
+      const next=(d.jobs||{}) as Record<string,string>;
+      const id=crypto.randomUUID();
+      setLinkSessionId(id); setLinkSourceName(String(d.sourceLabel||payload.name||'Music link')); setLinkJobs(next); setStemJob(String(next.separation||''));
+      setLinkStatus('Turning up the heat…');
     }catch(e){setLinkStatus(e instanceof Error?e.message:'Could not analyze this music source.')}finally{setLinkBusy(false)}
   }
 
   async function analyzeLink(){
     if(!link.trim()){setLinkStatus('Paste a music link first.');return}
-    await beginStemAnalysis(JSON.stringify({url:link.trim()}),{'Content-Type':'application/json'});
+    if(!linkOutputs.stems&&!linkOutputs.fullSheet&&!linkOutputs.partSheets&&!linkOutputs.chords){setLinkStatus('Choose at least one output first.');return}
+    await beginLinkProcessing({url:link.trim(),outputs:linkOutputs});
   }
 
   async function analyzeMedia(file:File){
@@ -211,37 +325,75 @@ export default function SheetImportTools(){
       if(file.size>45*1024*1024) throw new Error('Audio/video files must be 45 MB or smaller.');
       const stagedPath=await stagePieFile(file,percent=>setLinkStatus('Uploading media… '+percent+'%'));
       setLinkStatus('Starting six-part stem analysis…');
-      const r=await fetch('/api/sheets/link-stems',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stagedPath,name:file.name,type:file.type||'application/octet-stream'})});
-      const d=await responseJson(r,'Could not analyze this music source.');
-      if(!r.ok) throw new Error(d.error||'Could not analyze this music source.');
+      const r=await fetch('/api/sheets/link-stems',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({stagedPath,name:file.name,type:file.type||'application/octet-stream'})}); const d=await readApiResponse(r);
       setStemJob(String(d.jobId)); setLinkStatus('Separating vocals, drums, bass, guitar, keys, and other instruments…');
     }catch(e){setLinkStatus(e instanceof Error?e.message:'Could not analyze this music source.')}finally{setLinkBusy(false)}
   }
 
   useEffect(()=>{
-    if(!stemJob||stemReady)return;
+    if(!Object.keys(linkJobs).length)return;
     let dead=false;
+    const startStem=async(stem:string)=>{
+      const r=await fetch('/api/sheets/transcribe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mode:'stem',stem,separationJobId:linkJobs.separation})});
+      const d=await responseJson(r,'Could not start stem notation.');
+      if(!r.ok)throw new Error(d.error||'Could not start stem notation.');
+      return String(d.jobId||'');
+    };
     const poll=async()=>{
       try{
-        const r=await fetch('/api/sheets/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs:{separation:stemJob}})}); const d=await responseJson(r,'Could not check stem status.');
-        if(!r.ok)throw new Error(d.error||'Could not check stem status.');
-        const state=String(d.statuses?.separation||'');
-        if(state==='COMPLETED'){if(!dead){setStemReady(true);setLinkStatus('Stem separation complete.');}}
-        else if(state==='FAILED'){if(!dead)setLinkStatus('Stem separation failed. Try another source.');}
-        else if(!dead)setLinkStatus('Separating vocals, drums, bass, guitar, keys, and other instruments…');
-      }catch(e){if(!dead)setLinkStatus(e instanceof Error?e.message:'Could not check stem status.')}
+        const r=await fetch('/api/sheets/status',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jobs:linkJobs})});
+        const d=await responseJson(r,'Could not check transcription status.');
+        if(!r.ok)throw new Error(d.error||'Could not check transcription status.');
+        if(dead)return;
+        const nextStatuses=(d.statuses||{}) as Record<string,string>;
+        setLinkStatuses(nextStatuses);
+        if(Array.isArray(d.chords))setLinkChords(d.chords);
+        if(nextStatuses.separation==='COMPLETED')setStemReady(true);
+
+        if(linkOutputs.partSheets&&nextStatuses.separation==='COMPLETED'&&!linkStemStarted&&linkJobs.separation){
+          setLinkStemStarted(true); setLinkStatus('Turning up the heat…');
+          const mapping:[string,string][]=[['vocals','lead'],['drums','drums'],['bass','bass'],['guitar','guitar'],['piano','keys']];
+          const results=await Promise.allSettled(mapping.map(([stem])=>startStem(stem)));
+          if(dead)return;
+          const additions:Record<string,string>={};
+          results.forEach((result,index)=>{if(result.status==='fulfilled'&&result.value)additions[mapping[index][1]]=result.value;});
+          setLinkJobs(prev=>({...prev,...additions}));
+          setLinkStatus('Individual part notation is processing…');
+          return;
+        }
+
+        const relevant=Object.keys(linkJobs).filter(key=>key!=='separation'||linkOutputs.stems||linkOutputs.partSheets);
+        const allReady=relevant.length>0&&relevant.every(key=>nextStatuses[key]==='COMPLETED');
+        if(allReady&&!linkOutputs.partSheets)setLinkStatus('Done — your selected analysis is ready below.');
+      }catch(e){if(!dead)setLinkStatus(e instanceof Error?e.message:'Could not check transcription status.')}
     };
-    void poll(); const t=setInterval(poll,4000); return()=>{dead=true;clearInterval(t)};
-  },[stemJob,stemReady]);
+    void poll(); const t=setInterval(()=>void poll(),4000); return()=>{dead=true;clearInterval(t)};
+  },[linkJobs,linkStemStarted,linkOutputs.partSheets,linkOutputs.stems]);
+
+  useEffect(()=>{
+    if(!linkSessionId||!linkSourceName||!Object.keys(linkJobs).length)return;
+    try{
+      const key='pie-sheets-stems-library-v1';
+      const now=Date.now();
+      const existing=JSON.parse(localStorage.getItem(key)||'[]');
+      const list=Array.isArray(existing)?existing:[];
+      const old=list.find((item:any)=>item?.id===linkSessionId);
+      const entry={id:linkSessionId,sourceName:linkSourceName,createdAt:old?.createdAt||now,updatedAt:now,jobs:linkJobs,statuses:linkStatuses,chords:linkChords,status:linkStatus,stemStarted:linkStemStarted,outputs:linkOutputs};
+      const next=[entry,...list.filter((item:any)=>item?.id!==linkSessionId)].slice(0,20);
+      localStorage.setItem(key,JSON.stringify(next));
+      localStorage.setItem('pie-sheets-stems-active-v1',linkSessionId);
+      window.dispatchEvent(new Event('pie-sheets-stems-library-changed'));
+    }catch{}
+  },[linkSessionId,linkSourceName,linkJobs,linkStatuses,linkChords,linkStatus,linkStemStarted,linkOutputs]);
 
   const chooser=(items:Array<{part:ScorePart;index:number}>)=>items.map(({part,index})=><button type="button" key={index} className={selected[index]?'sheetExportCard activeSheetExportCard':'sheetExportCard'} onClick={()=>toggle(index)} style={{minHeight:72}}><span className="sheetExportIcon">{part.choirRole?'🎶':part.isVocal?'🎤':'🎼'}</span><span><strong>{partLabel(part)}</strong><small>{part.instrument}{part.lyrics?' · lyrics detected':''}</small></span><b>{selected[index]?'✓':'+'}</b></button>);
 
   return <div className="sheetImportTools noPrint" style={{paddingBottom:150}}>
-    <div className="sheetSourceCard">
-      <p className="eyebrow">Sheet → Song</p><h2>Upload Music Sheets</h2>
-      <p className="sub">Upload a PDF, photo, MusicXML, or XML score. Pie reads the written parts first, then asks what you want rendered before creating any audio.</p>
+    <div className="sheetSourceCard" style={{display:'none'}} aria-hidden="true">
+      <p className="eyebrow">Sheet → Song</p><h2>{score?'Analyzed Score Ready':'Upload Music Sheets'}</h2>
+      <p className="sub">{score?'Pie already has this analyzed score. Choose the parts below and render — you do not need to upload it again.':'Upload a PDF, photo, MusicXML, or XML score. Pie reads the written parts first, then asks what you want rendered before creating any audio.'}</p>
       <input ref={scoreInput} type="file" hidden accept=".pdf,.xml,.musicxml,image/*" onChange={e=>{const f=e.target.files?.[0];if(f)void analyzeScore(f);e.currentTarget.value='';}} />
-      <button type="button" className="primary" disabled={scoreBusy} onClick={()=>scoreInput.current?.click()}>{scoreBusy?'Reading score…':'⬆ Upload Music Sheets'}</button>
+      <button type="button" className="primary" disabled={scoreBusy} onClick={()=>scoreInput.current?.click()}>{scoreBusy?'Reading score…':score?'Analyze a Different Score':'⬆ Upload Music Sheets'}</button>
       {scoreStatus&&<div className="statusBox">{scoreStatus}</div>}
       {score&&<div className="scorePartChooser" ref={chooserRef} style={{paddingBottom:120,scrollMarginTop:18}}>
         <div className="sheetHeader"><div><p className="sheetBrand">DETECTED SCORE</p><h3>{score.title}</h3><small>{score.key||'Key unknown'} · {score.tempo} BPM · {score.timeSignature||'4/4'}</small></div></div>
@@ -251,21 +403,37 @@ export default function SheetImportTools(){
         {instrumentParts.length>0&&<><p className="eyebrow">Instruments</p><div className="sheetExportGrid">{chooser(instrumentParts)}</div></>}
         <p className="eyebrow">Mix</p>
         <button type="button" className={fullArrangement?'sheetExportCard activeSheetExportCard':'sheetExportCard'} onClick={()=>setFullArrangement(v=>!v)} style={{minHeight:76}}><span className="sheetExportIcon">🎧</span><span><strong>Full Arrangement</strong><small>Combine the selected parts into a realistic studio performance. If no individual parts are selected, use the whole score.</small></span><b>{fullArrangement?'✓':'+'}</b></button>
-        <button type="button" className="primary" disabled={renderBusy} onClick={()=>void renderSelected()} style={{marginTop:16}}>{renderBusy?'Creating Real Performances…':'▶ Render Real Instruments & Singers'}</button>
+        <button type="button" className="primary" disabled={renderBusy} onClick={openRenderConfirmation} style={{marginTop:16}}>{renderBusy?'⏳ Rendering…':'Review & Render'}</button>
+        {showRenderConfirm&&score&&<div className="sheetSourceCard" style={{marginTop:14,border:'1px solid rgba(255,255,255,.18)'}}>
+          <p className="eyebrow">Final Render Confirmation</p>
+          <h3 style={{marginTop:4}}>Confirm exactly what Pie will render</h3>
+          <p className="sub">Change anything you want here. These final values override the analyzed defaults.</p>
+          <div style={{display:'grid',gap:12,gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))'}}>
+            <label><small>Key</small><input value={confirmKey} onChange={e=>setConfirmKey(e.target.value)} placeholder="G Major"/></label>
+            <label><small>BPM</small><div style={{display:'flex',gap:6,alignItems:'center'}}><button type="button" onClick={()=>setConfirmBpm(v=>Math.max(35,v-5))}>−5</button><input type="number" min={35} max={240} value={confirmBpm} onChange={e=>setConfirmBpm(Math.max(35,Math.min(240,Number(e.target.value)||35)))} style={{minWidth:72}}/><button type="button" onClick={()=>setConfirmBpm(v=>Math.min(240,v+5))}>+5</button></div></label>
+            <label><small>Time Signature</small><select value={confirmTimeSignature} onChange={e=>setConfirmTimeSignature(e.target.value)}><option>4/4</option><option>3/4</option><option>6/8</option><option>12/8</option><option>2/4</option><option>5/4</option><option>7/8</option></select></label>
+            <label><small>Lead Vocal Range</small><select value={confirmVocalRange} onChange={e=>setConfirmVocalRange(e.target.value)}><option>Bass</option><option>Baritone</option><option>Tenor</option><option>Alto</option><option>Soprano</option></select></label>
+            <label><small>Render Mode</small><select value={confirmRenderMode} onChange={e=>setConfirmRenderMode(e.target.value)}><option>Real Performance</option><option>Note-Perfect</option><option>Hybrid</option></select></label>
+          </div>
+          <div style={{marginTop:14}}>
+            <small>Parts to Render</small>
+            <div style={{display:'grid',gap:8,marginTop:7}}>{score.parts.map((part,index)=><button type="button" key={'confirm-'+index} className={selected[index]?'sheetExportCard activeSheetExportCard':'sheetExportCard'} onClick={()=>toggle(index)} style={{minHeight:54}}><span><strong>{partLabel(part)}</strong><small>{part.instrument||'Vocal'}</small></span><b>{selected[index]?'✓':'+'}</b></button>)}</div>
+          </div>
+          <button type="button" className={fullArrangement?'sheetExportCard activeSheetExportCard':'sheetExportCard'} onClick={()=>setFullArrangement(v=>!v)} style={{minHeight:62,marginTop:12}}><span><strong>Full Arrangement</strong><small>{fullArrangement?'Included in final render':'Tap to include the complete mix'}</small></span><b>{fullArrangement?'✓':'+'}</b></button>
+          <div className="statusBox" style={{marginTop:12}}><strong>Final settings</strong><small style={{display:'block',marginTop:4}}>{confirmKey} · {confirmBpm} BPM · {confirmTimeSignature} · {confirmVocalRange} · {confirmRenderMode}</small></div>
+          <div style={{display:'flex',gap:8,marginTop:12,flexWrap:'wrap'}}>
+            <button type="button" onClick={()=>setShowRenderConfirm(false)}>Back</button>
+            <button type="button" className="primary" disabled={renderBusy||(!fullArrangement&&!Object.keys(selected).some(i=>selected[Number(i)]))} onClick={()=>{setShowRenderConfirm(false);void renderSelected({key:confirmKey.trim()||score.key||'C Major',bpm:confirmBpm,timeSignature:confirmTimeSignature,vocalRange:confirmVocalRange,renderMode:confirmRenderMode})}}>Confirm & Render</button>
+          </div>
+        </div>}
+        {renderBusy&&<div className="statusBox" style={{marginTop:10}}><strong>Rendering your selected score now…</strong><small style={{display:'block',marginTop:4}}>{scoreStatus||'Pie is creating the performance. Keep this page open.'}</small></div>}
       </div>}
-      {renders.length>0&&<div className="renderedPartList">{renders.map(item=><div className="sheetSourceCard" key={item.key}><strong>{item.label}</strong><small>Production render</small><audio controls preload="metadata" src={item.url}/><a className="primary" href={item.url} download={`${(score?.title||'song').replace(/[^a-z0-9]+/gi,'-')}-${item.label.replace(/[^a-z0-9]+/gi,'-')}.${item.extension}`}>Download {item.extension.toUpperCase()}</a></div>)}</div>}
+      {renders.length>0&&<div ref={renderResultsRef} className="renderedPartList" style={{scrollMarginTop:24}}>{renders.map(item=><div className="sheetSourceCard" key={item.key}><strong>{item.label}</strong><small>Production render</small><audio controls preload="metadata" src={item.url}/><a className="primary" href={item.url} download={`${(score?.title||'song').replace(/[^a-z0-9]+/gi,'-')}-${item.label.replace(/[^a-z0-9]+/gi,'-')}.${item.extension}`}>Download {item.extension.toUpperCase()}</a></div>)}</div>}
     </div>
 
     <PlaybackRecorderCard />
 
-    <div className="sheetSourceCard">
-      <p className="eyebrow">Link → Stems</p><h2>Analyze Music Link</h2>
-      <p className="sub">Paste a direct music/media link or upload an audio/video file. Pie separates the performance into six individual stems.</p>
-      <div className="referenceUrlRow"><input value={link} onChange={e=>setLink(e.target.value)} placeholder="Paste music or YouTube link…" inputMode="url"/><button type="button" className="primary" disabled={linkBusy} onClick={()=>void analyzeLink()}>{linkBusy?'Analyzing…':'Analyze Link'}</button></div>
-      <input ref={mediaInput} type="file" hidden accept="audio/*,video/*" onChange={e=>{const f=e.target.files?.[0];if(f)void analyzeMedia(f);e.currentTarget.value='';}}/>
-      <button type="button" onClick={()=>mediaInput.current?.click()}>⬆ Upload Audio / Video Instead</button>
-      {linkStatus&&<div className="statusBox">{linkStatus}</div>}
-      {stemReady&&stemJob&&<div className="sheetExportGrid">{STEMS.map(([key,icon,label])=><div className="sheetExportCard" key={key}><span className="sheetExportIcon">{icon}</span><span><strong>{label}</strong><audio controls preload="none" src={`/api/sheets/stem/${encodeURIComponent(stemJob)}/${key}`}/><a href={`/api/sheets/stem/${encodeURIComponent(stemJob)}/${key}`} download={`${key}.wav`}>Download WAV</a></span></div>)}</div>}
-    </div>
+    <SavedSheetsStemsLibrary />
+
   </div>;
 }

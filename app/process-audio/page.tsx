@@ -64,7 +64,7 @@ export default function ProcessAudioPage(){
       const next=(data.jobs||{}) as Jobs;
       if(!next.full||!next.chords||!next.separation)throw new Error('Pie did not receive all processing job IDs.');
       setJobs(next);
-      setStatus('Processing started. Pie is transcribing the full score, detecting chords, and separating instruments…');
+      setStatus('Turning up the heat…');
     }catch(error){
       setStatus(error instanceof Error?error.message:'Could not process that audio file.');
     }finally{
@@ -135,7 +135,7 @@ export default function ProcessAudioPage(){
       <h1 style={{marginTop:4}}>Audio → Sheets & Stems</h1>
       <p className="sub">This page bypasses the old generation screen. One upload starts the real server-side transcription and source-separation jobs.</p>
       <label className="primary" style={{display:'inline-block',cursor:'pointer',marginTop:10}}>
-        {busy?'Uploading…':'Upload Audio'}
+        {busy?'Turning up the heat…':'Upload Audio'}
         <input hidden type="file" accept="audio/*,.wav,.mp3,.m4a,.aac,.ogg,.flac" disabled={busy} onChange={event=>{const file=event.target.files?.[0];if(file)void processFile(file);event.currentTarget.value='';}}/>
       </label>
       <div className="statusBox" style={{marginTop:14}}>{status}</div>

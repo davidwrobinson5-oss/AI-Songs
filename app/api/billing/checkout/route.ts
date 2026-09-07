@@ -1,11 +1,13 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
 
+const TRIAL_DAYS = 7;
+
 const PRICE_BY_PLAN: Record<string, { priceId: string; level: number }> = {
   release_planning: { priceId: 'price_1UC0VzGnh6vO8OMLvPvwc5pX', level: 2 },
   prelaunch: { priceId: 'price_1UC0W7Gnh6vO8OMLtkDefW54', level: 3 },
   launch: { priceId: 'price_1UC0WGGnh6vO8OMLTjv4lQpA', level: 4 },
-  campaign: { priceId: 'price_1UC0WPGnh6vO8OMLf2Dtnuwf', level: 5 },
+  campaign: { priceId: 'price_1UC0WPGGnh6vO8OMLf2Dtnuwf', level: 5 },
   gigs: { priceId: 'price_1UC0WbGnh6vO8OMLdDzJKJcJ', level: 6 },
   national: { priceId: 'price_1UC0WlGnh6vO8OMLaDaGHl4H', level: 7 },
   international: { priceId: 'price_1UC0WsGnh6vO8OMLboLKsv3o', level: 8 },
@@ -37,12 +39,16 @@ export async function POST(request: NextRequest) {
   params.set('cancel_url', `${origin}/onboarding?cancelled=1`);
   params.set('allow_promotion_codes', 'true');
   params.set('phone_number_collection[enabled]', 'true');
+  params.set('payment_method_collection', 'always');
+  params.set('subscription_data[trial_period_days]', String(TRIAL_DAYS));
   params.set('metadata[pie_user_id]', userId);
   params.set('metadata[pie_plan_id]', planId);
   params.set('metadata[pie_plan_level]', String(plan.level));
+  params.set('metadata[pie_trial_days]', String(TRIAL_DAYS));
   params.set('subscription_data[metadata][pie_user_id]', userId);
   params.set('subscription_data[metadata][pie_plan_id]', planId);
   params.set('subscription_data[metadata][pie_plan_level]', String(plan.level));
+  params.set('subscription_data[metadata][pie_trial_days]', String(TRIAL_DAYS));
 
   const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',

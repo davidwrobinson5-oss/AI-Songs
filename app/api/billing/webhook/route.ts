@@ -89,12 +89,12 @@ export async function POST(request: NextRequest) {
 
   if (event.type === 'checkout.session.completed') {
     const userId = String(object.client_reference_id || object.metadata?.pie_user_id || '');
-    const level = Number(object.metadata?.pie_plan_level || 1);
-    const planId = String(object.metadata?.pie_plan_id || 'fun');
+    const level = Number(object.metadata?.pie_plan_level || 0);
+    const planId = String(object.metadata?.pie_plan_id || 'none');
     if (userId) {
       await Promise.all([
         setEntitlement(userId, {
-          pieSubscriptionStatus: 'active',
+          pieSubscriptionStatus: 'trialing',
           piePlanId: planId,
           piePlanLevel: level,
           pieStripeCustomerId: object.customer || null,
@@ -104,7 +104,7 @@ export async function POST(request: NextRequest) {
         syncBillingRecord(userId, {
           planId,
           planLevel: level,
-          status: 'active',
+          status: 'trialing',
           stripeCustomerId: object.customer || null,
           stripeSubscriptionId: object.subscription || null,
         }),
@@ -114,8 +114,8 @@ export async function POST(request: NextRequest) {
 
   if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.created') {
     const userId = String(object.metadata?.pie_user_id || '');
-    const level = Number(object.metadata?.pie_plan_level || 1);
-    const planId = String(object.metadata?.pie_plan_id || 'fun');
+    const level = Number(object.metadata?.pie_plan_level || 0);
+    const planId = String(object.metadata?.pie_plan_id || 'none');
     if (userId) {
       const status = String(object.status || '');
       const entitled = ['active', 'trialing'].includes(status);
@@ -123,14 +123,14 @@ export async function POST(request: NextRequest) {
       await Promise.all([
         setEntitlement(userId, {
           pieSubscriptionStatus: status,
-          piePlanId: entitled ? planId : 'fun',
-          piePlanLevel: entitled ? level : 1,
+          piePlanId: entitled ? planId : 'none',
+          piePlanLevel: entitled ? level : 0,
           pieStripeCustomerId: object.customer || null,
           pieStripeSubscriptionId: object.id || null,
         }),
         syncBillingRecord(userId, {
-          planId: entitled ? planId : 'fun',
-          planLevel: entitled ? level : 1,
+          planId: entitled ? planId : 'none',
+          planLevel: entitled ? level : 0,
           status,
           stripeCustomerId: object.customer || null,
           stripeSubscriptionId: object.id || null,
@@ -148,13 +148,13 @@ export async function POST(request: NextRequest) {
       await Promise.all([
         setEntitlement(userId, {
           pieSubscriptionStatus: 'canceled',
-          piePlanId: 'fun',
-          piePlanLevel: 1,
+          piePlanId: 'none',
+          piePlanLevel: 0,
           pieStripeSubscriptionId: object.id || null,
         }),
         syncBillingRecord(userId, {
-          planId: 'fun',
-          planLevel: 1,
+          planId: 'none',
+          planLevel: 0,
           status: 'canceled',
           stripeCustomerId: object.customer || null,
           stripeSubscriptionId: object.id || null,
@@ -170,8 +170,8 @@ export async function POST(request: NextRequest) {
     const userId = String(subscriptionDetails.metadata?.pie_user_id || '');
     if (userId) {
       await Promise.all([
-        setEntitlement(userId, { pieSubscriptionStatus: 'past_due' }),
-        syncBillingRecord(userId, { planId: 'fun', planLevel: 1, status: 'past_due' }),
+        setEntitlement(userId, { pieSubscriptionStatus: 'past_due', piePlanId: 'none', piePlanLevel: 0 }),
+        syncBillingRecord(userId, { planId: 'none', planLevel: 0, status: 'past_due' }),
       ]);
     }
   }

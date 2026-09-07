@@ -8,6 +8,7 @@ import styles from '../login/login.module.css';
 export default function ClerkSecureSignUp() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
   const [selectedPlan, setSelectedPlan] = useState(DEFAULT_PLAN_ID);
   const [secureStep, setSecureStep] = useState(false);
   const [formError, setFormError] = useState('');
@@ -17,17 +18,20 @@ export default function ClerkSecureSignUp() {
     event.preventDefault();
     const nextName = name.trim();
     const nextPhone = phone.trim();
-    if (!nextName || !nextPhone) {
-      setFormError('Please enter your name and phone number.');
+    const nextEmail = email.trim().toLowerCase();
+    if (!nextName || !nextPhone || !nextEmail) {
+      setFormError('Please enter your name, phone number, and email address.');
       return;
     }
 
     try {
       sessionStorage.setItem('pieSignupName', nextName);
       sessionStorage.setItem('pieSignupPhone', nextPhone);
+      sessionStorage.setItem('pieSignupEmail', nextEmail);
       sessionStorage.setItem('pieSignupPlan', selectedPlan);
     } catch {}
 
+    setEmail(nextEmail);
     setFormError('');
     setSecureStep(true);
   }
@@ -37,10 +41,10 @@ export default function ClerkSecureSignUp() {
       <div style={{ display: 'grid', gap: 14 }}>
         <div className={styles.signupBlock} style={{ justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <span>
-            Trial plan: <strong>{plan.name}</strong> · ${plan.monthlyPrice}/mo after {TRIAL_DAYS} days
+            <strong>{email}</strong> · {plan.name} · ${plan.monthlyPrice}/mo after {TRIAL_DAYS} days
           </span>
           <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>
-            Change plan
+            Change details
           </button>
         </div>
 
@@ -50,6 +54,7 @@ export default function ClerkSecureSignUp() {
             forceRedirectUrl="/onboarding"
             signInUrl="/signin"
             signInForceRedirectUrl="/"
+            initialValues={{ emailAddress: email }}
             appearance={{
               elements: {
                 rootBox: { width: '100%', maxWidth: '520px' },
@@ -79,6 +84,11 @@ export default function ClerkSecureSignUp() {
           <input name="phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" inputMode="tel" placeholder="(555) 555-5555" required />
         </label>
       </div>
+
+      <label className={styles.emailField}>
+        <span>Email address</span>
+        <input name="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" autoCapitalize="none" inputMode="email" placeholder="you@example.com" required />
+      </label>
 
       <div style={{ display: 'grid', gap: 9, marginTop: 4 }}>
         <div style={{ fontSize: 12, fontWeight: 850, color: '#d8d9e5' }}>Choose the plan you want after your {TRIAL_DAYS}-day free trial</div>

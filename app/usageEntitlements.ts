@@ -72,7 +72,10 @@ export function usageDeniedMessage(label: string, entitlement: UsageEntitlement)
     return `Choose an active Pie subscription to use ${label.toLowerCase()}.`;
   }
   if (entitlement.status === 'trialing' && entitlement.usageLimit != null) {
-    return `You have used all ${entitlement.usageLimit} ${label.toLowerCase()} included in your free trial. Continue with your selected paid plan to keep using this feature.`;
+    return `You have reached the ${label.toLowerCase()} limit for your free trial. Continue with your selected paid plan to keep using this feature.`;
+  }
+  if (entitlement.status === 'active') {
+    return `You have reached your included ${label.toLowerCase()} allowance or monthly Pie credit budget. Open Usage & top-ups to add optional prepaid credits. Pie never adds surprise overage charges.`;
   }
   if (entitlement.usageLimit == null) return `${label} is temporarily unavailable.`;
   return `${label} is unavailable for this account.`;

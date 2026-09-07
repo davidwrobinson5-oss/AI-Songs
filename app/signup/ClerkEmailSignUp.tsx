@@ -21,6 +21,20 @@ function errorMessage(error: unknown, fallback: string) {
   return fallback;
 }
 
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export default function ClerkEmailSignUp() {
   const { signUp, errors, fetchStatus } = useSignUp();
   const router = useRouter();
@@ -32,10 +46,12 @@ export default function ClerkEmailSignUp() {
   const [code, setCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [verifying, setVerifying] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [verifyingBusy, setVerifyingBusy] = useState(false);
   const [formError, setFormError] = useState('');
   const [status, setStatus] = useState('');
 
-  const busy = fetchStatus === 'fetching';
+  const busy = submitting || verifyingBusy || fetchStatus === 'fetching';
   const plan = useMemo(() => planById(selectedPlan), [selectedPlan]);
 
   function stashOnboarding(nextName = name, nextPhone = phone) {
@@ -61,7 +77,6 @@ export default function ClerkEmailSignUp() {
     setEmail(submittedEmail);
     setPassword(submittedPassword);
     setFormError('');
-    setStatus('Starting your Pie account…');
 
     if (!submittedName || !submittedPhone || !submittedEmail || !submittedPassword) {
       setStatus('');
@@ -70,17 +85,32 @@ export default function ClerkEmailSignUp() {
     }
 
     stashOnboarding(submittedName, submittedPhone);
+    setSubmitting(true);
+    setStatus('Starting your Pie account…');
 
     try {
-      const { error } = await signUp.password({ emailAddress: submittedEmail, password: submittedPassword });
-      if (error) {
+      const captchaMount = document.getElementById('clerk-captcha');
+      if (!captchaMount) throw new Error('The security check did not load. Refresh this page and try again.');
+
+      const result = await withTimeout(
+        signUp.password({ emailAddress: submittedEmail, password: submittedPassword }),
+        45000,
+        'The signup security check took too long. Refresh the page and try again.',
+      );
+
+      if (result.error) {
         setStatus('');
-        setFormError(errorMessage(error, 'We could not create the account. Check the details and try again.'));
+        setFormError(errorMessage(result.error, 'We could not create the account. Check the details and try again.'));
         return;
       }
 
       setStatus('Sending your verification code…');
-      const verification = await signUp.verifications.sendEmailCode();
+      const verification = await withTimeout(
+        signUp.verifications.sendEmailCode(),
+        25000,
+        'The verification email took too long to send. Refresh the page and try again.',
+      );
+
       if (verification.error) {
         setStatus('');
         setFormError(errorMessage(verification.error, 'We could not send the verification email. Please try again.'));
@@ -92,21 +122,29 @@ export default function ClerkEmailSignUp() {
     } catch (error) {
       console.error('Pie signup failed', error);
       setStatus('');
-      setFormError(errorMessage(error, 'Signup could not start on this browser. Please try again.'));
+      setFormError(errorMessage(error, 'Signup could not start on this browser. Please refresh and try again.'));
+    } finally {
+      setSubmitting(false);
     }
   }
 
   async function handleVerify(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
+    setVerifyingBusy(true);
     setFormError('');
     setStatus('Verifying your email…');
 
     try {
-      const { error } = await signUp.verifications.verifyEmailCode({ code: code.trim() });
-      if (error) {
+      const result = await withTimeout(
+        signUp.verifications.verifyEmailCode({ code: code.trim() }),
+        25000,
+        'Email verification took too long. Please try the code again.',
+      );
+
+      if (result.error) {
         setStatus('');
-        setFormError(errorMessage(error, 'That verification code did not work. Please try again.'));
+        setFormError(errorMessage(result.error, 'That verification code did not work. Please try again.'));
         return;
       }
 
@@ -118,22 +156,28 @@ export default function ClerkEmailSignUp() {
 
       stashOnboarding();
       setStatus('Finishing your Pie account…');
-      await signUp.finalize({
-        navigate: ({ session, decorateUrl }) => {
-          if (session?.currentTask) {
-            setStatus('');
-            setFormError('Your account needs one more verification step before setup can finish.');
-            return;
-          }
-          const url = decorateUrl('/onboarding');
-          if (url.startsWith('http')) window.location.href = url;
-          else router.push(url);
-        },
-      });
+      await withTimeout(
+        signUp.finalize({
+          navigate: ({ session, decorateUrl }) => {
+            if (session?.currentTask) {
+              setStatus('');
+              setFormError('Your account needs one more verification step before setup can finish.');
+              return;
+            }
+            const url = decorateUrl('/onboarding');
+            if (url.startsWith('http')) window.location.href = url;
+            else router.push(url);
+          },
+        }),
+        30000,
+        'Finishing your account took too long. Refresh the page and sign in with the account you just created.',
+      );
     } catch (error) {
       console.error('Pie email verification failed', error);
       setStatus('');
       setFormError(errorMessage(error, 'Email verification could not finish. Please try again.'));
+    } finally {
+      setVerifyingBusy(false);
     }
   }
 
@@ -192,8 +236,9 @@ export default function ClerkEmailSignUp() {
       </div>
 
       {status ? <p className={styles.verifyNote}>{status}</p> : null}
+      {submitting ? <p className={styles.verifyNote}>If a security check appears below, complete it to continue.</p> : null}
       {formError ? <p className={styles.authError}>{formError}</p> : null}
-      <div id="clerk-captcha" />
+      <div id="clerk-captcha" data-cl-theme="dark" data-cl-size="flexible" style={{ width: '100%', minHeight: submitting ? 8 : 0 }} />
       <button className={styles.primaryAuthButton} type="submit" disabled={busy}>{busy ? 'Creating your Pie account…' : `Start ${TRIAL_DAYS}-Day Free Trial`}</button>
     </form>
   );

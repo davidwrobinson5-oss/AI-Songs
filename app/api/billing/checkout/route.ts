@@ -7,7 +7,7 @@ const PRICE_BY_PLAN: Record<string, { priceId: string; level: number }> = {
   release_planning: { priceId: 'price_1UC0VzGnh6vO8OMLvPvwc5pX', level: 2 },
   prelaunch: { priceId: 'price_1UC0W7Gnh6vO8OMLtkDefW54', level: 3 },
   launch: { priceId: 'price_1UC0WGGnh6vO8OMLTjv4lQpA', level: 4 },
-  campaign: { priceId: 'price_1UC0WPGGnh6vO8OMLf2Dtnuwf', level: 5 },
+  campaign: { priceId: 'price_1UC0WPGnh6vO8OMLf2Dtnuwf', level: 5 },
   gigs: { priceId: 'price_1UC0WbGnh6vO8OMLdDzJKJcJ', level: 6 },
   national: { priceId: 'price_1UC0WlGnh6vO8OMLaDaGHl4H', level: 7 },
   international: { priceId: 'price_1UC0WsGnh6vO8OMLboLKsv3o', level: 8 },

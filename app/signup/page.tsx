@@ -1,4 +1,4 @@
-import ClerkEmailSignUp from './ClerkEmailSignUp';
+import ClerkSecureSignUp from './ClerkSecureSignUp';
 import styles from '../login/login.module.css';
 
 function clerkConfigured() {
@@ -20,7 +20,7 @@ export default function SignUpPage() {
         <p className={styles.sub}>Create your Pie account and choose the stage that fits where you are headed.</p>
         {clerkConfigured() ? (
           <>
-            <ClerkEmailSignUp />
+            <ClerkSecureSignUp />
             <div className={styles.signupBlock}>
               <span>Already have a Pie account?</span>
               <a href="/signin">Sign In</a>

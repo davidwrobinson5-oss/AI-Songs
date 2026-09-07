@@ -22,6 +22,9 @@ export default function ClerkSecureSignUp() {
   const [email, setEmail] = useState('');
   const [selectedPlan, setSelectedPlan] = useState(DEFAULT_PLAN_ID);
   const [secureStep, setSecureStep] = useState(false);
+  const [secureAttempt, setSecureAttempt] = useState(0);
+  const [isOnline, setIsOnline] = useState(true);
+  const [clerkLoadSlow, setClerkLoadSlow] = useState(false);
   const [formError, setFormError] = useState('');
   const plan = useMemo(() => planById(selectedPlan), [selectedPlan]);
 
@@ -30,6 +33,24 @@ export default function ClerkSecureSignUp() {
       window.location.replace('/onboarding');
     }
   }, [secureStep, isLoaded, isSignedIn]);
+
+  useEffect(() => {
+    const syncOnline = () => setIsOnline(navigator.onLine);
+    syncOnline();
+    window.addEventListener('online', syncOnline);
+    window.addEventListener('offline', syncOnline);
+    return () => {
+      window.removeEventListener('online', syncOnline);
+      window.removeEventListener('offline', syncOnline);
+    };
+  }, []);
+
+  useEffect(() => {
+    setClerkLoadSlow(false);
+    if (!secureStep || isLoaded) return;
+    const timer = window.setTimeout(() => setClerkLoadSlow(true), 12000);
+    return () => window.clearTimeout(timer);
+  }, [secureStep, secureAttempt, isLoaded]);
 
   function beginSecureSignup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -58,16 +79,46 @@ export default function ClerkSecureSignUp() {
     setSecureStep(true);
   }
 
+  function retrySecureSignup() {
+    setClerkLoadSlow(false);
+    setSecureAttempt((attempt) => attempt + 1);
+  }
+
   if (secureStep) {
     const pieces = name.trim().split(/\s+/).filter(Boolean);
     const firstName = pieces[0] || undefined;
     const lastName = pieces.slice(1).join(' ') || undefined;
 
-    if (!isLoaded || isSignedIn) {
+    if (!isOnline) {
       return (
         <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
-          <strong>{isSignedIn ? 'Account recognized.' : 'Loading secure signup…'}</strong>
-          <small style={{ color: '#9fa1ae' }}>{isSignedIn ? 'Continuing to contact verification…' : 'Please wait a moment.'}</small>
+          <strong>Internet connection lost.</strong>
+          <small style={{ color: '#9fa1ae' }}>Your Pie signup details are saved in this tab. Reconnect, then retry secure signup.</small>
+          <button className={styles.primaryAuthButton} type="button" onClick={retrySecureSignup}>Retry Secure Signup</button>
+          <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>Change details</button>
+        </div>
+      );
+    }
+
+    if (!isLoaded) {
+      return (
+        <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
+          <strong>{clerkLoadSlow ? 'Secure signup is taking longer than expected.' : 'Loading secure signup…'}</strong>
+          <small style={{ color: '#9fa1ae' }}>
+            {clerkLoadSlow ? 'Retry the secure connection. If the account was already created, use Sign In instead of starting over.' : 'Pie is connecting to the verification service.'}
+          </small>
+          {clerkLoadSlow ? <button className={styles.primaryAuthButton} type="button" onClick={retrySecureSignup}>Retry Secure Signup</button> : null}
+          {clerkLoadSlow ? <a href="/signin" style={{ color: '#cabdff', fontWeight: 800 }}>Sign In to an Existing Account</a> : null}
+          <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>Change details</button>
+        </div>
+      );
+    }
+
+    if (isSignedIn) {
+      return (
+        <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
+          <strong>Account recognized.</strong>
+          <small style={{ color: '#9fa1ae' }}>Continuing to verified setup…</small>
         </div>
       );
     }
@@ -85,6 +136,7 @@ export default function ClerkSecureSignUp() {
 
         <div style={{ display: 'flex', justifyContent: 'center', width: '100%', minHeight: 360 }}>
           <SignUp
+            key={secureAttempt}
             routing="hash"
             forceRedirectUrl="/onboarding"
             signInUrl="/signin"
@@ -100,9 +152,14 @@ export default function ClerkSecureSignUp() {
           />
         </div>
 
-        <small style={{ color: '#9fa1ae', textAlign: 'center' }}>
-          Pie requires verified contact information before checkout. Email verification is handled by Clerk; phone ownership is verified by SMS before the trial can start.
-        </small>
+        <div style={{ display: 'grid', gap: 8, textAlign: 'center' }}>
+          <small style={{ color: '#9fa1ae' }}>
+            Pie requires verified contact information before checkout. Email verification is handled by Clerk; phone ownership is verified by SMS before the trial can start.
+          </small>
+          <small style={{ color: '#77798a' }}>
+            If this panel stops responding, <button type="button" onClick={retrySecureSignup} style={{ border: 0, padding: 0, background: 'transparent', color: '#cabdff', font: 'inherit', fontWeight: 800, cursor: 'pointer' }}>restart secure signup</button> or <a href="/signin" style={{ color: '#cabdff', fontWeight: 800 }}>sign in</a> if your account was already created.
+          </small>
+        </div>
       </div>
     );
   }

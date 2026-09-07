@@ -25,11 +25,8 @@ export const metadata: Metadata = {
   },
 };
 
-function clerkConfigured() {
-  return Boolean(
-    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
-    process.env.CLERK_SECRET_KEY,
-  );
+function clerkClientConfigured() {
+  return Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 }
 
 function Document({ children }: { children: React.ReactNode }) {
@@ -50,11 +47,12 @@ function Document({ children }: { children: React.ReactNode }) {
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  if (!clerkConfigured()) return <Document>{children}<PrivateStudioAccountControl /></Document>;
+  if (!clerkClientConfigured()) return <Document>{children}<PrivateStudioAccountControl /></Document>;
 
   return (
     <ClerkProvider
       dynamic
+      proxyUrl="/__clerk"
       signInUrl="/signin"
       signUpUrl="/signup"
       afterSignOutUrl="/signin"

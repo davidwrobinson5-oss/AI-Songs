@@ -13,6 +13,10 @@ const PRICE_BY_PLAN: Record<string, { priceId: string; level: number }> = {
   international: { priceId: 'price_1UC0WsGnh6vO8OMLboLKsv3o', level: 8 },
 };
 
+function verificationIsComplete(item: { verification?: { status?: string | null } | null } | null | undefined) {
+  return item?.verification?.status === 'verified';
+}
+
 export async function POST(request: NextRequest) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
@@ -26,7 +30,21 @@ export async function POST(request: NextRequest) {
   if (!plan) return NextResponse.json({ error: 'Choose a valid paid Pie plan.' }, { status: 400 });
 
   const user = await currentUser();
-  const email = user?.primaryEmailAddress?.emailAddress || undefined;
+  if (!user || user.id !== userId) {
+    return NextResponse.json({ error: 'We could not verify your Pie account. Please sign in again.' }, { status: 401 });
+  }
+
+  const primaryEmail = user.primaryEmailAddress;
+  if (!primaryEmail?.emailAddress || !verificationIsComplete(primaryEmail)) {
+    return NextResponse.json({ error: 'Verify your email address before starting the free trial.' }, { status: 403 });
+  }
+
+  const verifiedPhone = user.phoneNumbers.find((phone) => verificationIsComplete(phone));
+  if (!verifiedPhone) {
+    return NextResponse.json({ error: 'Verify your phone number by SMS before starting the free trial.' }, { status: 403 });
+  }
+
+  const email = primaryEmail.emailAddress;
   const origin = request.nextUrl.origin;
 
   const params = new URLSearchParams();
@@ -34,7 +52,7 @@ export async function POST(request: NextRequest) {
   params.set('line_items[0][price]', plan.priceId);
   params.set('line_items[0][quantity]', '1');
   params.set('client_reference_id', userId);
-  if (email) params.set('customer_email', email);
+  params.set('customer_email', email);
   params.set('success_url', `${origin}/onboarding/complete?session_id={CHECKOUT_SESSION_ID}`);
   params.set('cancel_url', `${origin}/onboarding?cancelled=1`);
   params.set('allow_promotion_codes', 'true');
@@ -50,20 +68,34 @@ export async function POST(request: NextRequest) {
   params.set('subscription_data[metadata][pie_plan_level]', String(plan.level));
   params.set('subscription_data[metadata][pie_trial_days]', String(TRIAL_DAYS));
 
-  const response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${stripeSecret}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: params.toString(),
-    cache: 'no-store',
-  });
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 20000);
+  let response: Response;
+  try {
+    response = await fetch('https://api.stripe.com/v1/checkout/sessions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${stripeSecret}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+  } catch (error) {
+    const timedOut = error instanceof Error && error.name === 'AbortError';
+    return NextResponse.json(
+      { error: timedOut ? 'Checkout took too long to respond. Please try again.' : 'Checkout could not be reached. Please try again.' },
+      { status: 504 },
+    );
+  } finally {
+    clearTimeout(timeout);
+  }
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data?.url) {
     return NextResponse.json({ error: data?.error?.message || 'Checkout could not be started.' }, { status: 502 });
   }
 
-  return NextResponse.json({ url: data.url });
+  return NextResponse.json({ url: data.url }, { headers: { 'Cache-Control': 'no-store' } });
 }

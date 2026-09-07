@@ -1,7 +1,7 @@
 'use client';
 
-import { SignUp } from '@clerk/nextjs';
-import { FormEvent, useMemo, useState } from 'react';
+import { SignUp, useUser } from '@clerk/nextjs';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { DEFAULT_PLAN_ID, PIE_PLANS, TRIAL_DAYS, planById } from '../billingConfig';
 import styles from '../login/login.module.css';
 
@@ -16,6 +16,7 @@ function normalizePhone(value: string) {
 }
 
 export default function ClerkSecureSignUp() {
+  const { isLoaded, isSignedIn } = useUser();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -23,6 +24,12 @@ export default function ClerkSecureSignUp() {
   const [secureStep, setSecureStep] = useState(false);
   const [formError, setFormError] = useState('');
   const plan = useMemo(() => planById(selectedPlan), [selectedPlan]);
+
+  useEffect(() => {
+    if (secureStep && isLoaded && isSignedIn) {
+      window.location.replace('/onboarding');
+    }
+  }, [secureStep, isLoaded, isSignedIn]);
 
   function beginSecureSignup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,6 +63,15 @@ export default function ClerkSecureSignUp() {
     const firstName = pieces[0] || undefined;
     const lastName = pieces.slice(1).join(' ') || undefined;
 
+    if (!isLoaded || isSignedIn) {
+      return (
+        <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
+          <strong>{isSignedIn ? 'Account recognized.' : 'Loading secure signup…'}</strong>
+          <small style={{ color: '#9fa1ae' }}>{isSignedIn ? 'Continuing to contact verification…' : 'Please wait a moment.'}</small>
+        </div>
+      );
+    }
+
     return (
       <div style={{ display: 'grid', gap: 14 }}>
         <div className={styles.signupBlock} style={{ justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
@@ -67,12 +83,12 @@ export default function ClerkSecureSignUp() {
           </button>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
+        <div style={{ display: 'flex', justifyContent: 'center', width: '100%', minHeight: 360 }}>
           <SignUp
             routing="hash"
             forceRedirectUrl="/onboarding"
             signInUrl="/signin"
-            signInForceRedirectUrl="/"
+            signInForceRedirectUrl="/onboarding"
             initialValues={{ emailAddress: email, phoneNumber: phone, firstName, lastName }}
             appearance={{
               elements: {

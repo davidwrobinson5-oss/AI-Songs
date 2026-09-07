@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
+import { TRIAL_LIMITS } from '../../../billingConfig';
 import { rateLimit, safeClientError } from '../../../security';
-import { resolvePieUserId } from '../../../usageEntitlements';
+import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../../usageEntitlements';
 
 const VOICE_SWAP_BASE = 'https://api.voice-swap.ai/v1';
 const NO_STORE = { 'Cache-Control': 'no-store' };
@@ -22,6 +23,17 @@ function allowedPath(parts: string[], method: string) {
   return false;
 }
 
+async function meterPaidOperation(path: string, method: string) {
+  if (method !== 'POST') return null;
+  if (path === 'inference/start') {
+    return consumeUsage('voice_inference', TRIAL_LIMITS.voiceRendersTotal);
+  }
+  if (path === 'training/start') {
+    return consumeUsage('training_jobs', TRIAL_LIMITS.otherMeteredAiJobsTotal, 8);
+  }
+  return null;
+}
+
 async function proxy(req: Request, context: { params: Promise<{ path?: string[] }> }) {
   const limited = rateLimit(req, 'voice-swap', 20, 60_000);
   if (limited) return limited;
@@ -34,9 +46,20 @@ async function proxy(req: Request, context: { params: Promise<{ path?: string[] 
 
   const { path: rawParts = [] } = await context.params;
   const parts = rawParts.map((part) => decodeURIComponent(part));
+  const path = parts.join('/');
   if (!allowedPath(parts, req.method)) return NextResponse.json({ error: 'Unsupported Voice-Swap operation.' }, { status: 404, headers: NO_STORE });
 
   try {
+    const entitlement = await meterPaidOperation(path, req.method);
+    if (entitlement && !entitlement.allowed) {
+      const label = path === 'training/start' ? 'voice training' : 'voice renders';
+      return NextResponse.json({
+        error: usageDeniedMessage(label, entitlement),
+        code: 'PIE_USAGE_LIMIT',
+        usage: { count: entitlement.usageCount, limit: entitlement.usageLimit },
+      }, { status: 402, headers: NO_STORE });
+    }
+
     const declared = Number(req.headers.get('content-length') || 0);
     if (declared && declared > 64 * 1024 * 1024) return NextResponse.json({ error: 'Voice upload is too large for Pie.' }, { status: 413, headers: NO_STORE });
 
@@ -76,7 +99,7 @@ async function proxy(req: Request, context: { params: Promise<{ path?: string[] 
     const contentType = upstream.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
       const payload = await upstream.json().catch(() => ({}));
-      if (!upstream.ok) console.error('Voice-Swap request failed', req.method, parts.join('/'), upstream.status);
+      if (!upstream.ok) console.error('Voice-Swap request failed', req.method, path, upstream.status);
       return NextResponse.json(payload, { status: upstream.status, headers: NO_STORE });
     }
 

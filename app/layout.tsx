@@ -27,7 +27,6 @@ export const metadata: Metadata = {
 
 function clerkConfigured() {
   return Boolean(
-    process.env.PIE_ENABLE_CLERK === '1' &&
     process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
     process.env.CLERK_SECRET_KEY,
   );
@@ -56,9 +55,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <ClerkProvider
       dynamic
-      signInUrl="/login"
-      signUpUrl="/login"
-      afterSignOutUrl="/login"
+      signInUrl="/signin"
+      signUpUrl="/signup"
+      afterSignOutUrl="/signin"
     >
       <Document>
         {children}

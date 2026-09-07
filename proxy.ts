@@ -22,12 +22,16 @@ function isPublicAsset(pathname: string) {
   );
 }
 
-function isLoginRoute(pathname: string) {
+function isOwnerLoginRoute(pathname: string) {
   return pathname === '/login' || pathname.startsWith('/login/') || pathname === '/api/auth/login';
 }
 
-function isSignupRoute(pathname: string) {
-  return pathname === '/signup' || pathname.startsWith('/signup/');
+function isCustomerAuthRoute(pathname: string) {
+  return (
+    pathname === '/signup' || pathname.startsWith('/signup/') ||
+    pathname === '/signin' || pathname.startsWith('/signin/') ||
+    pathname === '/onboarding' || pathname.startsWith('/onboarding/')
+  );
 }
 
 function isPublicAccessRequest(pathname: string) {
@@ -50,17 +54,12 @@ function isAudioUploadRequest(pathname: string) {
   return pathname === '/api/song-audio-upload';
 }
 
-function isStudioPasswordRequest(req: NextRequest) {
-  return req.nextUrl.pathname === '/login' && req.nextUrl.searchParams.get('legacy') === '1';
-}
-
-function isCloudConnectRequest(req: NextRequest) {
-  return req.nextUrl.pathname === '/login' && req.nextUrl.searchParams.get('cloud') === '1';
+function isCaptureBootstrap(pathname: string) {
+  return isAndroidCaptureRequest(pathname) || isCaptureSessionRequest(pathname);
 }
 
 function clerkConfigured() {
   return Boolean(
-    process.env.PIE_ENABLE_CLERK === '1' &&
     process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
     process.env.CLERK_SECRET_KEY,
   );
@@ -106,34 +105,36 @@ async function legacySessionValid(req: NextRequest) {
   return verifySessionToken(req.cookies.get(SESSION_COOKIE)?.value, process.env.AI_SONGS_SESSION_SECRET);
 }
 
-function isCaptureBootstrap(pathname: string) {
-  return isAndroidCaptureRequest(pathname) || isCaptureSessionRequest(pathname);
-}
-
 async function legacyProxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname)) return NextResponse.next();
 
   if (!authConfigured()) {
-    if (isLoginRoute(pathname)) return NextResponse.next();
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Studio authentication is not configured.' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
-    const login = req.nextUrl.clone(); login.pathname = '/login'; login.search = ''; return NextResponse.redirect(login);
+    const login = req.nextUrl.clone();
+    login.pathname = '/login';
+    login.search = '';
+    return NextResponse.redirect(login);
   }
 
   const validSession = await legacySessionValid(req);
-  if (isLoginRoute(pathname)) {
-    if (validSession && pathname === '/login') { const home = req.nextUrl.clone(); home.pathname = '/'; home.search = ''; return NextResponse.redirect(home); }
-    return NextResponse.next();
-  }
   if (!validSession) {
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Authentication required.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
-    const login = req.nextUrl.clone(); login.pathname = '/login'; login.search = ''; return NextResponse.redirect(login);
+    const login = req.nextUrl.clone();
+    login.pathname = '/login';
+    login.search = '';
+    return NextResponse.redirect(login);
   }
+
   const response = NextResponse.next();
-  if (pathname.startsWith('/api/')) { response.headers.set('Cache-Control', 'no-store'); response.headers.set('X-Robots-Tag', 'noindex, nofollow'); response.headers.set('Access-Control-Allow-Origin', 'null'); }
+  if (pathname.startsWith('/api/')) {
+    response.headers.set('Cache-Control', 'no-store');
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    response.headers.set('Access-Control-Allow-Origin', 'null');
+  }
   return response;
 }
 
@@ -142,31 +143,30 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isSignupRoute(pathname) || isStudioPasswordRequest(req) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname)) return NextResponse.next();
+
+  // Owner login and customer authentication/onboarding are intentionally separate.
+  if (isPublicAccessRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname)) {
+    return NextResponse.next();
+  }
 
   const clerkAuth = await auth();
   const legacyValid = await legacySessionValid(req);
   const authenticated = clerkAuth.isAuthenticated || legacyValid;
 
-  if (isLoginRoute(pathname)) {
-    if (isCloudConnectRequest(req) && !clerkAuth.isAuthenticated) return NextResponse.next();
-
-    if (authenticated && pathname === '/login') {
-      const home = req.nextUrl.clone();
-      home.pathname = '/';
-      home.search = '';
-      return NextResponse.redirect(home);
-    }
-    return NextResponse.next();
-  }
   if (!authenticated) {
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Authentication required.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
-    const login = req.nextUrl.clone();
-    login.pathname = '/login';
-    return NextResponse.redirect(login);
+    const signin = req.nextUrl.clone();
+    signin.pathname = '/signin';
+    signin.search = '';
+    return NextResponse.redirect(signin);
   }
+
   const response = NextResponse.next();
-  if (pathname.startsWith('/api/')) { response.headers.set('Cache-Control', 'no-store'); response.headers.set('X-Robots-Tag', 'noindex, nofollow'); response.headers.set('Access-Control-Allow-Origin', 'null'); }
+  if (pathname.startsWith('/api/')) {
+    response.headers.set('Cache-Control', 'no-store');
+    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    response.headers.set('Access-Control-Allow-Origin', 'null');
+  }
   return response;
 }, {
   authorizedParties: [
@@ -174,7 +174,16 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
     'https://ai-songs-bice.vercel.app',
     'https://ai-songs-git-main-drobinhood1.vercel.app',
   ],
-  contentSecurityPolicy: { strict: true, directives: { 'media-src': ["'self'", 'blob:', 'data:'], 'connect-src': ['blob:'], 'manifest-src': ["'self'"], 'object-src': ["'none'"], 'frame-ancestors': ["'none'"] } },
+  contentSecurityPolicy: {
+    strict: true,
+    directives: {
+      'media-src': ["'self'", 'blob:', 'data:'],
+      'connect-src': ['blob:'],
+      'manifest-src': ["'self'"],
+      'object-src': ["'none'"],
+      'frame-ancestors': ["'none'"],
+    },
+  },
 });
 
 export async function proxy(req: NextRequest, event: NextFetchEvent) {
@@ -183,15 +192,7 @@ export async function proxy(req: NextRequest, event: NextFetchEvent) {
   try {
     return await clerkProxy(req, event);
   } catch (error) {
-    console.error('Clerk middleware failed; falling back to legacy studio authentication.', error);
-
-    if (isLoginRoute(req.nextUrl.pathname) && req.nextUrl.searchParams.get('legacy') !== '1') {
-      const login = req.nextUrl.clone();
-      login.pathname = '/login';
-      login.search = '?legacy=1';
-      return NextResponse.redirect(login);
-    }
-
+    console.error('Clerk middleware failed; preserving owner studio fallback.', error);
     return legacyProxy(req);
   }
 }

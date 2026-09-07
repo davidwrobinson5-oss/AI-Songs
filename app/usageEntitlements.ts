@@ -23,7 +23,7 @@ export async function resolvePieUserId() {
     const clerk = await auth();
     if (clerk.userId) return clerk.userId;
   } catch {
-    // Fall through to legacy access.
+    // Fall through to legacy owner access.
   }
 
   const jar = await cookies();
@@ -32,10 +32,10 @@ export async function resolvePieUserId() {
   return legacyValid ? LEGACY_OWNER_ID : '';
 }
 
-export async function consumeUsage(usageKey: string, freeLimit: number, units = 1): Promise<UsageEntitlement> {
+export async function consumeUsage(usageKey: string, trialLimit: number, units = 1): Promise<UsageEntitlement> {
   const userId = await resolvePieUserId();
   if (!userId) {
-    return { userId: '', planId: 'fun', planLevel: 1, status: 'signed_out', allowed: false, usageCount: 0, usageLimit: freeLimit, outputQuality: 'standard' };
+    return { userId: '', planId: 'none', planLevel: 0, status: 'signed_out', allowed: false, usageCount: 0, usageLimit: trialLimit, outputQuality: 'standard' };
   }
 
   const oidc = await getVercelOidcToken().catch(() => '');
@@ -48,7 +48,7 @@ export async function consumeUsage(usageKey: string, freeLimit: number, units = 
       apikey: SUPABASE_PUBLISHABLE_KEY,
       'X-Pie-Vercel-OIDC': oidc,
     },
-    body: JSON.stringify({ action: 'consume', userId, usageKey, freeLimit, units }),
+    body: JSON.stringify({ action: 'consume', userId, usageKey, freeLimit: trialLimit, units }),
     cache: 'no-store',
   });
   const data = await response.json().catch(() => ({}));
@@ -56,9 +56,9 @@ export async function consumeUsage(usageKey: string, freeLimit: number, units = 
 
   return {
     userId,
-    planId: String(data?.planId || 'fun'),
-    planLevel: Number(data?.planLevel || 1),
-    status: String(data?.status || 'free'),
+    planId: String(data?.planId || 'none'),
+    planLevel: Number(data?.planLevel || 0),
+    status: String(data?.status || 'inactive'),
     allowed: Boolean(data?.allowed),
     usageCount: Number(data?.usageCount || 0),
     usageLimit: data?.usageLimit == null ? null : Number(data.usageLimit),
@@ -68,6 +68,12 @@ export async function consumeUsage(usageKey: string, freeLimit: number, units = 
 
 export function usageDeniedMessage(label: string, entitlement: UsageEntitlement) {
   if (!entitlement.userId) return 'Sign in to use this Pie feature.';
+  if (entitlement.status === 'canceled' || entitlement.status === 'past_due' || entitlement.planLevel === 0) {
+    return `Choose an active Pie subscription to use ${label.toLowerCase()}.`;
+  }
+  if (entitlement.status === 'trialing' && entitlement.usageLimit != null) {
+    return `You have used all ${entitlement.usageLimit} ${label.toLowerCase()} included in your free trial. Continue with your selected paid plan to keep using this feature.`;
+  }
   if (entitlement.usageLimit == null) return `${label} is temporarily unavailable.`;
-  return `You have used all ${entitlement.usageLimit} free ${label.toLowerCase()} this month. Upgrade your Pie stage to continue.`;
+  return `${label} is unavailable for this account.`;
 }

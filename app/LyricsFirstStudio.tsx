@@ -10,8 +10,11 @@ type Props = {
 };
 
 type AnswerKey = 'listener' | 'moment' | 'want' | 'obstacle' | 'turn' | 'image' | 'truth' | 'textLine';
-
 type ToolAction = 'plan' | 'hook' | 'word-bank' | 'line-polish' | 'critique' | 'generate' | 'rewrite';
+
+const emptyAnswers: Record<AnswerKey, string> = {
+  listener: '', moment: '', want: '', obstacle: '', turn: '', image: '', truth: '', textLine: '',
+};
 
 const questions: Array<{ key: AnswerKey; label: string; placeholder: string }> = [
   { key: 'listener', label: 'Who are you singing to?', placeholder: 'A person, yourself, God, a crowd, someone you lost…' },
@@ -60,10 +63,17 @@ const craftRules = [
   'End important lines on strong nouns, verbs, images, or the title—not weak connector words.',
 ];
 
+function CardHeader({ title, action, onAction, disabled = false }: { title: string; action: string; onAction: () => void; disabled?: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+      <strong>{title}</strong>
+      <button type="button" className="secondary" onClick={onAction} disabled={disabled} style={{ padding: '7px 10px', minHeight: 0, whiteSpace: 'nowrap' }}>{action}</button>
+    </div>
+  );
+}
+
 export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyricsChange }: Props) {
-  const [answers, setAnswers] = useState<Record<AnswerKey, string>>({
-    listener: '', moment: '', want: '', obstacle: '', turn: '', image: '', truth: '', textLine: '',
-  });
+  const [answers, setAnswers] = useState<Record<AnswerKey, string>>({ ...emptyAnswers });
   const [arc, setArc] = useState(arcs[0]);
   const [wordQuery, setWordQuery] = useState('');
   const [lineQuery, setLineQuery] = useState('');
@@ -72,6 +82,32 @@ export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyrics
   const [status, setStatus] = useState('');
 
   const completed = useMemo(() => Object.values(answers).filter((value) => value.trim()).length, [answers]);
+
+  function resetBrief() {
+    setAnswers({ ...emptyAnswers });
+    setArc(arcs[0]);
+    setToolResult('');
+    setStatus('Creative brief reset. Your song description and lyrics were not changed.');
+  }
+
+  function clearWordLab() {
+    setWordQuery('');
+    setToolResult('');
+    setStatus('Word Lab cleared.');
+  }
+
+  function clearLineLab() {
+    setLineQuery('');
+    setToolResult('');
+    setStatus('Line Lab cleared.');
+  }
+
+  function clearLyrics() {
+    if (lyrics.trim() && !window.confirm('Clear the current lyric text? Saved song versions will not be deleted.')) return;
+    onLyricsChange('');
+    setToolResult('');
+    setStatus('Current lyric editor cleared. Saved song versions were not deleted.');
+  }
 
   async function runTool(action: ToolAction) {
     if (loading) return;
@@ -120,7 +156,7 @@ export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyrics
       <p className="sub">Build the idea first, lock the emotional arc and hook, then fill a proven pop structure with the strongest words and images for your song.</p>
 
       <div className="playerCard">
-        <strong>1. Answer the questions that make the song matter</strong>
+        <CardHeader title="1. Answer the questions that make the song matter" action="↺ Reset brief" onAction={resetBrief} disabled={Boolean(loading)} />
         <small>{completed}/8 answered · These become the creative brief for every Pie writing tool below.</small>
         <div style={{ display: 'grid', gap: 12 }}>
           {questions.map((question) => (
@@ -171,7 +207,7 @@ export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyrics
       </div>
 
       <div className="playerCard">
-        <strong>5. Word Lab</strong>
+        <CardHeader title="5. Word Lab" action="Clear" onAction={clearWordLab} disabled={Boolean(loading) || (!wordQuery && !toolResult)} />
         <small>Context-aware thesaurus + rhyme lab: stronger verbs, concrete nouns, conversational alternatives, perfect/near rhymes, sensory images, and singable open-vowel words.</small>
         <input value={wordQuery} onChange={(event) => setWordQuery(event.target.value)} placeholder="Word, phrase, feeling, or idea…" />
         <button type="button" className="secondary" onClick={() => void runTool('word-bank')} disabled={Boolean(loading) || !wordQuery.trim()}>
@@ -180,7 +216,7 @@ export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyrics
       </div>
 
       <div className="playerCard">
-        <strong>6. Line Lab</strong>
+        <CardHeader title="6. Line Lab" action="Clear" onAction={clearLineLab} disabled={Boolean(loading) || (!lineQuery && !toolResult)} />
         <small>Test a line for clarity, prosody, cliché, rhyme, imagery, conversational flow, syllable pressure, and singability.</small>
         <textarea value={lineQuery} onChange={(event) => setLineQuery(event.target.value)} placeholder="Paste one lyric line here…" />
         <button type="button" className="secondary" onClick={() => void runTool('line-polish')} disabled={Boolean(loading) || !lineQuery.trim()}>
@@ -202,7 +238,7 @@ export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyrics
       </details>
 
       <div className="playerCard">
-        <strong>8. Write the song</strong>
+        <CardHeader title="8. Write the song" action="Clear lyrics" onAction={clearLyrics} disabled={Boolean(loading) || !lyrics.trim()} />
         <small>Pie uses your answers, emotional arc, song direction, vocal range, and the structure above to create the draft.</small>
         <div className="mixButtons">
           <button type="button" className="primary" onClick={() => void runTool('generate')} disabled={Boolean(loading)}>

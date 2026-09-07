@@ -1,5 +1,9 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
+import { getVercelOidcToken } from '@vercel/oidc';
 import { NextRequest, NextResponse } from 'next/server';
+
+const ENTITLEMENT_URL = 'https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-entitlements';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
 
 const PACKS: Record<string, { name: string; credits: number; amountCents: number }> = {
   boost: { name: 'Pie Boost — 10 credits', credits: 10, amountCents: 600 },
@@ -7,9 +11,29 @@ const PACKS: Record<string, { name: string; credits: number; amountCents: number
   power: { name: 'Pie Power — 60 credits', credits: 60, amountCents: 2400 },
 };
 
+async function activeSubscription(userId: string) {
+  const oidc = await getVercelOidcToken().catch(() => '');
+  if (!oidc) return false;
+  const response = await fetch(ENTITLEMENT_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: SUPABASE_PUBLISHABLE_KEY,
+      'X-Pie-Vercel-OIDC': oidc,
+    },
+    body: JSON.stringify({ action: 'summary', userId }),
+    cache: 'no-store',
+  });
+  const data = await response.json().catch(() => ({}));
+  return response.ok && data?.status === 'active' && Number(data?.planLevel || 0) > 1;
+}
+
 export async function POST(request: NextRequest) {
   const { userId } = await auth();
   if (!userId) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
+  if (!(await activeSubscription(userId))) {
+    return NextResponse.json({ error: 'Top-ups are available only for active paid Pie subscriptions.' }, { status: 403 });
+  }
 
   const stripeSecret = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecret) return NextResponse.json({ error: 'Stripe billing is not configured yet.' }, { status: 503 });

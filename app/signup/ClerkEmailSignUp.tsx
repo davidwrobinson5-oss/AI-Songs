@@ -3,7 +3,7 @@
 import { useSignUp } from '@clerk/nextjs';
 import { useRouter } from 'next/navigation';
 import { FormEvent, useMemo, useState } from 'react';
-import { PIE_PLANS, planById } from '../billingConfig';
+import { DEFAULT_PLAN_ID, PIE_PLANS, TRIAL_DAYS, planById } from '../billingConfig';
 import styles from '../login/login.module.css';
 
 function errorMessage(error: unknown, fallback: string) {
@@ -28,7 +28,7 @@ export default function ClerkEmailSignUp() {
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
-  const [selectedPlan, setSelectedPlan] = useState('fun');
+  const [selectedPlan, setSelectedPlan] = useState(DEFAULT_PLAN_ID);
   const [code, setCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [verifying, setVerifying] = useState(false);
@@ -72,11 +72,7 @@ export default function ClerkEmailSignUp() {
     stashOnboarding(submittedName, submittedPhone);
 
     try {
-      const { error } = await signUp.password({
-        emailAddress: submittedEmail,
-        password: submittedPassword,
-      });
-
+      const { error } = await signUp.password({ emailAddress: submittedEmail, password: submittedPassword });
       if (error) {
         setStatus('');
         setFormError(errorMessage(error, 'We could not create the account. Check the details and try again.'));
@@ -129,7 +125,6 @@ export default function ClerkEmailSignUp() {
             setFormError('Your account needs one more verification step before setup can finish.');
             return;
           }
-
           const url = decorateUrl('/onboarding');
           if (url.startsWith('http')) window.location.href = url;
           else router.push(url);
@@ -162,20 +157,11 @@ export default function ClerkEmailSignUp() {
   return (
     <form className={styles.emailLogin} onSubmit={handleCreate}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
-        <label className={styles.emailField}>
-          <span>Full name</span>
-          <input name="name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" placeholder="Your name" required />
-        </label>
-        <label className={styles.emailField}>
-          <span>Phone number</span>
-          <input name="phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" inputMode="tel" placeholder="(555) 555-5555" required />
-        </label>
+        <label className={styles.emailField}><span>Full name</span><input name="name" value={name} onChange={(event) => setName(event.target.value)} autoComplete="name" placeholder="Your name" required /></label>
+        <label className={styles.emailField}><span>Phone number</span><input name="phone" type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" inputMode="tel" placeholder="(555) 555-5555" required /></label>
       </div>
 
-      <label className={styles.emailField}>
-        <span>Email address</span>
-        <input name="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" autoCapitalize="none" required />
-      </label>
+      <label className={styles.emailField}><span>Email address</span><input name="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" autoCapitalize="none" required /></label>
       {errors.fields.emailAddress?.message ? <p className={styles.fieldError}>{errors.fields.emailAddress.message}</p> : null}
 
       <label className={styles.emailField}>
@@ -188,20 +174,12 @@ export default function ClerkEmailSignUp() {
       {errors.fields.password?.message ? <p className={styles.fieldError}>{errors.fields.password.message}</p> : null}
 
       <div style={{ display: 'grid', gap: 9, marginTop: 4 }}>
-        <div style={{ fontSize: 12, fontWeight: 850, color: '#d8d9e5' }}>Choose your subscription</div>
+        <div style={{ fontSize: 12, fontWeight: 850, color: '#d8d9e5' }}>Choose the plan you want after your {TRIAL_DAYS}-day free trial</div>
         {PIE_PLANS.map((item) => {
           const active = item.id === selectedPlan;
           return (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => setSelectedPlan(item.id)}
-              style={{ width: '100%', border: `1px solid ${active ? '#8b5cf6' : '#353746'}`, borderRadius: 14, background: active ? '#19142b' : '#0c0e14', color: '#fff', padding: 12, textAlign: 'left' }}
-            >
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
-                <strong>{item.name}</strong>
-                <strong>{item.monthlyPrice === 0 ? 'Free' : `$${item.monthlyPrice}/mo`}</strong>
-              </div>
+            <button key={item.id} type="button" onClick={() => setSelectedPlan(item.id)} style={{ width: '100%', border: `1px solid ${active ? '#8b5cf6' : '#353746'}`, borderRadius: 14, background: active ? '#19142b' : '#0c0e14', color: '#fff', padding: 12, textAlign: 'left' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><strong>{item.name}</strong><strong>${item.monthlyPrice}/mo</strong></div>
               <div style={{ marginTop: 4, color: '#9fa1ae', fontSize: 11 }}>{item.outcome}</div>
             </button>
           );
@@ -209,13 +187,13 @@ export default function ClerkEmailSignUp() {
       </div>
 
       <div style={{ padding: 12, borderRadius: 13, background: '#11131a', border: '1px solid #2c2f38', color: '#b7b8c4', fontSize: 12, lineHeight: 1.45 }}>
-        Selected: <strong style={{ color: '#fff' }}>{plan.name}</strong> · {plan.monthlyPrice === 0 ? 'Free' : `$${plan.monthlyPrice}/month`}. Paid subscriptions use Stripe sandbox during this test.
+        <strong style={{ color:'#fff' }}>{TRIAL_DAYS}-day free trial</strong> of {plan.name}, then ${plan.monthlyPrice}/month unless canceled. Trial usage is capped to control generation costs. Stripe remains in sandbox during this test.
       </div>
 
       {status ? <p className={styles.verifyNote}>{status}</p> : null}
       {formError ? <p className={styles.authError}>{formError}</p> : null}
       <div id="clerk-captcha" />
-      <button className={styles.primaryAuthButton} type="submit" disabled={busy}>{busy ? 'Creating your Pie account…' : 'Create Account'}</button>
+      <button className={styles.primaryAuthButton} type="submit" disabled={busy}>{busy ? 'Creating your Pie account…' : `Start ${TRIAL_DAYS}-Day Free Trial`}</button>
     </form>
   );
 }

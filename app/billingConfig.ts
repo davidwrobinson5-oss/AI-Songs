@@ -30,6 +30,11 @@ export const TRIAL_LIMITS = {
   songScoresTotal: 5,
   originalityScoresTotal: 3,
   otherMeteredAiJobsTotal: 10,
+  // Legacy field names retained for existing metered routes. During trial these are hard trial totals, not monthly free allowances.
+  musicGenerationsPerMonth: 3,
+  videoPlansPerMonth: 1,
+  songScoresPerMonth: 5,
+  originalityScoresPerMonth: 3,
   outputQuality: 'standard',
 } as const;
 

@@ -146,6 +146,18 @@ export async function saveVersion(input: SaveVersionInput) {
 }
 
 export async function listSongs() {
+  // The Music workspace must start clean. page.tsx historically used listSongs()
+  // to auto-restore the newest playable song whenever the create screen mounted.
+  // Returning an empty discovery list only while Music is the active screen
+  // prevents that implicit restore without deleting or changing the saved library.
+  // The Songs tab sets pieActiveScreen='songs' before it refreshes, so the real
+  // library remains fully available there and intentional song loads still work.
+  try {
+    if (typeof window !== 'undefined' && sessionStorage.getItem('pieActiveScreen') === 'create') {
+      return [] as SavedSong[];
+    }
+  } catch {}
+
   const db = await openDb();
   try {
     const tx = db.transaction(SONGS, 'readonly');

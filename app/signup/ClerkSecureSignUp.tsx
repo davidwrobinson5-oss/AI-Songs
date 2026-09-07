@@ -5,6 +5,16 @@ import { FormEvent, useMemo, useState } from 'react';
 import { DEFAULT_PLAN_ID, PIE_PLANS, TRIAL_DAYS, planById } from '../billingConfig';
 import styles from '../login/login.module.css';
 
+function normalizePhone(value: string) {
+  const raw = value.trim();
+  if (!raw) return '';
+  if (raw.startsWith('+')) return `+${raw.slice(1).replace(/\D/g, '')}`;
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
+  return `+${digits}`;
+}
+
 export default function ClerkSecureSignUp() {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -17,10 +27,14 @@ export default function ClerkSecureSignUp() {
   function beginSecureSignup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextName = name.trim();
-    const nextPhone = phone.trim();
+    const nextPhone = normalizePhone(phone);
     const nextEmail = email.trim().toLowerCase();
     if (!nextName || !nextPhone || !nextEmail) {
       setFormError('Please enter your name, phone number, and email address.');
+      return;
+    }
+    if (!/^\+\d{8,15}$/.test(nextPhone)) {
+      setFormError('Please enter a valid phone number including country code if outside the U.S.');
       return;
     }
 
@@ -31,17 +45,22 @@ export default function ClerkSecureSignUp() {
       sessionStorage.setItem('pieSignupPlan', selectedPlan);
     } catch {}
 
+    setPhone(nextPhone);
     setEmail(nextEmail);
     setFormError('');
     setSecureStep(true);
   }
 
   if (secureStep) {
+    const pieces = name.trim().split(/\s+/).filter(Boolean);
+    const firstName = pieces[0] || undefined;
+    const lastName = pieces.slice(1).join(' ') || undefined;
+
     return (
       <div style={{ display: 'grid', gap: 14 }}>
         <div className={styles.signupBlock} style={{ justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <span>
-            <strong>{email}</strong> · {plan.name} · ${plan.monthlyPrice}/mo after {TRIAL_DAYS} days
+            <strong>{email}</strong> · <strong>{phone}</strong> · {plan.name} · ${plan.monthlyPrice}/mo after {TRIAL_DAYS} days
           </span>
           <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>
             Change details
@@ -54,7 +73,7 @@ export default function ClerkSecureSignUp() {
             forceRedirectUrl="/onboarding"
             signInUrl="/signin"
             signInForceRedirectUrl="/"
-            initialValues={{ emailAddress: email }}
+            initialValues={{ emailAddress: email, phoneNumber: phone, firstName, lastName }}
             appearance={{
               elements: {
                 rootBox: { width: '100%', maxWidth: '520px' },
@@ -66,7 +85,7 @@ export default function ClerkSecureSignUp() {
         </div>
 
         <small style={{ color: '#9fa1ae', textAlign: 'center' }}>
-          Secure account creation, bot protection, password handling, and email verification are handled by Clerk.
+          Pie requires verified contact information before checkout. Email verification is handled by Clerk; phone ownership is verified by SMS before the trial can start.
         </small>
       </div>
     );
@@ -105,7 +124,7 @@ export default function ClerkSecureSignUp() {
       </div>
 
       <div style={{ padding: 12, borderRadius: 13, background: '#11131a', border: '1px solid #2c2f38', color: '#b7b8c4', fontSize: 12, lineHeight: 1.45 }}>
-        <strong style={{ color:'#fff' }}>{TRIAL_DAYS}-day free trial</strong> of {plan.name}, then ${plan.monthlyPrice}/month unless canceled. The paid plan includes <strong style={{ color:'#fff' }}>{plan.monthlyCredits} Pie credits each billing cycle</strong>. Optional prepaid top-ups are available if you need more; Pie never adds surprise overage charges. Stripe remains in sandbox during this test.
+        <strong style={{ color:'#fff' }}>{TRIAL_DAYS}-day free trial</strong> of {plan.name}, then ${plan.monthlyPrice}/month unless canceled. Before checkout, Pie verifies the email address and phone number. The paid plan includes <strong style={{ color:'#fff' }}>{plan.monthlyCredits} Pie credits each billing cycle</strong>. Optional prepaid top-ups are available if you need more; Pie never adds surprise overage charges. Stripe remains in sandbox during this test.
       </div>
 
       {formError ? <p className={styles.authError}>{formError}</p> : null}

@@ -1,16 +1,14 @@
 'use client';
 
 import { useUser } from '@clerk/nextjs';
-import { useRouter } from 'next/navigation';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import { PIE_PLANS, planById } from '../billingConfig';
+import { DEFAULT_PLAN_ID, PIE_PLANS, TRIAL_DAYS, planById } from '../billingConfig';
 
 export default function OnboardingPage() {
   const { isLoaded, isSignedIn, user } = useUser();
-  const router = useRouter();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
-  const [selectedPlan, setSelectedPlan] = useState('fun');
+  const [selectedPlan, setSelectedPlan] = useState(DEFAULT_PLAN_ID);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [prefilled, setPrefilled] = useState(false);
@@ -19,7 +17,7 @@ export default function OnboardingPage() {
     try {
       setName(sessionStorage.getItem('pieSignupName') || '');
       setPhone(sessionStorage.getItem('pieSignupPhone') || '');
-      setSelectedPlan(sessionStorage.getItem('pieSignupPlan') || 'fun');
+      setSelectedPlan(sessionStorage.getItem('pieSignupPlan') || DEFAULT_PLAN_ID);
     } catch {}
     setPrefilled(true);
   }, []);
@@ -48,28 +46,11 @@ export default function OnboardingPage() {
         pieOnboardingPhone: phone.trim(),
         pieSelectedPlanId: plan.id,
         pieSelectedPlanLevel: plan.level,
+        pieTrialDays: TRIAL_DAYS,
         pieOnboardingStartedAt: new Date().toISOString(),
       };
 
       await user.update({ firstName, lastName, unsafeMetadata: metadata });
-
-      if (plan.level === 1) {
-        await user.update({
-          unsafeMetadata: {
-            ...metadata,
-            pieSubscriptionStatus: 'free',
-            pieOnboardingCompleted: true,
-            pieOnboardingCompletedAt: new Date().toISOString(),
-          },
-        });
-        try {
-          sessionStorage.removeItem('pieSignupName');
-          sessionStorage.removeItem('pieSignupPhone');
-          sessionStorage.removeItem('pieSignupPlan');
-        } catch {}
-        router.push('/');
-        return;
-      }
 
       const response = await fetch('/api/billing/checkout', {
         method: 'POST',
@@ -92,7 +73,7 @@ export default function OnboardingPage() {
         <div>
           <div style={eyebrow}>WELCOME TO PIE</div>
           <h1 style={{ margin: '5px 0 7px', fontSize: '30px' }}>Confirm your setup</h1>
-          <p style={muted}>Your email is verified. Confirm your contact information and subscription before entering Pie.</p>
+          <p style={muted}>Your email is verified. Confirm your contact information and choose the plan you want after your {TRIAL_DAYS}-day free trial.</p>
         </div>
 
         <div style={twoCols}>
@@ -109,7 +90,7 @@ export default function OnboardingPage() {
               <button key={item.id} type="button" onClick={()=>setSelectedPlan(item.id)} style={{ ...planCard, borderColor: active ? '#8b5cf6' : '#2c2d39', background: active ? '#181329' : '#11131a' }}>
                 <div style={{ display:'flex', justifyContent:'space-between', gap:12, alignItems:'flex-start' }}>
                   <div style={{ textAlign:'left' }}><div style={{ fontSize:12, color:'#8f90a0', fontWeight:850 }}>STAGE {item.level}</div><strong style={{ fontSize:18 }}>{item.name}</strong></div>
-                  <div style={{ fontWeight:900, fontSize:18 }}>{item.monthlyPrice === 0 ? 'Free' : `$${item.monthlyPrice}/mo`}</div>
+                  <div style={{ fontWeight:900, fontSize:18 }}>${item.monthlyPrice}/mo</div>
                 </div>
                 <div style={{ marginTop:7, color:'#b0b1bd', fontSize:12, lineHeight:1.45, textAlign:'left' }}>{item.outcome}</div>
                 <div style={{ marginTop:8, display:'flex', gap:6, flexWrap:'wrap' }}>{item.unlocks.slice(0,4).map((unlock)=><span key={unlock} style={pill}>{unlock}</span>)}</div>
@@ -119,16 +100,14 @@ export default function OnboardingPage() {
         </div>
 
         <section style={{ padding:14, borderRadius:16, background:'#10131b', border:'1px solid #2a2d3a' }}>
-          <strong>{plan.name}</strong>
+          <strong>{TRIAL_DAYS}-day free trial of {plan.name}</strong>
           <div style={{ color:'#a8a9b7', fontSize:12, lineHeight:1.5, marginTop:5 }}>
-            {plan.level === 1
-              ? 'Start free with limited generations and standard-quality outputs. Upgrade whenever you need more.'
-              : 'Paid checkout is handled securely by Stripe sandbox during this test. No live charge will be made.'}
+            Trial usage is capped to protect generation costs. A payment method is collected in Stripe sandbox, and the subscription begins at ${plan.monthlyPrice}/month after the trial unless canceled. No live charge is made during this test.
           </div>
         </section>
 
         {error && <div style={{ color:'#ffb6c0', fontSize:12 }}>{error}</div>}
-        <button type="submit" disabled={busy} style={primary}>{busy ? 'Setting up…' : plan.level === 1 ? 'Start Creating Free' : `Continue to ${plan.name}`}</button>
+        <button type="submit" disabled={busy} style={primary}>{busy ? 'Setting up…' : `Continue to ${TRIAL_DAYS}-Day Free Trial`}</button>
       </form>
     </main>
   );

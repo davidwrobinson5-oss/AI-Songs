@@ -1,4 +1,6 @@
+import { TRIAL_LIMITS } from '../../billingConfig';
 import { readResponseBytesLimited } from '../../security';
+import { consumeUsage } from '../../usageEntitlements';
 
 const BASE_URL = 'https://api.klang.io';
 const OUTPUTS = ['pdf', 'mxml', 'midi_quant'] as const;
@@ -12,6 +14,11 @@ function apiKey() {
   const value = process.env.KLANGIO_API_KEY?.trim();
   if (!value) throw new Error('KLANGIO_NOT_CONFIGURED');
   return value;
+}
+
+async function meter(usageKey: string) {
+  const entitlement = await consumeUsage(usageKey, TRIAL_LIMITS.audioAnalysisJobsTotal);
+  if (!entitlement.allowed) throw new Error('PIE_USAGE_LIMIT');
 }
 
 async function request(path: string, init: RequestInit = {}, timeoutMs = 45_000) {
@@ -43,6 +50,7 @@ async function jsonOrThrow(response: Response) {
 
 export async function createTranscription(file: Blob, model: string, title: string) {
   if (!TRANSCRIPTION_MODELS.has(model)) throw new Error('INVALID_KLANGIO_MODEL');
+  await meter('klangio_sheet_transcriptions');
   const url = new URL(`${BASE_URL}/transcription`);
   url.searchParams.set('model', model);
   if (title) url.searchParams.set('title', title.slice(0, 120));
@@ -59,6 +67,7 @@ export async function createTranscription(file: Blob, model: string, title: stri
 }
 
 export async function createChordRecognition(file: Blob) {
+  await meter('klangio_chord_jobs');
   const url = new URL(`${BASE_URL}/chord-recognition`);
   url.searchParams.set('vocabulary', 'full');
   const form = new FormData();
@@ -71,6 +80,7 @@ export async function createChordRecognition(file: Blob) {
 }
 
 export async function createSourceSeparation(file: Blob) {
+  await meter('klangio_stem_separations');
   const url = new URL(`${BASE_URL}/source-separation`);
   url.searchParams.set('model', 'six-stems');
   url.searchParams.set('output', 'wav');

@@ -34,6 +34,26 @@ async function verifyStripeSignature(rawBody: string, header: string, secret: st
   return signatures.some((signature) => safeEqual(signature, expected));
 }
 
+async function entitlementAction(payload: Record<string, unknown>) {
+  const oidc = await getVercelOidcToken().catch(() => '');
+  if (!oidc) throw new Error('Billing sync identity unavailable.');
+  const response = await fetch(ENTITLEMENT_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: SUPABASE_PUBLISHABLE_KEY,
+      'X-Pie-Vercel-OIDC': oidc,
+    },
+    body: JSON.stringify(payload),
+    cache: 'no-store',
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(typeof data?.error === 'string' ? data.error : 'Billing database sync failed.');
+  }
+  return response.json().catch(() => ({}));
+}
+
 async function setEntitlement(userId: string, values: Record<string, unknown>) {
   const client = await clerkClient();
   const user = await client.users.getUser(userId);
@@ -56,22 +76,15 @@ async function syncBillingRecord(userId: string, values: {
   currentPeriodEnd?: number | null;
   cancelAtPeriodEnd?: boolean;
 }) {
-  const oidc = await getVercelOidcToken().catch(() => '');
-  if (!oidc) throw new Error('Billing sync identity unavailable.');
-  const response = await fetch(ENTITLEMENT_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: SUPABASE_PUBLISHABLE_KEY,
-      'X-Pie-Vercel-OIDC': oidc,
-    },
-    body: JSON.stringify({ action: 'syncBilling', userId, ...values }),
-    cache: 'no-store',
-  });
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(typeof data?.error === 'string' ? data.error : 'Billing database sync failed.');
-  }
+  await entitlementAction({ action: 'syncBilling', userId, ...values });
+}
+
+async function grantOverageFromCheckout(object: any) {
+  const userId = String(object.client_reference_id || object.metadata?.pie_user_id || '');
+  const credits = Number(object.metadata?.pie_overage_credits || 0);
+  const sessionId = String(object.id || '');
+  if (!userId || !Number.isInteger(credits) || credits < 1 || credits > 10000 || !sessionId) return;
+  await entitlementAction({ action: 'grantOverage', userId, credits, stripeSessionId: sessionId });
 }
 
 export async function POST(request: NextRequest) {
@@ -86,6 +99,17 @@ export async function POST(request: NextRequest) {
 
   const event = JSON.parse(rawBody);
   const object = event?.data?.object || {};
+  const checkoutType = String(object.metadata?.pie_checkout_type || '');
+
+  if (event.type === 'checkout.session.completed' && checkoutType === 'overage_topup') {
+    if (String(object.payment_status || '') === 'paid') await grantOverageFromCheckout(object);
+    return NextResponse.json({ received: true });
+  }
+
+  if (event.type === 'checkout.session.async_payment_succeeded' && checkoutType === 'overage_topup') {
+    await grantOverageFromCheckout(object);
+    return NextResponse.json({ received: true });
+  }
 
   if (event.type === 'checkout.session.completed') {
     const userId = String(object.client_reference_id || object.metadata?.pie_user_id || '');

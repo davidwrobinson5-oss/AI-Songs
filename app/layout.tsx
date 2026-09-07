@@ -55,6 +55,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <ClerkProvider
       dynamic
+      proxyUrl="/__clerk"
       signInUrl="/signin"
       signUpUrl="/signup"
       afterSignOutUrl="/signin"

@@ -144,7 +144,8 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
 
-  // Owner login and customer authentication/onboarding are intentionally separate.
+  // Clerk's built-in Frontend API proxy handles /__clerk before this auth callback.
+  // Customer authentication/onboarding remains separate from the private owner login.
   if (isPublicAccessRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname)) {
     return NextResponse.next();
   }
@@ -169,6 +170,10 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   }
   return response;
 }, {
+  frontendApiProxy: {
+    enabled: true,
+    path: '/__clerk',
+  },
   authorizedParties: [
     'https://ai-songs-drobinhood1.vercel.app',
     'https://ai-songs-bice.vercel.app',

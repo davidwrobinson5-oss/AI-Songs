@@ -54,6 +54,7 @@ export default function AccountControl() {
               <div style={{ fontSize: '12px', color: '#9699a5' }}>Signed in as</div>
               <div style={{ marginTop: '3px', fontSize: '13px', fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis' }}>{email || label}</div>
             </div>
+            <button type="button" role="menuitem" onClick={() => { window.location.href = '/billing/usage'; }} style={menuButtonStyle}>⚡ Usage & top-ups</button>
             <button type="button" role="menuitem" onClick={() => { setOpen(false); clerk.openUserProfile(); }} style={menuButtonStyle}>👤 Manage account</button>
             <button type="button" role="menuitem" onClick={() => { setOpen(false); setSupportOpen(true); }} style={menuButtonStyle}>🛟 Live Support</button>
             <button type="button" role="menuitem" onClick={signOutEverywhere} disabled={busy} style={{ ...menuButtonStyle, color: '#ffb4bf' }}>{busy ? 'Signing out…' : '↪ Sign out'}</button>

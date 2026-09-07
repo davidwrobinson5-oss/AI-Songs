@@ -6,6 +6,7 @@ const SECURITY_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-se
 const SUPABASE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
 const REPO='davidwrobinson5-oss/AI-Songs';
 const SECURITY_WORKFLOWS=['Pie Runtime Security Alarm','Pie Code Health Agent','Pie CodeQL Security','CodeQL'];
+const COMPLIANCE_STATUSES=new Set(['planned','in_progress','evidence_gathering','audit_ready','conditional','not_in_scope']);
 
 type WorkflowRun={id:string;name:string;status:string;conclusion:string;event:string;headSha:string;branch:string;createdAt:string;updatedAt:string;htmlUrl:string};
 
@@ -63,6 +64,24 @@ export async function POST(req:Request){
     const body=await req.json().catch(()=>({}));
     const action=String(body?.action||'');
     if(action==='resolve')return NextResponse.json(await pieSecurity('resolve',{id:String(body?.id||'')}),{headers:{'Cache-Control':'no-store'}});
+    if(action==='recordCompliance'){
+      const framework=String(body?.framework||'').trim().slice(0,120);
+      const frameworkId=String(body?.frameworkId||'').trim().slice(0,80);
+      const status=String(body?.status||'').trim();
+      const note=String(body?.note||'').trim().slice(0,3000);
+      if(!framework||!frameworkId||!COMPLIANCE_STATUSES.has(status))return NextResponse.json({error:'Invalid compliance checkpoint.'},{status:400});
+      const labels:Record<string,string>={planned:'Planned',in_progress:'In progress',evidence_gathering:'Evidence gathering',audit_ready:'Audit-ready',conditional:'Conditional',not_in_scope:'Not currently in scope'};
+      const recorded=await pieSecurity('record',{
+        source:'pie-compliance',
+        eventType:'compliance_checkpoint',
+        severity:'info',
+        title:`${framework}: ${labels[status]||status}`,
+        summary:note||`Compliance roadmap status updated to ${labels[status]||status}.`,
+        observedAt:new Date().toISOString(),
+        metadata:{frameworkId,framework,status,note,certificationClaim:false},
+      });
+      return NextResponse.json(recorded,{headers:{'Cache-Control':'no-store'}});
+    }
     return NextResponse.json({error:'Unsupported security action.'},{status:400});
   }catch(error){return NextResponse.json({error:error instanceof Error?error.message:'Security action failed.'},{status:500});}
 }

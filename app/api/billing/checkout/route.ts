@@ -39,11 +39,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Verify your email address before starting the free trial.' }, { status: 403 });
   }
 
-  const verifiedPhone = user.phoneNumbers.find((phone) => verificationIsComplete(phone));
-  if (!verifiedPhone) {
-    return NextResponse.json({ error: 'Verify your phone number by SMS before starting the free trial.' }, { status: 403 });
-  }
-
   const email = primaryEmail.emailAddress;
   const origin = request.nextUrl.origin;
 
@@ -56,7 +51,6 @@ export async function POST(request: NextRequest) {
   params.set('success_url', `${origin}/onboarding/complete?session_id={CHECKOUT_SESSION_ID}`);
   params.set('cancel_url', `${origin}/onboarding?cancelled=1`);
   params.set('allow_promotion_codes', 'true');
-  params.set('phone_number_collection[enabled]', 'true');
   params.set('payment_method_collection', 'always');
   params.set('subscription_data[trial_period_days]', String(TRIAL_DAYS));
   params.set('metadata[pie_user_id]', userId);

@@ -73,6 +73,13 @@ function clerkConfigured() {
   );
 }
 
+function addVercelParty(parties: Set<string>, value: string | undefined) {
+  const host = value?.trim().toLowerCase();
+  if (host && /^[a-z0-9.-]+\.vercel\.app$/.test(host)) {
+    parties.add(`https://${host}`);
+  }
+}
+
 function clerkAuthorizedParties() {
   const parties = new Set([
     'https://ai-songs-drobinhood1.vercel.app',
@@ -80,10 +87,11 @@ function clerkAuthorizedParties() {
     'https://ai-songs-git-main-drobinhood1.vercel.app',
   ]);
 
-  const vercelUrl = process.env.VERCEL_URL?.trim();
-  if (vercelUrl && /^[a-z0-9.-]+\.vercel\.app$/i.test(vercelUrl)) {
-    parties.add(`https://${vercelUrl}`);
-  }
+  // VERCEL_URL is the immutable deployment URL. VERCEL_BRANCH_URL is the
+  // generated Git branch alias that browsers and Preview E2E use. Add only
+  // those exact Vercel hosts; never authorize a wildcard *.vercel.app origin.
+  addVercelParty(parties, process.env.VERCEL_URL);
+  addVercelParty(parties, process.env.VERCEL_BRANCH_URL);
 
   return [...parties];
 }

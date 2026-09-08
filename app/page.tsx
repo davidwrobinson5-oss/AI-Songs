@@ -986,6 +986,19 @@ export default function Home() {
             setMasterBlob(null);
             setDrobStatus('Live vocal loaded into the song.');
           }}
+          onUseSong={(blob) => {
+            if (audioUrl && audioUrl.startsWith('blob:')) { try { URL.revokeObjectURL(audioUrl); } catch {} }
+            if (backingUrl && backingUrl.startsWith('blob:')) { try { URL.revokeObjectURL(backingUrl); } catch {} }
+            const url = URL.createObjectURL(blob);
+            setGeneratedBlob(blob);
+            setAudioUrl(url);
+            setBackingUrl(URL.createObjectURL(blob));
+            setInstrumental(true);
+            setMasterBlob(null);
+            setCurrentVersionNumber(undefined);
+            setSaveStatus('Voice-built song loaded into Pie. Save it when you want to keep this version.');
+            setDrobStatus('');
+          }}
         />
         {drobVocalUrl && (
           <section className="panel">

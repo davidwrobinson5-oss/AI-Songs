@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getPieJob, pieJobAdminClient } from '../../../../jobQueue';
+import { createPieJobDownload, getPieJob } from '../../../../jobQueue';
 import { resolvePieUserId } from '../../../../usageEntitlements';
 
 export async function GET(_request: NextRequest, context: { params: Promise<{ jobId: string }> }) {
@@ -12,24 +12,14 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ jo
     if (!job) return NextResponse.json({ error: 'Job not found.' }, { status: 404 });
     if (job.status !== 'succeeded') return NextResponse.json({ error: 'Job output is not ready.' }, { status: 409 });
 
-    const bucket = typeof job.output?.bucket === 'string' ? job.output.bucket : '';
-    const path = typeof job.output?.path === 'string' ? job.output.path : '';
-    const contentType = typeof job.output?.contentType === 'string' ? job.output.contentType : 'audio/mpeg';
-    if (bucket !== 'pie-job-output' || !path || !path.startsWith(`${userId}/`)) {
-      return NextResponse.json({ error: 'Job output is unavailable.' }, { status: 404 });
-    }
+    const download = await createPieJobDownload(jobId, userId);
+    const response = await fetch(download.signedUrl, { cache: 'no-store' });
+    if (!response.ok) return NextResponse.json({ error: 'Could not load generated music.' }, { status: 503 });
 
-    const supabase = pieJobAdminClient();
-    const download = await supabase.storage.from(bucket).download(path);
-    if (download.error || !download.data) {
-      console.error('download pie job output', download.error);
-      return NextResponse.json({ error: 'Could not load generated music.' }, { status: 503 });
-    }
-
-    const bytes = await download.data.arrayBuffer();
+    const bytes = await response.arrayBuffer();
     return new NextResponse(bytes, {
       headers: {
-        'Content-Type': contentType,
+        'Content-Type': download.contentType || response.headers.get('content-type') || 'audio/mpeg',
         'Content-Length': String(bytes.byteLength),
         'Cache-Control': 'private, no-store, max-age=0',
         'X-Content-Type-Options': 'nosniff',

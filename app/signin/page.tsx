@@ -25,21 +25,11 @@ export default function CustomerSignInPage() {
               <span>New to Pie?</span>
               <a href="/signup">Create an Account</a>
             </div>
-            <div className={styles.signupBlock}>
-              <span>Pie owner?</span>
-              <a href="/login">Owner Studio Gateway</a>
-            </div>
           </>
         ) : (
-          <>
-            <div className={styles.signupBlock}>
-              <span>Customer account sign-in is not configured on this test deployment yet.</span>
-            </div>
-            <div className={styles.signupBlock}>
-              <span>Pie owner?</span>
-              <a href="/login">Owner Studio Gateway</a>
-            </div>
-          </>
+          <div className={styles.signupBlock}>
+            <span>Customer account sign-in is not configured on this test deployment yet.</span>
+          </div>
         )}
       </section>
     </main>

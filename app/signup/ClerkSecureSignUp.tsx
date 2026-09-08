@@ -143,15 +143,6 @@ export default function ClerkSecureSignUp() {
             signInForceRedirectUrl="/onboarding"
             initialValues={{ emailAddress: email, phoneNumber: phone, firstName, lastName }}
             appearance={{
-              variables: {
-                colorPrimary: '#7c3aed',
-                colorText: '#111827',
-                colorTextSecondary: '#4b5563',
-                colorBackground: '#ffffff',
-                colorInputBackground: '#ffffff',
-                colorInputText: '#111827',
-                borderRadius: '16px',
-              },
               elements: {
                 rootBox: { width: '100%', maxWidth: '520px' },
                 cardBox: { width: '100%' },

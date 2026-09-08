@@ -1,4 +1,4 @@
-name: Patch Voice to Instruments branch
+name: Patch Pie dropdown theme
 
 on:
   push:
@@ -15,23 +15,41 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: voice-to-instruments-2026-09-08
+          ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - run: node scripts/apply-voice-instruments-ui.mjs
-      - name: Commit Voice to Instruments UI
+      - name: Apply dark select styling
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -q 'PIE DARK SELECT CONTROLS' app/globals.css; then
+            echo 'Dropdown styling already present.'
+            exit 0
+          fi
+          cat >> app/globals.css <<'CSS'
+
+/* PIE DARK SELECT CONTROLS */
+select {
+  color: #f7f3fb;
+  background-color: #151219;
+  border-color: rgba(255,255,255,.16);
+  color-scheme: dark;
+}
+select option {
+  color: #f7f3fb;
+  background: #151219;
+}
+CSS
+      - name: Commit dropdown styling
         shell: bash
         run: |
           set -euo pipefail
           git config user.name 'Pie Automation'
           git config user.email 'actions@users.noreply.github.com'
-          git add app/VoiceWorkspace.tsx app/page.tsx
+          git add app/globals.css
           if git diff --cached --quiet; then
-            echo 'No Voice to Instruments UI changes required.'
+            echo 'No dropdown theme changes required.'
             exit 0
           fi
-          git commit -m 'Add Voice to Instruments option'
-          git push origin HEAD:voice-to-instruments-2026-09-08
+          git commit -m 'Fix Pie dropdown contrast'
+          git push origin HEAD:main

@@ -2,12 +2,14 @@
 
 import { useRef, useState } from 'react';
 import TrainVoiceWorkspace from './TrainVoiceWorkspace';
+import VoiceToInstrumentsWorkspace from './VoiceToInstrumentsWorkspace';
 
 type Props = {
   backingUrl: string;
   lyrics: string;
   songTitle: string;
   onUseVocal: (blob: Blob) => void;
+  onUseSong?: (blob: Blob) => void;
 };
 
 type Take = {
@@ -135,8 +137,8 @@ function audioBufferToWav(buffer: AudioBuffer) {
   return new Blob([arrayBuffer], { type: 'audio/wav' });
 }
 
-export default function VoiceWorkspace({ backingUrl, lyrics, songTitle, onUseVocal }: Props) {
-  const [choice, setChoice] = useState<'record' | 'train' | null>(null);
+export default function VoiceWorkspace({ backingUrl, lyrics, songTitle, onUseVocal, onUseSong }: Props) {
+  const [choice, setChoice] = useState<'record' | 'train' | 'instruments' | null>(null);
   const [takes, setTakes] = useState<Take[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [recording, setRecording] = useState(false);
@@ -351,6 +353,9 @@ export default function VoiceWorkspace({ backingUrl, lyrics, songTitle, onUseVoc
           <button className="modeCard" onClick={() => setChoice('train')}>
             <span className="icon">🧬</span><strong>Train Voice</strong><small>Train your voice for more efficient production using Pie’s built-in AI tools. Create a custom singing voice you can reuse for recording, layering, and production.</small>
           </button>
+          <button className="modeCard" onClick={() => setChoice('instruments')}>
+            <span className="icon">🎛️</span><strong>Voice → Instruments</strong><small>Perform bass, drums, guitar, keys, and other parts with your mouth. Pie turns each performance into an instrument and can build a song from your layers.</small>
+          </button>
         </div>
       </section>
     );
@@ -361,6 +366,15 @@ export default function VoiceWorkspace({ backingUrl, lyrics, songTitle, onUseVoc
       <>
         <section className="panel"><button className="secondary" onClick={() => setChoice(null)}>← Voice Choices</button></section>
         <TrainVoiceWorkspace />
+      </>
+    );
+  }
+
+  if (choice === 'instruments') {
+    return (
+      <>
+        <section className="panel"><button className="secondary" onClick={() => setChoice(null)}>← Voice Choices</button></section>
+        <VoiceToInstrumentsWorkspace onUseSong={onUseSong} />
       </>
     );
   }

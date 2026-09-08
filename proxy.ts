@@ -2,6 +2,8 @@ import { NextFetchEvent, NextRequest, NextResponse } from 'next/server';
 import { clerkMiddleware } from '@clerk/nextjs/server';
 import { authConfigured, SESSION_COOKIE, verifySessionToken } from './app/auth';
 
+const CLERK_CANONICAL_VERCEL_HOST = 'ai-songs-drobinhood1.vercel.app';
+
 function sameOrigin(req: NextRequest) {
   const origin = req.headers.get('origin');
   const secFetchSite = req.headers.get('sec-fetch-site');
@@ -32,6 +34,19 @@ function isCustomerAuthRoute(pathname: string) {
     pathname === '/signin' || pathname.startsWith('/signin/') ||
     pathname === '/onboarding' || pathname.startsWith('/onboarding/')
   );
+}
+
+function canonicalCustomerAuthRedirect(req: NextRequest) {
+  if (!isCustomerAuthRoute(req.nextUrl.pathname)) return null;
+
+  const host = (req.headers.get('x-forwarded-host') || req.headers.get('host') || '').split(':')[0].toLowerCase();
+  if (!host.endsWith('.vercel.app') || host === CLERK_CANONICAL_VERCEL_HOST) return null;
+
+  const target = req.nextUrl.clone();
+  target.protocol = 'https:';
+  target.hostname = CLERK_CANONICAL_VERCEL_HOST;
+  target.port = '';
+  return NextResponse.redirect(target, 307);
 }
 
 function isPublicAccessRequest(pathname: string) {
@@ -192,6 +207,9 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
 });
 
 export async function proxy(req: NextRequest, event: NextFetchEvent) {
+  const canonicalRedirect = canonicalCustomerAuthRedirect(req);
+  if (canonicalRedirect) return canonicalRedirect;
+
   if (!clerkConfigured()) return legacyProxy(req);
 
   try {

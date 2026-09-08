@@ -71,38 +71,6 @@
   letter-spacing:0!important;
 }
 
-/* Global escape hatch for stale song/workspace state. */
-.pieWorkspaceReset{
-  position:fixed;
-  left:14px;
-  bottom:calc(96px + env(safe-area-inset-bottom));
-  z-index:1250;
-  display:inline-flex;
-  align-items:center;
-  gap:7px;
-  min-height:42px;
-  padding:9px 13px;
-  border-radius:999px;
-  border:1px solid rgba(243,154,31,.48);
-  background:rgba(13,15,22,.94);
-  color:#f7f8ff;
-  box-shadow:0 10px 30px rgba(0,0,0,.38);
-  backdrop-filter:blur(14px);
-  -webkit-backdrop-filter:blur(14px);
-  font-weight:800;
-  font-size:13px;
-}
-
-.pieWorkspaceReset span:first-child{
-  color:#f39a1f;
-  font-size:18px;
-  line-height:1;
-}
-
-.pieWorkspaceReset:active{
-  transform:translateY(1px) scale(.98);
-}
-
 /* Keep native browser dropdowns inside Pie on-brand, including Android/Samsung browsers. */
 select{
   color-scheme:dark!important;
@@ -143,15 +111,9 @@ select:disabled{
     width:32px;
     height:32px;
   }
-  .pieWorkspaceReset{
-    left:10px;
-    bottom:calc(92px + env(safe-area-inset-bottom));
-    min-height:40px;
-    padding:8px 12px;
-  }
 }
 
 @media print{
-  .globalPieMark,.pieWorkspaceReset{display:none!important}
+  .globalPieMark{display:none!important}
   .sheetBrand{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }

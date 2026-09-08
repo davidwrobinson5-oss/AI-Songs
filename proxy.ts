@@ -53,6 +53,10 @@ function isPublicAccessRequest(pathname: string) {
   return pathname === '/api/access-request';
 }
 
+function isHealthRequest(pathname: string) {
+  return pathname === '/api/health';
+}
+
 function isLegacyVerifyRequest(pathname: string) {
   return pathname === '/api/auth/legacy-verify';
 }
@@ -129,7 +133,7 @@ async function legacyProxy(req: NextRequest) {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isHealthRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname)) return NextResponse.next();
 
   if (!authConfigured()) {
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Studio authentication is not configured.' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
@@ -166,7 +170,7 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   // Clerk's built-in Frontend API proxy handles /__clerk before this auth callback.
   // Customer authentication/onboarding remains separate from the private owner login.
   // The durable worker route authenticates itself with a separate rotating bearer token.
-  if (isPublicAccessRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname)) {
+  if (isPublicAccessRequest(pathname) || isHealthRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname)) {
     return NextResponse.next();
   }
 

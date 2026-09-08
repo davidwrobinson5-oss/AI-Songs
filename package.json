@@ -8,7 +8,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "smoke": "node scripts/smoke-test.mjs",
+    "health:repo": "node scripts/code-health-agent.mjs code-health-report.md"
   },
   "dependencies": {
     "@breezystack/lamejs": "1.2.7",

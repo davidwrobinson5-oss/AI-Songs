@@ -1,0 +1,29 @@
+name: Pie Smoke Test
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '7 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pie-smoke-test
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PIE_BASE_URL: https://ai-songs-drobinhood1.vercel.app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Run production smoke tests
+        run: node scripts/smoke-test.mjs

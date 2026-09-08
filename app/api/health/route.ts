@@ -1,0 +1,30 @@
+import { NextResponse } from 'next/server';
+
+export const dynamic = 'force-dynamic';
+
+export async function GET() {
+  const checks = {
+    app: true,
+    clerk: Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY),
+    stripe: Boolean(process.env.STRIPE_SECRET_KEY),
+    supabase: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
+    mapbox: Boolean(process.env.MAPBOX_ACCESS_TOKEN),
+  };
+
+  const coreHealthy = checks.app && checks.clerk && checks.stripe;
+
+  return NextResponse.json(
+    {
+      status: coreHealthy ? 'ok' : 'degraded',
+      service: 'pie',
+      timestamp: new Date().toISOString(),
+      checks,
+    },
+    {
+      status: coreHealthy ? 200 : 503,
+      headers: {
+        'Cache-Control': 'no-store, max-age=0',
+      },
+    },
+  );
+}

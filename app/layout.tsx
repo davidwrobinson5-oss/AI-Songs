@@ -11,7 +11,6 @@ import PwaBoot from './PwaBoot';
 import ProcessingRetryAssist from './ProcessingRetryAssist';
 import OriginalityScoreOverlay from './OriginalityScoreOverlay';
 import SongScoreOverlay from './SongScoreOverlay';
-import WorkspaceResetButton from './WorkspaceResetButton';
 
 export const metadata: Metadata = {
   title: 'Pieinears',
@@ -39,7 +38,6 @@ function Document({ children }: { children: React.ReactNode }) {
         <OriginalityScoreOverlay />
         <SongScoreOverlay />
         <CloudSongSync />
-        <WorkspaceResetButton />
         {children}
       </body>
     </html>

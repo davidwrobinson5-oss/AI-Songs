@@ -3,6 +3,7 @@
 import { useUser } from '@clerk/nextjs';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { DEFAULT_PLAN_ID, PIE_PLANS, TRIAL_DAYS, planById } from '../billingConfig';
+import PasskeySetupBanner from '../PasskeySetupBanner';
 
 export default function OnboardingClient() {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -98,6 +99,8 @@ export default function OnboardingClient() {
           <strong>✓ Email verified</strong>
           <span style={muted}>SMS verification is deferred during testing. We can add it later with Clerk Pro.</span>
         </section>
+
+        <PasskeySetupBanner />
 
         <div>
           <div style={eyebrow}>CHOOSE YOUR PLAN</div>

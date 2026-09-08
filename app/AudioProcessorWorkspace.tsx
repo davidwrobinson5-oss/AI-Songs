@@ -68,6 +68,19 @@ export default function AudioProcessorWorkspace(){
     localStorage.setItem(ACTIVE_KEY,item.id);
   }
 
+  function clearCurrentProcessingView() {
+    if (busy) return;
+    if (Object.keys(jobs).length && !window.confirm('Clear the current Sheets processing view? Processing jobs are not cancelled, and the saved session stays in your Sheets & Stems library.')) return;
+    localStorage.removeItem(ACTIVE_KEY);
+    setSessionId('');
+    setSourceName('');
+    setJobs({});
+    setStatuses({});
+    setChords([]);
+    setStemStarted(false);
+    setStatus('Current processing view cleared. Saved sheet/stem sessions and saved Songs were kept.');
+  }
+
   useEffect(()=>{
     const saved=readLibrary();
     setLibrary(saved);
@@ -240,7 +253,7 @@ export default function AudioProcessorWorkspace(){
   return <div style={{maxWidth:980,margin:'0 auto'}}>
     <section className="panel" style={{padding:20}}>
       <p className="eyebrow">AUDIO IMPORT</p>
-      <h2 style={{marginTop:4}}>Audio → Sheets & Stems</h2>
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}><h2 style={{marginTop:4}}>Audio → Sheets & Stems</h2><button type="button" className="secondary" onClick={clearCurrentProcessingView} disabled={busy||(!sourceName&&!Object.keys(jobs).length)}>Clear current</button></div>
       <p className="sub">Upload the WAV or MP3 here. Progress, transcription, and downloads stay on this Sheets screen and the job is saved when you switch screens.</p>
       <label className="primary" style={{display:'inline-block',cursor:'pointer',marginTop:10}}>
         {busy?'Turning up the heat…':'Upload Audio'}

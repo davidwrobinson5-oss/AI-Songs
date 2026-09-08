@@ -811,6 +811,40 @@ export default function Home() {
     }
   }
 
+  function resetMusicGenerationSettings() {
+    if (referenceAudioUrl) URL.revokeObjectURL(referenceAudioUrl);
+    setReferenceAudioBlob(null);
+    setReferenceAudioUrl('');
+    setReferenceAudioName('');
+    setReferenceAudioDurationMs(30000);
+    setDurationMs(30000);
+    setInstrumental(true);
+    setMusicError('');
+    setResult('');
+    setSaveStatus('Music generation settings reset. Song description, lyrics, melody, and saved Songs were kept.');
+  }
+
+  function clearGeneratedMusic() {
+    window.dispatchEvent(new Event('ai-songs-stop-all-audio'));
+    const urls = [audioUrl, backingUrl, drobVocalUrl, precisionGuideBlob ? '' : guideVocalUrl];
+    for (const url of urls) {
+      if (url && url.startsWith('blob:')) {
+        try { URL.revokeObjectURL(url); } catch {}
+      }
+    }
+    setGeneratedBlob(null);
+    setAudioUrl('');
+    setBackingUrl('');
+    if (!precisionGuideBlob) setGuideVocalUrl('');
+    setDrobVocalUrl('');
+    setMasterBlob(null);
+    setMusicError('');
+    setDrobError('');
+    setDrobStatus('');
+    setResult('');
+    setSaveStatus('Current generated output cleared. Saved Songs and your song setup were kept.');
+  }
+
   function newSong() {
     setCurrentSongId(undefined);
     setCurrentVersionNumber(undefined);
@@ -1215,6 +1249,27 @@ export default function Home() {
                 if (matchingBacking) setBackingUrl(URL.createObjectURL(matchingBacking));
                 setDrobVocalUrl('');
               }}
+              onReset={() => {
+                setMelodyBlob(null);
+                setMelodyAnalysis(null);
+                setPrecisionGuideBlob(null);
+                if (guideVocalUrl && precisionGuideBlob) { try { URL.revokeObjectURL(guideVocalUrl); } catch {} }
+                if (precisionGuideBlob) setGuideVocalUrl('');
+                setSaveStatus('Melody workspace reset. Existing song audio and saved Songs were kept.');
+              }}
+              onAnalysisReset={() => {
+                setMelodyAnalysis(null);
+                setPrecisionGuideBlob(null);
+                if (guideVocalUrl && precisionGuideBlob) { try { URL.revokeObjectURL(guideVocalUrl); } catch {} }
+                if (precisionGuideBlob) setGuideVocalUrl('');
+                setSaveStatus('Melody analysis and guide cleared. Melody recording and saved Songs were kept.');
+              }}
+              onGuideReset={() => {
+                setPrecisionGuideBlob(null);
+                if (guideVocalUrl && precisionGuideBlob) { try { URL.revokeObjectURL(guideVocalUrl); } catch {} }
+                if (precisionGuideBlob) setGuideVocalUrl('');
+                setSaveStatus('Precision guide cleared. Existing song audio and saved Songs were kept.');
+              }}
             />
 
             {precisionGuideBlob && (
@@ -1261,6 +1316,13 @@ export default function Home() {
             {precisionGuideBlob && (
               <div className="statusBox">Precision guide attached. You can generate an instrumental around it, then mix with Drob.</div>
             )}
+            <div className="playerCard">
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}>
+                <strong>Music generation settings</strong>
+                <button type="button" className="secondary" onClick={resetMusicGenerationSettings} disabled={musicLoading}>↺ Reset generation</button>
+              </div>
+              <small>Reset length, instrumental mode, and reference audio without changing your song description, lyrics, melody, or saved Songs.</small>
+            </div>
             <div className="playerCard">
               <strong>Reference audio</strong>
               <small>Optional: upload music to guide the sound, instrumentation, tempo, groove, mood, and production style of a new Music v2 generation.</small>
@@ -1315,7 +1377,7 @@ export default function Home() {
 
             {audioUrl && (
               <div className="playerCard">
-                <strong>Generated track</strong><audio controls src={audioUrl} />
+                <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}><strong>Generated track</strong><button type="button" className="secondary" onClick={clearGeneratedMusic} disabled={musicLoading}>Clear generated</button></div><audio controls src={audioUrl} />
                 {!instrumental && generatedBlob && !precisionGuideBlob && <button className="secondary" onClick={useDrobVoice} disabled={drobLoading}>{drobLoading ? 'Turning up the heat…' : 'Use Drob Voice — Clean Stem'}</button>}
                 {precisionGuideBlob && !drobVocalUrl && (
                   <button className="secondary" onClick={() => convertGuideToDrob(precisionGuideBlob)} disabled={drobLoading}>

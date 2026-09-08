@@ -383,13 +383,30 @@ export default function SongAnalysisWorkspace({vocalRange,onVocalRangeChange,onA
     const voiceLine=`Lead vocal target: ${targetRange}. Keep the lead comfortably inside that range and preserve the melodic identity.`;
     return [sourceLine,keyLine,chordLine,renderLine,modeLine,voiceLine].filter(Boolean).join('\n');
   }
+  function resetSongAnalysis() {
+    if (busy) return;
+    setAnalysis(null);
+    setStatus('Analysis reset. Choose MIDI, music sheets, or a lyric/chord chart to analyze again.');
+    setChordText('');
+    setShowChordPaste(false);
+    setKey('Unknown');
+    setBpm(null);
+    setTimeSignature('4/4');
+    setTargetRange(RANGES.includes(vocalRange) ? vocalRange : 'Baritone');
+    setShift(0);
+    setRenderMode('Hybrid');
+    setSelectedParts(new Set(['Full Arrangement']));
+    setApplied('');
+    try { sessionStorage.removeItem('pie-last-analyzed-score'); } catch {}
+  }
+
   function apply(){
     if(!analysis)return;const plan=buildPlan();onVocalRangeChange(targetRange);onApply(plan,targetRange);setApplied('Analysis settings applied to Sheets. Your analyzed score is ready below.');
   }
 
   return <section className="panel songAnalysisWorkspace">
     <p className="eyebrow">Auto Analyze</p>
-    <h2>Upload → Detect → Fit → Render</h2>
+    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}><h2>Upload → Detect → Fit → Render</h2><button type="button" className="secondary" onClick={resetSongAnalysis} disabled={busy}>↺ Reset analysis</button></div>
     <p className="sub">Give Pie MIDI, music sheets, or a lyric/chord chart. Pie detects the musical setup first, then lets you correct anything before generation.</p>
 
     <div className="mixButtons" style={{flexWrap:'wrap'}}>

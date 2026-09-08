@@ -42,6 +42,9 @@ type Props = {
   onLyricsFitted: (lyrics: string) => void;
   onMelodyChanged: (blob: Blob, analysis: MelodyAnalysis) => void;
   onPrecisionGuide: (vocalBlob: Blob, backingBlob?: Blob) => void;
+  onReset?: () => void;
+  onAnalysisReset?: () => void;
+  onGuideReset?: () => void;
 };
 
 const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -230,7 +233,7 @@ async function blobToMp3(blob: Blob) {
   }
 }
 
-export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlob, initialAnalysis, initialPrecisionGuide, onLyricsFitted, onMelodyChanged, onPrecisionGuide }: Props) {
+export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlob, initialAnalysis, initialPrecisionGuide, onLyricsFitted, onMelodyChanged, onPrecisionGuide, onReset, onAnalysisReset, onGuideReset }: Props) {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
@@ -264,6 +267,37 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
     setAnalysis(null);
     setFitScore(null);
     setStatus('Melody loaded. Tap Analyze Melody.');
+  }
+
+  function clearPrecisionGuide() {
+    if (precisionGuideUrl) URL.revokeObjectURL(precisionGuideUrl);
+    setPrecisionGuideUrl('');
+    onGuideReset?.();
+    setStatus('Precision guide cleared. Melody recording and saved Songs were kept.');
+  }
+
+  function clearMelodyAnalysis() {
+    if (precisionGuideUrl) URL.revokeObjectURL(precisionGuideUrl);
+    setAnalysis(null);
+    setFitScore(null);
+    setFitNotes('');
+    setPrecisionGuideUrl('');
+    onAnalysisReset?.();
+    setStatus('Melody analysis, fit result, and precision guide cleared. Your melody recording and lyric text were kept.');
+  }
+
+  function resetMelodyTake() {
+    if (recording || studioRecording || analyzing || fitting || guideLoading) return;
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    if (precisionGuideUrl) URL.revokeObjectURL(precisionGuideUrl);
+    setMelodyBlob(null);
+    setAudioUrl('');
+    setAnalysis(null);
+    setFitScore(null);
+    setFitNotes('');
+    setPrecisionGuideUrl('');
+    onReset?.();
+    setStatus('Melody take reset. Song description, lyric text, existing song audio, and saved Songs were kept.');
   }
 
   async function refreshStudioInputs() {
@@ -499,7 +533,7 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
   return (
     <div className="musicControls">
       <div className="playerCard">
-        <strong>1. Record or upload your melody</strong>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}><strong>1. Record or upload your melody</strong><button type="button" className="secondary" onClick={resetMelodyTake} disabled={recording||studioRecording||analyzing||fitting||guideLoading||(!melodyBlob&&!analysis&&!precisionGuideUrl)}>Clear melody</button></div>
         <small>Hum, sing, or whistle one clear lead melody. A dry recording with little background noise works best.</small>
         <div className="mixButtons">
           {!recording ? <button className="primary" onClick={startRecording}>🎤 Record Melody</button> : <button className="primary" onClick={stopRecording}>■ Stop Recording</button>}
@@ -527,7 +561,7 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
 
       {analysis && (
         <div className="playerCard">
-          <strong>Melody map</strong>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}><strong>Melody map</strong><button type="button" className="secondary" onClick={clearMelodyAnalysis} disabled={analyzing||fitting||guideLoading}>Clear analysis</button></div>
           <small>Range: {analysis.lowestNote} – {analysis.highestNote} · {analysis.notes.length} notes · {analysis.phrases.length} phrases</small>
           {analysis.phrases.map((phrase) => <div className="statusBox" key={phrase.index}>Phrase {phrase.index}: {phrase.notes.join(' ')} · about {phrase.suggestedSyllables} syllables</div>)}
           <button className="primary" onClick={fitLyrics} disabled={fitting}>{fitting ? 'Fitting Lyrics…' : '3. Fit Lyrics to This Melody'}</button>
@@ -538,7 +572,7 @@ export default function MelodyWorkspace({ prompt, vocalRange, lyrics, initialBlo
 
       {analysis && lyrics.trim() && (
         <div className="playerCard">
-          <strong>Precision Vocal Engine — Mureka</strong>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}><strong>Precision Vocal Engine — Mureka</strong>{precisionGuideUrl&&<button type="button" className="secondary" onClick={clearPrecisionGuide} disabled={guideLoading}>Clear guide</button>}</div>
           <small>AI-Songs sends your recorded melody directly to Mureka with the fitted lyrics, then isolates the vocal for Drob conversion.</small>
           <button className="primary" onClick={generatePrecisionGuide} disabled={guideLoading}>{guideLoading ? 'Turning up the heat…' : '4. Generate Precision Guide Vocal'}</button>
           {precisionGuideUrl && <><small>Isolated melody-following guide vocal</small><audio controls src={precisionGuideUrl} /></>}

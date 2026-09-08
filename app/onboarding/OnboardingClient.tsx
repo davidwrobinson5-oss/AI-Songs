@@ -11,6 +11,7 @@ export default function OnboardingClient() {
   const [selectedPlan, setSelectedPlan] = useState(DEFAULT_PLAN_ID);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [prefilled, setPrefilled] = useState(false);
   const [phoneCode, setPhoneCode] = useState('');
   const [phoneStep, setPhoneStep] = useState<'ready' | 'code' | 'verified'>('ready');
@@ -46,6 +47,7 @@ export default function OnboardingClient() {
   async function sendPhoneCode() {
     if (!user || busy || !phone.trim()) return;
     setBusy(true);
+    setPhoneError('');
     setError('');
     try {
       let resource = user.phoneNumbers.find((item) => item.phoneNumber === phone.trim());
@@ -53,8 +55,8 @@ export default function OnboardingClient() {
       await resource.prepareVerification();
       setPhoneResourceId(resource.id);
       setPhoneStep('code');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Pie could not start phone verification yet.');
+    } catch {
+      setPhoneError('SMS verification is currently blocked by Pie’s authentication settings. Enable phone verification in Clerk Production, then tap Send SMS Code again.');
     } finally {
       setBusy(false);
     }
@@ -64,6 +66,7 @@ export default function OnboardingClient() {
     event.preventDefault();
     if (!user || busy || !phoneCode.trim()) return;
     setBusy(true);
+    setPhoneError('');
     setError('');
     try {
       const resource = user.phoneNumbers.find((item) => item.id === phoneResourceId);
@@ -73,7 +76,7 @@ export default function OnboardingClient() {
       await user.reload();
       setPhoneStep('verified');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'That verification code did not work.');
+      setPhoneError(err instanceof Error ? err.message : 'That verification code did not work.');
     } finally {
       setBusy(false);
     }
@@ -159,6 +162,8 @@ export default function OnboardingClient() {
           <button type="button" disabled={busy || !phone.trim()} onClick={sendPhoneCode} style={primary}>{busy ? 'Sending code…' : `Send SMS Code to ${phone}`}</button>
         )}
 
+        {phoneError ? <div style={phoneErrorStyle}>{phoneError}</div> : null}
+
         <div>
           <div style={eyebrow}>CHOOSE YOUR PLAN</div>
           <p style={muted}>Your earlier selection is highlighted. Change it only if you want a different stage.</p>
@@ -205,6 +210,7 @@ const input: React.CSSProperties = { minHeight:48, borderRadius:13, border:'1px 
 const summaryCard: React.CSSProperties = { display:'grid', gap:10, padding:14, borderRadius:16, background:'#11131a', border:'1px solid #2c2f38' };
 const summaryLabel: React.CSSProperties = { display:'block', marginBottom:3, color:'#8f90a0', fontSize:10, fontWeight:900, textTransform:'uppercase', letterSpacing:'.08em' };
 const verifiedCard: React.CSSProperties = { display:'grid', gap:4, padding:14, borderRadius:16, background:'#111a16', border:'1px solid #2d5441' };
+const phoneErrorStyle: React.CSSProperties = { marginTop:-4, padding:'10px 12px', borderRadius:12, background:'#25151b', border:'1px solid #6a3343', color:'#ffc1cc', fontSize:12, lineHeight:1.45 };
 const planCard: React.CSSProperties = { width:'100%', color:'#fff', border:'1px solid', borderRadius:16, padding:'13px', cursor:'pointer' };
 const pill: React.CSSProperties = { padding:'4px 7px', borderRadius:999, background:'#242633', color:'#c8c9d4', fontSize:9, fontWeight:800 };
 const primary: React.CSSProperties = { minHeight:54, border:0, borderRadius:15, background:'#6f42c1', color:'#fff', fontWeight:950, fontSize:15, padding:'0 16px' };

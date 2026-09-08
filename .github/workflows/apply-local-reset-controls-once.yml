@@ -1,0 +1,35 @@
+name: Apply local reset controls once
+
+on:
+  push:
+    branches:
+      - complete-local-resets-2026-09-08
+    paths:
+      - '.github/workflows/apply-local-reset-controls-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: complete-local-resets-2026-09-08
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Apply reset controls
+        run: node scripts/apply-local-reset-controls.mjs
+      - name: Remove one-time migration files
+        run: |
+          rm scripts/apply-local-reset-controls.mjs
+          rm .github/workflows/apply-local-reset-controls-once.yml
+      - name: Commit generated source changes
+        run: |
+          git config user.name "Pie Automation"
+          git config user.email "actions@users.noreply.github.com"
+          git add app scripts .github/workflows || true
+          git commit -m "Complete local reset controls across Pie"
+          git push origin HEAD:complete-local-resets-2026-09-08

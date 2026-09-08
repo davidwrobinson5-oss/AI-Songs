@@ -1,10 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { enqueuePieJob } from '../../../jobQueue';
 import { rateLimit, readJsonObject, safeClientError } from '../../../security';
+import { processSpecificSongJob } from '../../../songGenerationWorker';
 import { resolvePieUserId } from '../../../usageEntitlements';
 
 const MAX_PROMPT_CHARS = 4100;
 const ALLOWED_LENGTHS = new Set([30000, 60000, 120000, 180000, 210000]);
+
+export const maxDuration = 120;
 
 export async function POST(request: NextRequest) {
   const limited = rateLimit(request, 'song-generation-queue', 6, 60_000);
@@ -43,6 +46,16 @@ export async function POST(request: NextRequest) {
         force_instrumental: forceInstrumental,
       },
     });
+
+    // Send the 202 immediately, then let Vercel keep the invocation alive for
+    // the first attempt. The durable scheduler can reclaim/retry this job if
+    // this background invocation is interrupted.
+    if (job.status === 'queued' || job.status === 'retrying') {
+      after(async () => {
+        try { await processSpecificSongJob(job.id); }
+        catch (error) { console.error('background song worker', error); }
+      });
+    }
 
     return NextResponse.json({
       job: {

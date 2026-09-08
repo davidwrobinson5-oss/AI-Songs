@@ -3,7 +3,6 @@ import { enqueuePieJob, listPieJobs } from '../../jobQueue';
 import { resolvePieUserId } from '../../usageEntitlements';
 
 const ALLOWED_TYPES = new Set([
-  'song_generation',
   'stem_separation',
   'voice_conversion',
   'sheet_transcription',

@@ -1,17 +1,19 @@
+import { getVercelOidcToken } from '@vercel/oidc';
 import { NextResponse } from 'next/server';
 
 export const dynamic = 'force-dynamic';
 
 export async function GET() {
+  const oidc = await getVercelOidcToken().catch(() => '');
   const checks = {
     app: true,
     clerk: Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY),
     stripe: Boolean(process.env.STRIPE_SECRET_KEY),
-    supabase: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
+    supabase: Boolean(oidc),
     mapbox: Boolean(process.env.MAPBOX_ACCESS_TOKEN),
   };
 
-  const coreHealthy = checks.app && checks.clerk && checks.stripe;
+  const coreHealthy = checks.app && checks.clerk && checks.stripe && checks.supabase;
 
   return NextResponse.json(
     {

@@ -20,7 +20,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      TARGET_URL: https://pieinears.ai
+      # pieinears.ai is intentionally not public yet. Monitor the canonical
+      # Vercel production alias until the custom domain is launched.
+      TARGET_URL: https://ai-songs-drobinhood1.vercel.app
     steps:
       - name: Check out repository
         uses: actions/checkout@v4

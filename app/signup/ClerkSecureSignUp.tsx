@@ -29,10 +29,10 @@ export default function ClerkSecureSignUp() {
   const plan = useMemo(() => planById(selectedPlan), [selectedPlan]);
 
   useEffect(() => {
-    if (secureStep && isLoaded && isSignedIn) {
+    if (isLoaded && isSignedIn) {
       window.location.replace('/onboarding');
     }
-  }, [secureStep, isLoaded, isSignedIn]);
+  }, [isLoaded, isSignedIn]);
 
   useEffect(() => {
     const syncOnline = () => setIsOnline(navigator.onLine);
@@ -52,6 +52,15 @@ export default function ClerkSecureSignUp() {
     return () => window.clearTimeout(timer);
   }, [secureStep, secureAttempt, isLoaded]);
 
+  function saveSignupDetails(nextName = name.trim(), nextPhone = normalizePhone(phone), nextEmail = email.trim().toLowerCase()) {
+    try {
+      if (nextName) sessionStorage.setItem('pieSignupName', nextName);
+      if (nextPhone) sessionStorage.setItem('pieSignupPhone', nextPhone);
+      if (nextEmail) sessionStorage.setItem('pieSignupEmail', nextEmail);
+      sessionStorage.setItem('pieSignupPlan', selectedPlan);
+    } catch {}
+  }
+
   function beginSecureSignup() {
     const nextName = name.trim();
     const nextPhone = normalizePhone(phone);
@@ -65,15 +74,15 @@ export default function ClerkSecureSignUp() {
       return;
     }
 
-    try {
-      sessionStorage.setItem('pieSignupName', nextName);
-      sessionStorage.setItem('pieSignupPhone', nextPhone);
-      sessionStorage.setItem('pieSignupEmail', nextEmail);
-      sessionStorage.setItem('pieSignupPlan', selectedPlan);
-    } catch {}
-
+    saveSignupDetails(nextName, nextPhone, nextEmail);
     setPhone(nextPhone);
     setEmail(nextEmail);
+    setFormError('');
+    setSecureStep(true);
+  }
+
+  function beginGoogleSignup() {
+    saveSignupDetails();
     setFormError('');
     setSecureStep(true);
   }
@@ -97,7 +106,7 @@ export default function ClerkSecureSignUp() {
       return (
         <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
           <strong>Internet connection lost.</strong>
-          <small style={{ color: '#9fa1ae' }}>Your Pie signup details are saved in this tab. Reconnect, then retry secure signup.</small>
+          <small style={{ color: '#b9bac0' }}>Your Pie signup details are saved in this tab. Reconnect, then retry secure signup.</small>
           <button className={styles.primaryAuthButton} type="button" onClick={retrySecureSignup}>Retry Secure Signup</button>
           <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>Change details</button>
         </div>
@@ -108,11 +117,11 @@ export default function ClerkSecureSignUp() {
       return (
         <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
           <strong>{clerkLoadSlow ? 'Secure signup is taking longer than expected.' : 'Loading secure signup…'}</strong>
-          <small style={{ color: '#9fa1ae' }}>
+          <small style={{ color: '#b9bac0' }}>
             {clerkLoadSlow ? 'Retry the secure connection. If the account was already created, use Sign In instead of starting over.' : 'Pie is connecting to the verification service.'}
           </small>
           {clerkLoadSlow ? <button className={styles.primaryAuthButton} type="button" onClick={retrySecureSignup}>Retry Secure Signup</button> : null}
-          {clerkLoadSlow ? <a href="/signin" style={{ color: '#cabdff', fontWeight: 800 }}>Sign In to an Existing Account</a> : null}
+          {clerkLoadSlow ? <a href="/signin" style={{ color: '#d7c8f1', fontWeight: 800 }}>Sign In to an Existing Account</a> : null}
           <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>Change details</button>
         </div>
       );
@@ -121,43 +130,47 @@ export default function ClerkSecureSignUp() {
     if (isSignedIn) {
       return (
         <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
-          <strong>Email verified.</strong>
-          <small style={{ color: '#9fa1ae' }}>Taking you to your plan and trial setup…</small>
+          <strong>Account verified.</strong>
+          <small style={{ color: '#b9bac0' }}>Taking you to your Pie setup…</small>
         </div>
       );
     }
 
     return (
       <div style={{ display: 'grid', gap: 14 }}>
-        <div className={styles.signupBlock} style={{ justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <span>
-            <strong>{email}</strong> · {plan.name} · ${plan.monthlyPrice}/mo after {TRIAL_DAYS} days
-          </span>
-          <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>
-            Change details
-          </button>
-        </div>
+        {(email || name || phone) ? (
+          <div className={styles.signupBlock} style={{ justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <span>
+              {email ? <><strong>{email}</strong> · </> : null}{plan.name} · ${plan.monthlyPrice}/mo after {TRIAL_DAYS} days
+            </span>
+            <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>
+              Change details
+            </button>
+          </div>
+        ) : null}
 
         <div style={{ display: 'flex', justifyContent: 'center', width: '100%', minHeight: 360, padding: '8px 0' }}>
           <SignUp
             key={secureAttempt}
             routing="hash"
+            oauthFlow="auto"
             forceRedirectUrl="/onboarding"
+            fallbackRedirectUrl="/onboarding"
             signInUrl="/signin"
             signInForceRedirectUrl="/onboarding"
-            initialValues={{ emailAddress: email, phoneNumber: phone, firstName, lastName }}
+            initialValues={{ emailAddress: email || undefined, phoneNumber: phone || undefined, firstName, lastName }}
             appearance={{
               variables: {
-                colorPrimary: '#6f42c1',
+                colorPrimary: '#7254a8',
                 colorPrimaryForeground: '#ffffff',
-                colorForeground: '#1b1c20',
-                colorMutedForeground: '#5b5d66',
-                colorBackground: '#d7d8dd',
-                colorInput: '#c3c5cc',
-                colorInputForeground: '#17181c',
-                colorBorder: '#a9abb3',
-                colorNeutral: '#666872',
-                colorRing: '#7c4dd4',
+                colorForeground: '#f2f2f3',
+                colorMutedForeground: '#b8b9be',
+                colorBackground: '#303136',
+                colorInput: '#25262a',
+                colorInputForeground: '#f5f5f6',
+                colorBorder: '#515258',
+                colorNeutral: '#a9aab0',
+                colorRing: '#8a6bc0',
                 borderRadius: '16px',
               },
               elements: {
@@ -165,52 +178,59 @@ export default function ClerkSecureSignUp() {
                 cardBox: { width: '100%' },
                 card: {
                   width: '100%',
-                  background: '#d7d8dd',
-                  color: '#1b1c20',
-                  border: '1px solid #a9abb3',
+                  background: '#303136',
+                  color: '#f2f2f3',
+                  border: '1px solid #515258',
                   borderRadius: '22px',
-                  boxShadow: '0 20px 60px rgba(0,0,0,.25)',
+                  boxShadow: '0 20px 60px rgba(0,0,0,.28)',
                 },
-                headerTitle: { color: '#191a1f', fontWeight: 800 },
-                headerSubtitle: { color: '#565861' },
-                socialButtonsBlockButton: { display: 'none' },
-                socialButtonsIconButton: { display: 'none' },
-                dividerRow: { display: 'none' },
-                formFieldLabel: { color: '#32343b', fontWeight: 700 },
+                headerTitle: { color: '#f7f7f8', fontWeight: 800 },
+                headerSubtitle: { color: '#b8b9be' },
+                socialButtonsBlockButton: {
+                  background: '#3a3b40',
+                  color: '#f7f7f8',
+                  border: '1px solid #5b5c62',
+                  minHeight: '50px',
+                  borderRadius: '14px',
+                  fontWeight: 800,
+                },
+                dividerLine: { background: '#55565c' },
+                dividerText: { color: '#a9aab0' },
+                formFieldLabel: { color: '#d7d8db', fontWeight: 700 },
                 formFieldInput: {
-                  background: '#c3c5cc',
-                  color: '#17181c',
-                  border: '1px solid #9fa2ab',
+                  background: '#25262a',
+                  color: '#f5f5f6',
+                  border: '1px solid #55565c',
                   minHeight: '50px',
                   borderRadius: '14px',
                   boxShadow: 'none',
                 },
-                formFieldInputShowPasswordButton: { color: '#5f616a' },
+                formFieldInputShowPasswordButton: { color: '#b8b9be' },
                 formButtonPrimary: {
-                  background: '#6f42c1',
+                  background: '#7254a8',
                   color: '#ffffff',
                   minHeight: '52px',
                   borderRadius: '14px',
                   fontWeight: 800,
                   fontSize: '16px',
-                  boxShadow: '0 8px 20px rgba(73,45,125,.22)',
+                  boxShadow: '0 8px 20px rgba(42,31,63,.24)',
                 },
-                footer: { background: '#c9cad0' },
-                footerActionText: { color: '#555760' },
-                footerActionLink: { color: '#5c2fa8', fontWeight: 700 },
-                identityPreviewText: { color: '#1b1c20' },
-                identityPreviewEditButton: { color: '#5c2fa8', fontWeight: 700 },
+                footer: { background: '#2b2c30' },
+                footerActionText: { color: '#b8b9be' },
+                footerActionLink: { color: '#d7c8f1', fontWeight: 700 },
+                identityPreviewText: { color: '#f2f2f3' },
+                identityPreviewEditButton: { color: '#d7c8f1', fontWeight: 700 },
               },
             }}
           />
         </div>
 
         <div style={{ display: 'grid', gap: 8, textAlign: 'center' }}>
-          <small style={{ color: '#9fa1ae' }}>
-            During testing, Pie only requires email verification. SMS verification is saved for a later Clerk Pro upgrade.
+          <small style={{ color: '#b9bac0' }}>
+            Pie uses Clerk for secure email, Google, phone, and account verification. After verification, you will continue directly to onboarding.
           </small>
-          <small style={{ color: '#77798a' }}>
-            If this panel stops responding, <button type="button" onClick={retrySecureSignup} style={{ border: 0, padding: 0, background: 'transparent', color: '#cabdff', font: 'inherit', fontWeight: 800, cursor: 'pointer' }}>restart secure signup</button> or <a href="/signin" style={{ color: '#cabdff', fontWeight: 800 }}>sign in</a> if your account was already created.
+          <small style={{ color: '#95969d' }}>
+            If this panel stops responding, <button type="button" onClick={retrySecureSignup} style={{ border: 0, padding: 0, background: 'transparent', color: '#d7c8f1', font: 'inherit', fontWeight: 800, cursor: 'pointer' }}>restart secure signup</button> or <a href="/signin" style={{ color: '#d7c8f1', fontWeight: 800 }}>sign in</a> if your account was already created.
           </small>
         </div>
       </div>
@@ -219,6 +239,11 @@ export default function ClerkSecureSignUp() {
 
   return (
     <form className={styles.emailLogin} onSubmit={submitSecureSignup}>
+      <button className={styles.googleAuthButton} type="button" onClick={beginGoogleSignup}>
+        Continue with Google
+      </button>
+      <div className={styles.authDivider}><span>or continue with email</span></div>
+
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
         <label className={styles.emailField}>
           <span>Full name</span>
@@ -236,25 +261,25 @@ export default function ClerkSecureSignUp() {
       </label>
 
       <div style={{ display: 'grid', gap: 9, marginTop: 4 }}>
-        <div style={{ fontSize: 12, fontWeight: 850, color: '#d8d9e5' }}>Choose the plan you want after your {TRIAL_DAYS}-day free trial</div>
+        <div style={{ fontSize: 12, fontWeight: 850, color: '#d8d9dd' }}>Choose the plan you want after your {TRIAL_DAYS}-day free trial</div>
         {PIE_PLANS.map((item) => {
           const active = item.id === selectedPlan;
           return (
-            <button key={item.id} type="button" onClick={() => setSelectedPlan(item.id)} style={{ width: '100%', border: `1px solid ${active ? '#8b5cf6' : '#353746'}`, borderRadius: 14, background: active ? '#19142b' : '#0c0e14', color: '#fff', padding: 12, textAlign: 'left' }}>
+            <button key={item.id} type="button" onClick={() => setSelectedPlan(item.id)} style={{ width: '100%', border: `1px solid ${active ? '#8a6bc0' : '#505157'}`, borderRadius: 14, background: active ? '#343039' : '#292a2e', color: '#f7f7f8', padding: 12, textAlign: 'left' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><strong>{item.name}</strong><strong>${item.monthlyPrice}/mo</strong></div>
-              <div style={{ marginTop: 4, color: '#9fa1ae', fontSize: 11 }}>{item.outcome}</div>
-              <div style={{ marginTop: 6, color: '#cabdff', fontSize: 11, fontWeight: 800 }}>{item.monthlyCredits} Pie credits/month included</div>
+              <div style={{ marginTop: 4, color: '#b9bac0', fontSize: 11 }}>{item.outcome}</div>
+              <div style={{ marginTop: 6, color: '#d7c8f1', fontSize: 11, fontWeight: 800 }}>{item.monthlyCredits} Pie credits/month included</div>
             </button>
           );
         })}
       </div>
 
-      <div style={{ padding: 12, borderRadius: 13, background: '#11131a', border: '1px solid #2c2f38', color: '#b7b8c4', fontSize: 12, lineHeight: 1.45 }}>
-        <strong style={{ color:'#fff' }}>{TRIAL_DAYS}-day free trial</strong> of {plan.name}, then ${plan.monthlyPrice}/month unless canceled. During this test, Pie verifies your email address before checkout. Your phone number is saved as contact information but is not SMS-verified yet. The paid plan includes <strong style={{ color:'#fff' }}>{plan.monthlyCredits} Pie credits each billing cycle</strong>. Optional prepaid top-ups are available if you need more; Pie never adds surprise overage charges. Stripe remains in sandbox during this test.
+      <div style={{ padding: 12, borderRadius: 13, background: '#292a2e', border: '1px solid #505157', color: '#c3c4c9', fontSize: 12, lineHeight: 1.45 }}>
+        <strong style={{ color:'#fff' }}>{TRIAL_DAYS}-day free trial</strong> of {plan.name}, then ${plan.monthlyPrice}/month unless canceled. Pie verifies your account before checkout. The paid plan includes <strong style={{ color:'#fff' }}>{plan.monthlyCredits} Pie credits each billing cycle</strong>. Optional prepaid top-ups are available if you need more; Pie never adds surprise overage charges. Stripe remains in sandbox during this test.
       </div>
 
       {formError ? <p className={styles.authError}>{formError}</p> : null}
-      <button className={styles.primaryAuthButton} type="button" onClick={beginSecureSignup}>Continue to Secure Signup</button>
+      <button className={styles.primaryAuthButton} type="submit">Continue to Secure Signup</button>
     </form>
   );
 }

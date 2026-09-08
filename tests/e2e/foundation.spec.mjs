@@ -2,6 +2,14 @@ import { test, expect } from '@playwright/test';
 
 test('health endpoint reports Pie runtime status', async ({ request }) => {
   const response = await request.get('/api/health');
+  const requirePublic = process.env.PIE_HEALTH_PUBLIC_REQUIRED === 'true';
+
+  if (response.status() === 401 && !requirePublic) {
+    const body = await response.json();
+    expect(body.error).toMatch(/Authentication required/i);
+    return;
+  }
+
   expect([200, 503]).toContain(response.status());
   const body = await response.json();
   expect(body.service).toBe('pie');

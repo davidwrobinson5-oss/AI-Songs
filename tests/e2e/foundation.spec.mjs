@@ -1,0 +1,47 @@
+import { test, expect } from '@playwright/test';
+
+test('health endpoint reports Pie runtime status', async ({ request }) => {
+  const response = await request.get('/api/health');
+  expect([200, 503]).toContain(response.status());
+  const body = await response.json();
+  expect(body.service).toBe('pie');
+  expect(['ok', 'degraded']).toContain(body.status);
+  expect(body.checks?.app).toBe(true);
+});
+
+test('signup renders without broken Google OAuth', async ({ page }) => {
+  await page.goto('/signup', { waitUntil: 'domcontentloaded' });
+  await expect(page.getByAltText('Pie')).toBeVisible();
+  await expect(page.getByText(/Create your Pie account/i)).toBeVisible();
+  await expect(page.getByLabel(/Full name/i)).toBeVisible();
+  await expect(page.getByLabel(/Phone number/i)).toBeVisible();
+  await expect(page.getByLabel(/Email address/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: /Continue to Secure Signup/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Continue with Google/i })).toHaveCount(0);
+});
+
+test('signup local step advances to Clerk without creating an account', async ({ page }) => {
+  await page.goto('/signup', { waitUntil: 'domcontentloaded' });
+  await page.getByLabel(/Full name/i).fill('Pie Browser Test');
+  await page.getByLabel(/Phone number/i).fill('+12025550123');
+  await page.getByLabel(/Email address/i).fill('pie-browser-test@example.invalid');
+  await page.getByRole('button', { name: /Continue to Secure Signup/i }).click();
+
+  await expect(page.getByText(/Loading secure signup|Create your account|Secure signup is taking longer/i)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/SMS verification is deferred|Step 1 verifies your email/i)).toHaveCount(0);
+});
+
+test('unauthenticated billing checkout is denied', async ({ request }) => {
+  const response = await request.post('/api/billing/checkout', {
+    data: { planId: 'release_planning' },
+    headers: { 'Content-Type': 'application/json' },
+  });
+  expect([401, 403]).toContain(response.status());
+});
+
+test('onboarding does not expose trial setup to signed-out visitors', async ({ page }) => {
+  await page.goto('/onboarding', { waitUntil: 'domcontentloaded' });
+  await page.waitForTimeout(1000);
+  expect(page.url()).toMatch(/\/signup|\/signin|\/onboarding/);
+  await expect(page.getByRole('button', { name: /Continue to 7-Day Free Trial/i })).toHaveCount(0);
+});

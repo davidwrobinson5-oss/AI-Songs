@@ -10,7 +10,8 @@
     "build": "next build",
     "start": "next start",
     "smoke": "node scripts/smoke-test.mjs",
-    "health:repo": "node scripts/code-health-agent.mjs code-health-report.md"
+    "health:repo": "node scripts/code-health-agent.mjs code-health-report.md",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@breezystack/lamejs": "1.2.7",

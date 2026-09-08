@@ -1,5 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
+import { getVercelOidcToken } from '@vercel/oidc';
 import { randomUUID } from 'node:crypto';
+
+const SUPABASE_URL = 'https://ynkrlatwwwaachijacmb.supabase.co';
+const JOBS_URL = `${SUPABASE_URL}/functions/v1/pie-jobs`;
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
 
 export type PieJobStatus = 'queued' | 'running' | 'retrying' | 'succeeded' | 'failed' | 'cancelled';
 
@@ -27,11 +32,23 @@ export type PieJob = {
   updated_at: string;
 };
 
-export function pieJobAdminClient() {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const serviceRole = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!url || !serviceRole) throw new Error('Pie job storage is not configured.');
-  return createClient(url, serviceRole, { auth: { persistSession: false, autoRefreshToken: false } });
+async function jobApi<T>(action: string, payload: Record<string, unknown> = {}): Promise<T> {
+  const oidc = await getVercelOidcToken().catch(() => '');
+  if (!oidc) throw new Error('Pie job identity is temporarily unavailable.');
+
+  const response = await fetch(JOBS_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: SUPABASE_PUBLISHABLE_KEY,
+      'X-Pie-Vercel-OIDC': oidc,
+    },
+    body: JSON.stringify({ action, ...payload }),
+    cache: 'no-store',
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof data?.error === 'string' ? data.error : 'Pie job service failed.');
+  return data as T;
 }
 
 export async function enqueuePieJob(input: {
@@ -47,155 +64,85 @@ export async function enqueuePieJob(input: {
   if (!userId || !type) throw new Error('A user and job type are required.');
 
   const idempotencyKey = (input.idempotencyKey || randomUUID()).trim().slice(0, 180);
-  const maxAttempts = Math.max(1, Math.min(input.maxAttempts ?? 3, 20));
-  const supabase = pieJobAdminClient();
-
-  const { data, error } = await supabase
-    .from('pie_jobs')
-    .upsert(
-      {
-        user_id: userId,
-        type,
-        input: input.payload || {},
-        idempotency_key: idempotencyKey,
-        provider: input.provider || null,
-        max_attempts: maxAttempts,
-      },
-      { onConflict: 'user_id,type,idempotency_key', ignoreDuplicates: true },
-    )
-    .select('*')
-    .maybeSingle();
-
-  if (error) throw error;
-  if (data) return data as PieJob;
-
-  const existing = await supabase
-    .from('pie_jobs')
-    .select('*')
-    .eq('user_id', userId)
-    .eq('type', type)
-    .eq('idempotency_key', idempotencyKey)
-    .single();
-  if (existing.error) throw existing.error;
-  return existing.data as PieJob;
+  const result = await jobApi<{ job: PieJob }>('enqueue', {
+    userId,
+    type,
+    payload: input.payload || {},
+    idempotencyKey,
+    provider: input.provider || null,
+    maxAttempts: Math.max(1, Math.min(input.maxAttempts ?? 3, 20)),
+  });
+  return result.job;
 }
 
-export async function getPieJob(jobId: string, userId?: string) {
-  const supabase = pieJobAdminClient();
-  let query = supabase.from('pie_jobs').select('*').eq('id', jobId);
-  if (userId) query = query.eq('user_id', userId);
-  const { data, error } = await query.maybeSingle();
-  if (error) throw error;
-  return (data || null) as PieJob | null;
+export async function getPieJob(jobId: string, userId: string) {
+  const result = await jobApi<{ job: PieJob | null }>('get', { jobId, userId });
+  return result.job;
 }
 
 export async function listPieJobs(userId: string, limit = 30) {
-  const supabase = pieJobAdminClient();
-  const { data, error } = await supabase
-    .from('pie_jobs')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
-    .limit(Math.max(1, Math.min(limit, 100)));
-  if (error) throw error;
-  return (data || []) as PieJob[];
+  const result = await jobApi<{ jobs: PieJob[] }>('list', { userId, limit: Math.max(1, Math.min(limit, 100)) });
+  return result.jobs || [];
 }
 
 export async function claimPieJob(jobId: string, workerId: string, leaseSeconds = 300) {
-  const supabase = pieJobAdminClient();
-  const { data, error } = await supabase.rpc('pie_claim_job', {
-    p_job_id: jobId,
-    p_worker_id: workerId,
-    p_lease_seconds: leaseSeconds,
-  });
-  if (error) throw error;
-  return Array.isArray(data) && data.length ? data[0] as PieJob : null;
+  const result = await jobApi<{ job: PieJob | null }>('claimOne', { jobId, workerId, leaseSeconds });
+  return result.job;
 }
 
 export async function claimPieJobs(workerId: string, types: string[], limit = 2, leaseSeconds = 300) {
-  const supabase = pieJobAdminClient();
-  const { data, error } = await supabase.rpc('pie_claim_jobs', {
-    p_worker_id: workerId,
-    p_limit: Math.max(1, Math.min(limit, 20)),
-    p_lease_seconds: leaseSeconds,
-    p_types: types,
-  });
-  if (error) throw error;
-  return (data || []) as PieJob[];
+  const result = await jobApi<{ jobs: PieJob[] }>('claimMany', { workerId, types, limit, leaseSeconds });
+  return result.jobs || [];
 }
 
 export async function consumePieJobUsage(jobId: string, usageKey: string, freeLimit: number, units = 1) {
-  const supabase = pieJobAdminClient();
-  const { data, error } = await supabase.rpc('pie_consume_job_usage', {
-    p_job_id: jobId,
-    p_usage_key: usageKey,
-    p_free_limit: freeLimit,
-    p_units: units,
-  });
-  if (error) throw error;
-  return (data || {}) as {
+  const result = await jobApi<{ usage: {
     planId?: string;
     planLevel?: number;
     status?: string;
     allowed?: boolean;
     usageCount?: number;
     usageLimit?: number | null;
-  };
+  } }>('consumeUsage', { jobId, usageKey, freeLimit, units });
+  return result.usage || {};
 }
 
 export async function verifyPieWorkerToken(token: string) {
   if (!token) return false;
-  const supabase = pieJobAdminClient();
-  const { data, error } = await supabase.rpc('pie_verify_worker_token', { p_token: token });
-  if (error) throw error;
-  return data === true;
+  const result = await jobApi<{ valid: boolean }>('verifyWorkerToken', { token });
+  return result.valid === true;
+}
+
+export async function createPieJobUpload(jobId: string) {
+  return jobApi<{ path: string; token: string }>('createUpload', { jobId });
+}
+
+export async function uploadPieJobAudio(jobId: string, audio: Uint8Array, contentType: string) {
+  const upload = await createPieJobUpload(jobId);
+  const client = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, { auth: { persistSession: false, autoRefreshToken: false } });
+  const result = await client.storage.from('pie-job-output').uploadToSignedUrl(upload.path, upload.token, audio, {
+    contentType,
+    cacheControl: '0',
+  });
+  if (result.error) throw result.error;
+  return upload.path;
+}
+
+export async function createPieJobDownload(jobId: string, userId: string) {
+  return jobApi<{ signedUrl: string; contentType: string }>('createDownload', { jobId, userId });
 }
 
 export async function markPieJobSucceeded(jobId: string, output: Record<string, unknown> = {}) {
-  const supabase = pieJobAdminClient();
-  const { data, error } = await supabase
-    .from('pie_jobs')
-    .update({
-      status: 'succeeded',
-      output,
-      completed_at: new Date().toISOString(),
-      lease_expires_at: null,
-      locked_by: null,
-      locked_at: null,
-      last_error_code: null,
-      last_error_message: null,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', jobId)
-    .select('*')
-    .single();
-  if (error) throw error;
-  return data as PieJob;
+  const result = await jobApi<{ job: PieJob }>('markSucceeded', { jobId, output });
+  return result.job;
 }
 
 export async function markPieJobFailed(job: PieJob, errorCode: string, errorMessage: string, retryable = true) {
-  const supabase = pieJobAdminClient();
-  const exhausted = job.attempt_count >= job.max_attempts;
-  const shouldRetry = retryable && !exhausted;
-  const delaySeconds = Math.min(900, Math.max(10, 15 * 2 ** Math.max(0, job.attempt_count - 1)));
-  const nextAttempt = new Date(Date.now() + delaySeconds * 1000).toISOString();
-
-  const { data, error } = await supabase
-    .from('pie_jobs')
-    .update({
-      status: shouldRetry ? 'retrying' : 'failed',
-      next_attempt_at: shouldRetry ? nextAttempt : job.next_attempt_at,
-      completed_at: shouldRetry ? null : new Date().toISOString(),
-      lease_expires_at: null,
-      locked_by: null,
-      locked_at: null,
-      last_error_code: errorCode.slice(0, 100),
-      last_error_message: errorMessage.slice(0, 1500),
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', job.id)
-    .select('*')
-    .single();
-  if (error) throw error;
-  return data as PieJob;
+  const result = await jobApi<{ job: PieJob }>('markFailed', {
+    jobId: job.id,
+    errorCode: errorCode.slice(0, 100),
+    errorMessage: errorMessage.slice(0, 1500),
+    retryable,
+  });
+  return result.job;
 }

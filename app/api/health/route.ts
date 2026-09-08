@@ -19,6 +19,8 @@ export async function GET() {
     {
       status: coreHealthy ? 'ok' : 'degraded',
       service: 'pie',
+      commitSha: process.env.VERCEL_GIT_COMMIT_SHA || null,
+      deploymentId: process.env.VERCEL_DEPLOYMENT_ID || null,
       timestamp: new Date().toISOString(),
       checks,
     },

@@ -134,7 +134,7 @@ export default function ClerkSecureSignUp() {
           </button>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'center', width: '100%', minHeight: 360 }}>
+        <div style={{ display: 'flex', justifyContent: 'center', width: '100%', minHeight: 360, padding: '8px 0' }}>
           <SignUp
             key={secureAttempt}
             routing="hash"
@@ -143,10 +143,61 @@ export default function ClerkSecureSignUp() {
             signInForceRedirectUrl="/onboarding"
             initialValues={{ emailAddress: email, phoneNumber: phone, firstName, lastName }}
             appearance={{
+              variables: {
+                colorPrimary: '#7c3aed',
+                colorText: '#111827',
+                colorTextSecondary: '#4b5563',
+                colorBackground: '#ffffff',
+                colorInputBackground: '#ffffff',
+                colorInputText: '#111827',
+                borderRadius: '16px',
+              },
               elements: {
                 rootBox: { width: '100%', maxWidth: '520px' },
                 cardBox: { width: '100%' },
-                card: { width: '100%', background: '#0c0e14', border: '1px solid #353746', boxShadow: 'none' },
+                card: {
+                  width: '100%',
+                  background: '#ffffff',
+                  color: '#111827',
+                  border: '1px solid #e5e7eb',
+                  borderRadius: '22px',
+                  boxShadow: '0 20px 60px rgba(0,0,0,.22)',
+                },
+                headerTitle: { color: '#111827', fontWeight: 800 },
+                headerSubtitle: { color: '#4b5563' },
+                socialButtonsBlockButton: {
+                  background: '#ffffff',
+                  color: '#111827',
+                  border: '1px solid #d1d5db',
+                  minHeight: '48px',
+                  borderRadius: '14px',
+                },
+                socialButtonsBlockButtonText: { color: '#111827', fontWeight: 600 },
+                dividerLine: { background: '#e5e7eb' },
+                dividerText: { color: '#6b7280' },
+                formFieldLabel: { color: '#374151', fontWeight: 700 },
+                formFieldInput: {
+                  background: '#ffffff',
+                  color: '#111827',
+                  border: '1px solid #cbd5e1',
+                  minHeight: '50px',
+                  borderRadius: '14px',
+                  boxShadow: 'none',
+                },
+                formFieldInputShowPasswordButton: { color: '#6b7280' },
+                formButtonPrimary: {
+                  background: '#7c3aed',
+                  color: '#ffffff',
+                  minHeight: '52px',
+                  borderRadius: '14px',
+                  fontWeight: 800,
+                  fontSize: '16px',
+                  boxShadow: '0 10px 24px rgba(124,58,237,.28)',
+                },
+                footerActionText: { color: '#4b5563' },
+                footerActionLink: { color: '#6d28d9', fontWeight: 700 },
+                identityPreviewText: { color: '#111827' },
+                identityPreviewEditButton: { color: '#6d28d9', fontWeight: 700 },
               },
             }}
           />

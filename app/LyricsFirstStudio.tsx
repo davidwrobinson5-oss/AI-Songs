@@ -187,8 +187,8 @@ export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyrics
   return (
     <section className="panel">
       <p className="eyebrow">Lyrics First</p>
-      <h2>How do you want to write?</h2>
-      <p className="sub">Use Pie as a songwriting partner, or write and paste the complete song yourself and let Pie build the music around your words.</p>
+      <h2>Write the song</h2>
+      <p className="sub">Start with the song name and Describe the song section directly above. Tell Pie the genre, style, mood, tempo, instruments, vocal feel, era, production direction, or any other musical notes you want. Then choose whether Pie helps write or you paste the full lyric yourself.</p>
 
       <div className="modeGrid" style={{ marginBottom: 16 }}>
         <button type="button" className={`modeCard ${writingPath === 'tools' ? 'active' : ''}`} onClick={() => setWritingPath('tools')}>
@@ -202,8 +202,8 @@ export default function LyricsFirstStudio({ prompt, vocalRange, lyrics, onLyrics
       {writingPath === 'own' ? (
         <>
           <div className="playerCard">
-            <CardHeader title="Your complete lyrics" action="Clear lyrics" onAction={clearLyrics} disabled={Boolean(loading) || !lyrics.trim()} />
-            <small>Write here or paste a finished song. Section labels like [Verse], [Chorus], and [Bridge] help, but they are optional. Pie will send your full lyric separately from the music description so a long lyric is not cut off by the normal music-prompt limit.</small>
+            <CardHeader title="Song lyrics" action="Clear lyrics" onAction={clearLyrics} disabled={Boolean(loading) || !lyrics.trim()} />
+            <small>Write here or paste the finished song directly below your song description. Section labels like [Verse], [Chorus], and [Bridge] help, but they are optional. Pie keeps the lyrics separate from the music-direction prompt so your full lyric is preserved.</small>
             <textarea
               value={lyrics}
               onChange={(event) => onLyricsChange(event.target.value)}

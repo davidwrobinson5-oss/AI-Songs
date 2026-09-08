@@ -211,53 +211,47 @@ export default function Home() {
   }
 
   async function generateMusic() {
-    if (!prompt.trim()) return;
-    setMusicLoading(true);
-    setMusicError('');
-    setResult('');
-    setDrobStatus('');
-    setDrobError('');
-    setDrobVocalUrl('');
-    setMasterBlob(null);
-    setGeneratedBlob(null);
-    setCurrentVersionNumber(undefined);
-    setSaveStatus('');
+  if (!prompt.trim()) return;
+  setMusicLoading(true);
+  setMusicError('');
+  setResult('');
+  setDrobStatus('');
+  setDrobError('');
+  setDrobVocalUrl('');
+  setMasterBlob(null);
+  setGeneratedBlob(null);
+  setCurrentVersionNumber(undefined);
+  setSaveStatus('');
 
-    if (!precisionGuideBlob) {
-      setGuideVocalUrl('');
-    }
-    setBackingUrl('');
+  if (!precisionGuideBlob) {
+    setGuideVocalUrl('');
+  }
+  setBackingUrl('');
 
-    if (audioUrl) {
-      URL.revokeObjectURL(audioUrl);
-      setAudioUrl('');
-    }
+  if (audioUrl) {
+    URL.revokeObjectURL(audioUrl);
+    setAudioUrl('');
+  }
 
-    const lyricInstruction = lyrics.trim() ? `\n\nUse these lyrics as the song text:\n${lyrics}` : '';
-    const melodyInstruction = melodyAnalysis
-      ? `\n\nThe lead melody was analyzed as ${melodyAnalysis.lowestNote} to ${melodyAnalysis.highestNote} with ${melodyAnalysis.phrases.length} phrases. Keep vocal phrasing compatible with that melodic shape.`
-      : '';
-    const productionPrompt = instrumental
-      ? `${prompt}\n\nGenerate an original instrumental composition with no vocals. Leave space for a future ${vocalRange} lead vocal.${melodyInstruction}`
-      : `${prompt}\n\nGenerate an original song. Keep the lead vocal comfortably suited to a ${vocalRange} range.${lyricInstruction}${melodyInstruction}`;
+  const lyricInstruction = lyrics.trim() ? `\n\nUse these lyrics as the song text:\n${lyrics}` : '';
+  const melodyInstruction = melodyAnalysis
+    ? `\n\nThe lead melody was analyzed as ${melodyAnalysis.lowestNote} to ${melodyAnalysis.highestNote} with ${melodyAnalysis.phrases.length} phrases. Keep vocal phrasing compatible with that melodic shape.`
+    : '';
+  const productionPrompt = instrumental
+    ? `${prompt}\n\nGenerate an original instrumental composition with no vocals. Leave space for a future ${vocalRange} lead vocal.${melodyInstruction}`
+    : `${prompt}\n\nGenerate an original song. Keep the lead vocal comfortably suited to a ${vocalRange} range.${lyricInstruction}${melodyInstruction}`;
 
-    try {
-      let res: Response;
-      if (referenceAudioBlob) {
-        const form = new FormData();
-        form.append('file', referenceAudioBlob, referenceAudioName || 'reference-audio');
-        form.append('prompt', productionPrompt);
-        form.append('music_length_ms', String(durationMs));
-        form.append('reference_duration_ms', String(Math.min(30000, Math.max(50, referenceAudioDurationMs))));
-        form.append('force_instrumental', String(instrumental));
-        res = await fetch('/api/elevenlabs/generate-reference', { method: 'POST', body: form });
-      } else {
-        res = await fetch('/api/elevenlabs/generate', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ prompt: productionPrompt, music_length_ms: durationMs, force_instrumental: instrumental }),
-        });
-      }
+  try {
+    let blob: Blob;
+
+    if (referenceAudioBlob) {
+      const form = new FormData();
+      form.append('file', referenceAudioBlob, referenceAudioName || 'reference-audio');
+      form.append('prompt', productionPrompt);
+      form.append('music_length_ms', String(durationMs));
+      form.append('reference_duration_ms', String(Math.min(30000, Math.max(50, referenceAudioDurationMs))));
+      form.append('force_instrumental', String(instrumental));
+      const res = await fetch('/api/elevenlabs/generate-reference', { method: 'POST', body: form });
 
       if (!res.ok) {
         const raw = await res.text();
@@ -268,44 +262,106 @@ export default function Home() {
           const suggestion = parsed?.detail?.data?.prompt_suggestion;
           if (suggestion) message += `\nSuggested prompt: ${suggestion}`;
         } catch {}
-        setMusicError(message);
-        return;
+        throw new Error(message);
+      }
+      blob = await res.blob();
+    } else {
+      const idempotencyKey = typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const queueRes = await fetch('/api/jobs/song-generation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: productionPrompt,
+          music_length_ms: durationMs,
+          force_instrumental: instrumental,
+          idempotencyKey,
+        }),
+      });
+      const queued = await queueRes.json().catch(() => ({}));
+      if (!queueRes.ok || !queued?.job?.id) {
+        throw new Error(queued?.error || 'Music generation could not be queued.');
       }
 
-      const blob = await res.blob();
-      setGeneratedBlob(blob);
-      const url = URL.createObjectURL(blob);
-      setAudioUrl(url);
-      if (instrumental) setBackingUrl(url);
+      const jobId = String(queued.job.id);
+      setResult('Queued safely. Pie is starting your song…');
+      let completed = false;
 
-      try {
-        const saved = await saveVersion({
-          songId: currentSongId,
-          title: songTitle.trim() || 'Untitled Song',
-          prompt,
-          mode,
-          vocalRange,
-          durationMs,
-          instrumental,
-          lyrics: lyrics || undefined,
-          melodyBlob: melodyBlob || undefined,
-          melodyAnalysis: melodyAnalysis || undefined,
-          precisionGuideBlob: precisionGuideBlob || undefined,
-          generatedBlob: blob,
-          backingBlob: instrumental ? blob : undefined,
-        });
-        setCurrentSongId(saved.song.id);
-        setCurrentVersionNumber(saved.version.versionNumber);
-        setSaveStatus(`Auto-saved to Songs · Version ${saved.version.versionNumber}`);
-      } catch (saveError) {
-        setSaveStatus(saveError instanceof Error ? `Music created, but auto-save failed: ${saveError.message}` : 'Music created, but auto-save failed.');
+      for (let attempt = 0; attempt < 150; attempt++) {
+        await sleep(attempt === 0 ? 700 : 2000);
+        const statusRes = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { cache: 'no-store' });
+        const statusData = await statusRes.json().catch(() => ({}));
+        if (!statusRes.ok) throw new Error(statusData?.error || 'Could not check music generation.');
+
+        const job = statusData?.job || {};
+        if (job.status === 'queued') {
+          setResult('Queued safely. Pie is starting your song…');
+          continue;
+        }
+        if (job.status === 'running') {
+          setResult(`Generating your song… attempt ${job.attemptCount || 1} of ${job.maxAttempts || 3}`);
+          continue;
+        }
+        if (job.status === 'retrying') {
+          setResult(`Music provider had a temporary issue. Pie will retry automatically (${job.attemptCount || 1}/${job.maxAttempts || 3}).`);
+          continue;
+        }
+        if (job.status === 'failed' || job.status === 'cancelled') {
+          throw new Error(job.lastErrorMessage || 'Music generation failed.');
+        }
+        if (job.status === 'succeeded') {
+          completed = true;
+          break;
+        }
       }
-    } catch {
-      setMusicError('Could not reach Music Generator.');
-    } finally {
-      setMusicLoading(false);
+
+      if (!completed) {
+        throw new Error('Your song is still safely processing in Pie. You can leave this screen and the durable job will continue.');
+      }
+
+      const outputRes = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/output`, { cache: 'no-store' });
+      if (!outputRes.ok) {
+        const outputError = await outputRes.json().catch(() => ({}));
+        throw new Error(outputError?.error || 'Generated music is ready but could not be loaded.');
+      }
+      blob = await outputRes.blob();
     }
+
+    setResult('');
+    setGeneratedBlob(blob);
+    const url = URL.createObjectURL(blob);
+    setAudioUrl(url);
+    if (instrumental) setBackingUrl(url);
+
+    try {
+      const saved = await saveVersion({
+        songId: currentSongId,
+        title: songTitle.trim() || 'Untitled Song',
+        prompt,
+        mode,
+        vocalRange,
+        durationMs,
+        instrumental,
+        lyrics: lyrics || undefined,
+        melodyBlob: melodyBlob || undefined,
+        melodyAnalysis: melodyAnalysis || undefined,
+        precisionGuideBlob: precisionGuideBlob || undefined,
+        generatedBlob: blob,
+        backingBlob: instrumental ? blob : undefined,
+      });
+      setCurrentSongId(saved.song.id);
+      setCurrentVersionNumber(saved.version.versionNumber);
+      setSaveStatus(`Auto-saved to Songs · Version ${saved.version.versionNumber}`);
+    } catch (saveError) {
+      setSaveStatus(saveError instanceof Error ? `Music created, but auto-save failed: ${saveError.message}` : 'Music created, but auto-save failed.');
+    }
+  } catch (error) {
+    setMusicError(error instanceof Error ? error.message : 'Could not reach Music Generator.');
+  } finally {
+    setMusicLoading(false);
   }
+}
 
   async function waitForConversion(id: number | string) {
     for (let attempt = 0; attempt < 60; attempt++) {

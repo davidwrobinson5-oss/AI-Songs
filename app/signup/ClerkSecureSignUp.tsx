@@ -118,7 +118,7 @@ export default function ClerkSecureSignUp() {
       return (
         <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
           <strong>Email verified.</strong>
-          <small style={{ color: '#9fa1ae' }}>Taking you to phone verification…</small>
+          <small style={{ color: '#9fa1ae' }}>Taking you to your plan and trial setup…</small>
         </div>
       );
     }
@@ -203,7 +203,7 @@ export default function ClerkSecureSignUp() {
 
         <div style={{ display: 'grid', gap: 8, textAlign: 'center' }}>
           <small style={{ color: '#9fa1ae' }}>
-            Step 1 verifies your email. After that, Pie takes you forward to phone verification and then your trial plan.
+            During testing, Pie only requires email verification. SMS verification is saved for a later Clerk Pro upgrade.
           </small>
           <small style={{ color: '#77798a' }}>
             If this panel stops responding, <button type="button" onClick={retrySecureSignup} style={{ border: 0, padding: 0, background: 'transparent', color: '#cabdff', font: 'inherit', fontWeight: 800, cursor: 'pointer' }}>restart secure signup</button> or <a href="/signin" style={{ color: '#cabdff', fontWeight: 800 }}>sign in</a> if your account was already created.
@@ -246,7 +246,7 @@ export default function ClerkSecureSignUp() {
       </div>
 
       <div style={{ padding: 12, borderRadius: 13, background: '#11131a', border: '1px solid #2c2f38', color: '#b7b8c4', fontSize: 12, lineHeight: 1.45 }}>
-        <strong style={{ color:'#fff' }}>{TRIAL_DAYS}-day free trial</strong> of {plan.name}, then ${plan.monthlyPrice}/month unless canceled. Before checkout, Pie verifies the email address and phone number. The paid plan includes <strong style={{ color:'#fff' }}>{plan.monthlyCredits} Pie credits each billing cycle</strong>. Optional prepaid top-ups are available if you need more; Pie never adds surprise overage charges. Stripe remains in sandbox during this test.
+        <strong style={{ color:'#fff' }}>{TRIAL_DAYS}-day free trial</strong> of {plan.name}, then ${plan.monthlyPrice}/month unless canceled. During this test, Pie verifies your email address before checkout. Your phone number is saved as contact information but is not SMS-verified yet. The paid plan includes <strong style={{ color:'#fff' }}>{plan.monthlyCredits} Pie credits each billing cycle</strong>. Optional prepaid top-ups are available if you need more; Pie never adds surprise overage charges. Stripe remains in sandbox during this test.
       </div>
 
       {formError ? <p className={styles.authError}>{formError}</p> : null}

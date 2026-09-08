@@ -1,0 +1,71 @@
+name: Patch Lyrics First and film studio targeting
+
+on:
+  push:
+    branches: [lyrics-film-studios-2026-09-08]
+    paths:
+      - '.github/workflows/patch-lyrics-film-studios.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Lyrics First copy and film studio targets
+        shell: python
+        run: |
+          from pathlib import Path
+
+          lyrics = Path('app/LyricsFirstStudio.tsx')
+          text = lyrics.read_text()
+          old = """      <p className=\"eyebrow\">Lyrics First</p>\n      <h2>How do you want to write?</h2>\n      <p className=\"sub\">Use Pie as a songwriting partner, or write and paste the complete song yourself and let Pie build the music around your words.</p>"""
+          new = """      <p className=\"eyebrow\">Lyrics First</p>\n      <h2>Write the song</h2>\n      <p className=\"sub\">Start with the song name and Describe the song section directly above. Tell Pie the genre, style, mood, tempo, instruments, vocal feel, era, production direction, or any other musical notes you want. Then choose whether Pie helps write or you paste the full lyric yourself.</p>"""
+          if old not in text:
+              raise SystemExit('Lyrics First intro block not found')
+          text = text.replace(old, new, 1)
+          text = text.replace('title=\"Your complete lyrics\"', 'title=\"Song lyrics\"', 1)
+          old2 = "Write here or paste a finished song. Section labels like [Verse], [Chorus], and [Bridge] help, but they are optional. Pie will send your full lyric separately from the music description so a long lyric is not cut off by the normal music-prompt limit."
+          new2 = "Write here or paste the finished song directly below your song description. Section labels like [Verse], [Chorus], and [Bridge] help, but they are optional. Pie keeps the lyrics separate from the music-direction prompt so your full lyric is preserved."
+          if old2 not in text:
+              raise SystemExit('Lyrics helper copy not found')
+          text = text.replace(old2, new2, 1)
+          lyrics.write_text(text)
+
+          data = Path('app/DataWorkspace.tsx')
+          d = data.read_text()
+          oldcat = "  ['🎬','Film + TV','Directors, producers, music supervisors, production companies, and sync-relevant contacts.'],"
+          newcat = "  ['🎬','Film Studios + Film / TV','Major and independent film studios, production companies, directors, producers, music supervisors, soundtrack teams, trailer-music teams, sync/licensing contacts, and film-marketing decision-makers.'],"
+          if oldcat not in d:
+              raise SystemExit('Film + TV category not found')
+          d = d.replace(oldcat, newcat, 1)
+          anchor = "const geoOptions=['Local','Regional','United States','Canada','United Kingdom','Europe','Latin America','Asia-Pacific','International'];"
+          studios = """const featuredFilmStudios=['Universal Pictures','Walt Disney Studios','Sony Pictures','Lionsgate','A24','Warner Bros. Pictures','Paramount Pictures','Amazon MGM Studios','Angel Studios','Fathom Entertainment'];"""
+          if studios not in d:
+              d = d.replace(anchor, anchor+'\n'+studios, 1)
+
+          marker = "    <section className=\"growthCardGrid\">{categories.map(([icon,label,copy])=>{const active=selected.includes(label);return <article className=\"panel growthFeatureCard\" key={label} style={{outline:active?'2px solid rgba(139,92,246,.75)':'none'}}><strong>{icon} {label}</strong><small>{copy}</small><button type=\"button\" className=\"secondary\" onClick={()=>toggle(label)}>{active?'✓ Added':'Add to Request'}</button></article>;})}</section>"
+          insert = marker + "\n    <section className=\"panel\"><p className=\"eyebrow\">Film Studio Targets</p><h2>Market music for film, trailers, soundtracks, and sync</h2><p className=\"sub\">Build studio-specific outreach lists for music supervisors, soundtrack teams, creative executives, trailer and promo music teams, licensing/sync departments, producers, and other public-business contacts.</p><div className=\"chips\">{featuredFilmStudios.map(studio=><span key={studio} className=\"chip activeChip\">{studio}</span>)}</div><button type=\"button\" className=\"secondary\" onClick={()=>{setSelected(current=>current.includes('Film Studios + Film / TV')?current:[...current,'Film Studios + Film / TV']);setNotes(current=>current.trim()?current:`Prioritize these film studios where relevant: ${featuredFilmStudios.join(', ')}. Find lawful public-business contacts for music supervision, soundtracks, trailers/promos, sync/licensing, production, and film marketing.`);}}>Add Film Studios to Request</button></section>"
+          if marker not in d:
+              raise SystemExit('Data category grid marker not found')
+          d = d.replace(marker, insert, 1)
+          data.write_text(d)
+
+      - name: Commit product changes
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- app/LyricsFirstStudio.tsx app/DataWorkspace.tsx; then
+            echo 'Changes already applied.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/LyricsFirstStudio.tsx app/DataWorkspace.tsx
+          git commit -m 'Improve Lyrics First brief and add film studio targets'
+          git push

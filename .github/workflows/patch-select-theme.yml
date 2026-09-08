@@ -1,4 +1,4 @@
-name: Patch Pie dropdown theme
+name: Patch Voice to Instruments branch
 
 on:
   push:
@@ -15,62 +15,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: voice-to-instruments-2026-09-08
           token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Theme native select controls
-        shell: python
-        run: |
-          from pathlib import Path
-          path = Path('app/globals.css')
-          text = path.read_text()
-          marker = '/* PIE DARK SELECT CONTROLS */'
-          if marker in text:
-              raise SystemExit(0)
-          css = r'''
-
-/* PIE DARK SELECT CONTROLS */
-select{
-  font:inherit;
-  color:#f5f7fb;
-  color-scheme:dark;
-  background-color:#101018;
-  background-image:linear-gradient(45deg,transparent 50%,#c9c9d4 50%),linear-gradient(135deg,#c9c9d4 50%,transparent 50%),linear-gradient(180deg,rgba(25,25,36,.98),rgba(10,10,16,.98));
-  background-position:calc(100% - 18px) 50%,calc(100% - 12px) 50%,0 0;
-  background-size:6px 6px,6px 6px,100% 100%;
-  background-repeat:no-repeat;
-  border:1px solid rgba(255,255,255,.13);
-  border-radius:14px;
-  min-height:46px;
-  padding:10px 42px 10px 14px;
-  outline:none;
-  appearance:none;
-  -webkit-appearance:none;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 8px 24px rgba(0,0,0,.18);
-  transition:border-color .16s ease,box-shadow .16s ease,background-color .16s ease;
-}
-select:hover{border-color:rgba(255,255,255,.22)}
-select:focus,select:focus-visible{
-  border-color:rgba(255,61,129,.8);
-  box-shadow:0 0 0 3px rgba(255,61,129,.14),inset 0 1px 0 rgba(255,255,255,.05),0 8px 24px rgba(0,0,0,.22);
-}
-select:disabled{opacity:.55;cursor:not-allowed}
-select option,select optgroup{background:#111118;color:#f5f7fb}
-@media(max-width:430px){
-  select{min-height:44px;border-radius:12px;padding:9px 38px 9px 12px;background-position:calc(100% - 16px) 50%,calc(100% - 10px) 50%,0 0}
-}
-'''
-          path.write_text(text + css)
-
-      - name: Commit dropdown theme
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: node scripts/apply-voice-instruments-ui.mjs
+      - name: Commit Voice to Instruments UI
         shell: bash
         run: |
           set -euo pipefail
-          if git diff --quiet -- app/globals.css; then
-            echo 'No dropdown theme changes required.'
+          git config user.name 'Pie Automation'
+          git config user.email 'actions@users.noreply.github.com'
+          git add app/VoiceWorkspace.tsx app/page.tsx
+          if git diff --cached --quiet; then
+            echo 'No Voice to Instruments UI changes required.'
             exit 0
           fi
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add app/globals.css
-          git commit -m 'Style select menus to match Pie dark theme'
-          git push
+          git commit -m 'Add Voice to Instruments option'
+          git push origin HEAD:voice-to-instruments-2026-09-08

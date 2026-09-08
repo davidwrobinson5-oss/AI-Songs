@@ -52,8 +52,7 @@ export default function ClerkSecureSignUp() {
     return () => window.clearTimeout(timer);
   }, [secureStep, secureAttempt, isLoaded]);
 
-  function beginSecureSignup(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function beginSecureSignup() {
     const nextName = name.trim();
     const nextPhone = normalizePhone(phone);
     const nextEmail = email.trim().toLowerCase();
@@ -77,6 +76,11 @@ export default function ClerkSecureSignUp() {
     setEmail(nextEmail);
     setFormError('');
     setSecureStep(true);
+  }
+
+  function submitSecureSignup(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    beginSecureSignup();
   }
 
   function retrySecureSignup() {
@@ -214,7 +218,7 @@ export default function ClerkSecureSignUp() {
   }
 
   return (
-    <form className={styles.emailLogin} onSubmit={beginSecureSignup}>
+    <form className={styles.emailLogin} onSubmit={submitSecureSignup}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
         <label className={styles.emailField}>
           <span>Full name</span>
@@ -250,7 +254,7 @@ export default function ClerkSecureSignUp() {
       </div>
 
       {formError ? <p className={styles.authError}>{formError}</p> : null}
-      <button className={styles.primaryAuthButton} type="submit">Continue to Secure Signup</button>
+      <button className={styles.primaryAuthButton} type="button" onClick={beginSecureSignup}>Continue to Secure Signup</button>
     </form>
   );
 }

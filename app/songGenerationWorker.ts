@@ -5,7 +5,7 @@ import {
   consumePieJobUsage,
   markPieJobFailed,
   markPieJobSucceeded,
-  pieJobAdminClient,
+  uploadPieJobAudio,
   type PieJob,
 } from './jobQueue';
 
@@ -103,16 +103,12 @@ async function processSongGeneration(job: PieJob) {
     return;
   }
 
-  const supabase = pieJobAdminClient();
-  const objectPath = `${job.user_id}/${job.id}.mp3`;
-  const upload = await supabase.storage
-    .from('pie-job-output')
-    .upload(objectPath, audio, {
-      contentType: response.headers.get('content-type') || 'audio/mpeg',
-      upsert: true,
-      cacheControl: '0',
-    });
-  if (upload.error) {
+  const contentType = response.headers.get('content-type') || 'audio/mpeg';
+  let objectPath = '';
+  try {
+    objectPath = await uploadPieJobAudio(job.id, audio, contentType);
+  } catch (error) {
+    console.error('store generated song', error);
     await markPieJobFailed(job, 'output_storage', 'Generated music could not be saved.', true);
     return;
   }
@@ -120,7 +116,7 @@ async function processSongGeneration(job: PieJob) {
   await markPieJobSucceeded(job.id, {
     bucket: 'pie-job-output',
     path: objectPath,
-    contentType: response.headers.get('content-type') || 'audio/mpeg',
+    contentType,
     bytes: audio.byteLength,
   });
 }

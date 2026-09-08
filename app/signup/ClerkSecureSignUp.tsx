@@ -117,8 +117,8 @@ export default function ClerkSecureSignUp() {
     if (isSignedIn) {
       return (
         <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
-          <strong>Account recognized.</strong>
-          <small style={{ color: '#9fa1ae' }}>Continuing to verified setup…</small>
+          <strong>Email verified.</strong>
+          <small style={{ color: '#9fa1ae' }}>Taking you to phone verification…</small>
         </div>
       );
     }
@@ -127,7 +127,7 @@ export default function ClerkSecureSignUp() {
       <div style={{ display: 'grid', gap: 14 }}>
         <div className={styles.signupBlock} style={{ justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
           <span>
-            <strong>{email}</strong> · <strong>{phone}</strong> · {plan.name} · ${plan.monthlyPrice}/mo after {TRIAL_DAYS} days
+            <strong>{email}</strong> · {plan.name} · ${plan.monthlyPrice}/mo after {TRIAL_DAYS} days
           </span>
           <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>
             Change details
@@ -143,52 +143,59 @@ export default function ClerkSecureSignUp() {
             signInForceRedirectUrl="/onboarding"
             initialValues={{ emailAddress: email, phoneNumber: phone, firstName, lastName }}
             appearance={{
+              variables: {
+                colorPrimary: '#6f42c1',
+                colorPrimaryForeground: '#ffffff',
+                colorForeground: '#1b1c20',
+                colorMutedForeground: '#5b5d66',
+                colorBackground: '#d7d8dd',
+                colorInput: '#c3c5cc',
+                colorInputForeground: '#17181c',
+                colorBorder: '#a9abb3',
+                colorNeutral: '#666872',
+                colorRing: '#7c4dd4',
+                borderRadius: '16px',
+              },
               elements: {
                 rootBox: { width: '100%', maxWidth: '520px' },
                 cardBox: { width: '100%' },
                 card: {
                   width: '100%',
-                  background: '#ffffff',
-                  color: '#111827',
-                  border: '1px solid #e5e7eb',
+                  background: '#d7d8dd',
+                  color: '#1b1c20',
+                  border: '1px solid #a9abb3',
                   borderRadius: '22px',
-                  boxShadow: '0 20px 60px rgba(0,0,0,.22)',
+                  boxShadow: '0 20px 60px rgba(0,0,0,.25)',
                 },
-                headerTitle: { color: '#111827', fontWeight: 800 },
-                headerSubtitle: { color: '#4b5563' },
-                socialButtonsBlockButton: {
-                  background: '#ffffff',
-                  color: '#111827',
-                  border: '1px solid #d1d5db',
-                  minHeight: '48px',
-                  borderRadius: '14px',
-                },
-                socialButtonsBlockButtonText: { color: '#111827', fontWeight: 600 },
-                dividerLine: { background: '#e5e7eb' },
-                dividerText: { color: '#6b7280' },
-                formFieldLabel: { color: '#374151', fontWeight: 700 },
+                headerTitle: { color: '#191a1f', fontWeight: 800 },
+                headerSubtitle: { color: '#565861' },
+                socialButtonsBlockButton: { display: 'none' },
+                socialButtonsIconButton: { display: 'none' },
+                dividerRow: { display: 'none' },
+                formFieldLabel: { color: '#32343b', fontWeight: 700 },
                 formFieldInput: {
-                  background: '#ffffff',
-                  color: '#111827',
-                  border: '1px solid #cbd5e1',
+                  background: '#c3c5cc',
+                  color: '#17181c',
+                  border: '1px solid #9fa2ab',
                   minHeight: '50px',
                   borderRadius: '14px',
                   boxShadow: 'none',
                 },
-                formFieldInputShowPasswordButton: { color: '#6b7280' },
+                formFieldInputShowPasswordButton: { color: '#5f616a' },
                 formButtonPrimary: {
-                  background: '#7c3aed',
+                  background: '#6f42c1',
                   color: '#ffffff',
                   minHeight: '52px',
                   borderRadius: '14px',
                   fontWeight: 800,
                   fontSize: '16px',
-                  boxShadow: '0 10px 24px rgba(124,58,237,.28)',
+                  boxShadow: '0 8px 20px rgba(73,45,125,.22)',
                 },
-                footerActionText: { color: '#4b5563' },
-                footerActionLink: { color: '#6d28d9', fontWeight: 700 },
-                identityPreviewText: { color: '#111827' },
-                identityPreviewEditButton: { color: '#6d28d9', fontWeight: 700 },
+                footer: { background: '#c9cad0' },
+                footerActionText: { color: '#555760' },
+                footerActionLink: { color: '#5c2fa8', fontWeight: 700 },
+                identityPreviewText: { color: '#1b1c20' },
+                identityPreviewEditButton: { color: '#5c2fa8', fontWeight: 700 },
               },
             }}
           />
@@ -196,7 +203,7 @@ export default function ClerkSecureSignUp() {
 
         <div style={{ display: 'grid', gap: 8, textAlign: 'center' }}>
           <small style={{ color: '#9fa1ae' }}>
-            Pie requires verified contact information before checkout. Email verification is handled by Clerk; phone ownership is verified by SMS before the trial can start.
+            Step 1 verifies your email. After that, Pie takes you forward to phone verification and then your trial plan.
           </small>
           <small style={{ color: '#77798a' }}>
             If this panel stops responding, <button type="button" onClick={retrySecureSignup} style={{ border: 0, padding: 0, background: 'transparent', color: '#cabdff', font: 'inherit', fontWeight: 800, cursor: 'pointer' }}>restart secure signup</button> or <a href="/signin" style={{ color: '#cabdff', fontWeight: 800 }}>sign in</a> if your account was already created.

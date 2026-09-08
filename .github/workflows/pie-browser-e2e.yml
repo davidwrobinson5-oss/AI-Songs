@@ -22,6 +22,7 @@ jobs:
     timeout-minutes: 35
     env:
       PIE_E2E_BASE_URL: https://ai-songs-drobinhood1.vercel.app
+      PIE_HEALTH_PUBLIC_REQUIRED: ${{ github.event_name != 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

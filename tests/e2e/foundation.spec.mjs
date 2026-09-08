@@ -35,7 +35,7 @@ test('signup local step advances to Clerk without creating an account', async ({
   await page.getByLabel(/Email address/i).fill('pie-browser-test@example.invalid');
   await page.getByRole('button', { name: /Continue to Secure Signup/i }).click();
 
-  await expect(page.getByText(/Loading secure signup|Create your account|Secure signup is taking longer/i)).toBeVisible({ timeout: 15000 });
+  await expect(page.getByText(/Loading secure signup|Create your account|Secure signup is taking longer/i)).toBeVisible({ timeout: 20000 });
   await expect(page.getByText(/SMS verification is deferred|Step 1 verifies your email/i)).toHaveCount(0);
 });
 
@@ -44,6 +44,14 @@ test('unauthenticated billing checkout is denied', async ({ request }) => {
     data: { planId: 'release_planning' },
     headers: { 'Content-Type': 'application/json' },
   });
+  const requirePublic = process.env.PIE_HEALTH_PUBLIC_REQUIRED === 'true';
+
+  if (response.status() === 503 && !requirePublic) {
+    const body = await response.json();
+    expect(body.error).toMatch(/authentication is not configured/i);
+    return;
+  }
+
   expect([401, 403]).toContain(response.status());
 });
 

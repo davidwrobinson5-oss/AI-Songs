@@ -36,9 +36,9 @@ export default function LegacyLoginForm() {
           src="/pieinears-horizontal.svg"
           alt="PieInEars — The Kitchens Open. Let Them Cook!"
         />
-        <p className={styles.eyebrow}>PRIVATE STUDIO</p>
+        <p className={styles.eyebrow}>PRIVATE STUDIO · OWNER ACCESS</p>
         <h1>Pie</h1>
-        <p className={styles.sub}>Enter your studio password to access music generation, your voice tools, mixes, songs, and sheets.</p>
+        <p className={styles.sub}>Enter your owner studio password. This opens the same live Pie production studio used by the main account sign-in.</p>
         <form onSubmit={submit} className={styles.form}>
           <label>
             Studio password
@@ -54,11 +54,17 @@ export default function LegacyLoginForm() {
             />
           </label>
           <button type="submit" disabled={busy || password.length < 12}>
-            {busy ? 'Signing in…' : 'Unlock Studio'}
+            {busy ? 'Signing in…' : 'Unlock Owner Studio'}
           </button>
           {status && <div className={styles.status}>{status}</div>}
         </form>
-        <p className={styles.lockNote}>Protected studio access · signed secure session · paid AI endpoints stay locked until authentication succeeds.</p>
+
+        <div className={styles.signupBlock}>
+          <span>Using your regular Pie account?</span>
+          <a href="/signin">Main Pie Sign In</a>
+        </div>
+
+        <p className={styles.lockNote}>Owner access and the main Pie login both enter the same protected production app and API surface. Only the authentication method is different.</p>
       </section>
     </main>
   );

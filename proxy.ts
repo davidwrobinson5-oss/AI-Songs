@@ -2,8 +2,6 @@ import { NextFetchEvent, NextRequest, NextResponse } from 'next/server';
 import { clerkMiddleware } from '@clerk/nextjs/server';
 import { authConfigured, SESSION_COOKIE, verifySessionToken } from './app/auth';
 
-const CLERK_CANONICAL_VERCEL_HOST = 'ai-songs-drobinhood1.vercel.app';
-
 function sameOrigin(req: NextRequest) {
   const origin = req.headers.get('origin');
   const secFetchSite = req.headers.get('sec-fetch-site');
@@ -34,19 +32,6 @@ function isCustomerAuthRoute(pathname: string) {
     pathname === '/signin' || pathname.startsWith('/signin/') ||
     pathname === '/onboarding' || pathname.startsWith('/onboarding/')
   );
-}
-
-function canonicalCustomerAuthRedirect(req: NextRequest) {
-  if (!isCustomerAuthRoute(req.nextUrl.pathname)) return null;
-
-  const host = (req.headers.get('x-forwarded-host') || req.headers.get('host') || '').split(':')[0].toLowerCase();
-  if (!host.endsWith('.vercel.app') || host === CLERK_CANONICAL_VERCEL_HOST) return null;
-
-  const target = req.nextUrl.clone();
-  target.protocol = 'https:';
-  target.hostname = CLERK_CANONICAL_VERCEL_HOST;
-  target.port = '';
-  return NextResponse.redirect(target, 307);
 }
 
 function isPublicAccessRequest(pathname: string) {
@@ -86,6 +71,21 @@ function clerkConfigured() {
     process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY &&
     process.env.CLERK_SECRET_KEY,
   );
+}
+
+function clerkAuthorizedParties() {
+  const parties = new Set([
+    'https://ai-songs-drobinhood1.vercel.app',
+    'https://ai-songs-bice.vercel.app',
+    'https://ai-songs-git-main-drobinhood1.vercel.app',
+  ]);
+
+  const vercelUrl = process.env.VERCEL_URL?.trim();
+  if (vercelUrl && /^[a-z0-9.-]+\.vercel\.app$/i.test(vercelUrl)) {
+    parties.add(`https://${vercelUrl}`);
+  }
+
+  return [...parties];
 }
 
 function enforceApiEnvelope(req: NextRequest) {
@@ -198,11 +198,7 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
     enabled: true,
     path: '/__clerk',
   },
-  authorizedParties: [
-    'https://ai-songs-drobinhood1.vercel.app',
-    'https://ai-songs-bice.vercel.app',
-    'https://ai-songs-git-main-drobinhood1.vercel.app',
-  ],
+  authorizedParties: clerkAuthorizedParties(),
   contentSecurityPolicy: {
     strict: true,
     directives: {
@@ -216,9 +212,6 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
 });
 
 export async function proxy(req: NextRequest, event: NextFetchEvent) {
-  const canonicalRedirect = canonicalCustomerAuthRedirect(req);
-  if (canonicalRedirect) return canonicalRedirect;
-
   if (!clerkConfigured()) return legacyProxy(req);
 
   try {

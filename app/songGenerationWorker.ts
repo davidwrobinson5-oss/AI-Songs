@@ -25,6 +25,16 @@ type ProviderError = {
   message?: string;
 };
 
+type MusicV2Chunk = {
+  text?: unknown;
+  duration_ms?: unknown;
+  positive_styles?: unknown;
+  negative_styles?: unknown;
+  context_adherence?: unknown;
+};
+
+type MusicV2Plan = { chunks: MusicV2Chunk[] };
+
 async function parseProviderError(response: Response): Promise<ProviderError> {
   const raw = await response.text();
   if (!raw) return {};
@@ -32,11 +42,35 @@ async function parseProviderError(response: Response): Promise<ProviderError> {
   catch { return { message: raw.slice(0, 500) }; }
 }
 
+function sanitizeCompositionPlan(value: unknown): MusicV2Plan | null {
+  if (!value || typeof value !== 'object') return null;
+  const chunks = (value as { chunks?: unknown }).chunks;
+  if (!Array.isArray(chunks) || chunks.length < 1 || chunks.length > 30) return null;
+
+  const safeChunks: MusicV2Chunk[] = [];
+  let totalDuration = 0;
+  for (const raw of chunks) {
+    if (!raw || typeof raw !== 'object') return null;
+    const chunk = raw as MusicV2Chunk;
+    const text = typeof chunk.text === 'string' ? chunk.text.trim().slice(0, 12_000) : '';
+    const duration = Math.round(Number(chunk.duration_ms || 0));
+    if (!text || !Number.isFinite(duration) || duration < 3000 || duration > 120000) return null;
+    totalDuration += duration;
+    const positive = Array.isArray(chunk.positive_styles) ? chunk.positive_styles.map(String).map((item) => item.slice(0, 160)).slice(0, 50) : [];
+    const negative = Array.isArray(chunk.negative_styles) ? chunk.negative_styles.map(String).map((item) => item.slice(0, 160)).slice(0, 50) : [];
+    const adherence = chunk.context_adherence === 'low' || chunk.context_adherence === 'medium' ? chunk.context_adherence : 'high';
+    safeChunks.push({ text, duration_ms: duration, positive_styles: positive, negative_styles: negative, context_adherence: adherence });
+  }
+  if (totalDuration < 3000 || totalDuration > 600000) return null;
+  return { chunks: safeChunks };
+}
+
 async function processSongGeneration(job: PieJob) {
   const input = job.input || {};
   const prompt = typeof input.prompt === 'string' ? input.prompt : '';
-  if (!prompt || prompt.length > MAX_PROMPT_CHARS) {
-    await markPieJobFailed(job, 'invalid_prompt', 'The song prompt is missing or too long.', false);
+  const compositionPlan = sanitizeCompositionPlan(input.composition_plan);
+  if (!compositionPlan && (!prompt || prompt.length > MAX_PROMPT_CHARS)) {
+    await markPieJobFailed(job, 'invalid_prompt', 'The song prompt or composition plan is missing or invalid.', false);
     return;
   }
 
@@ -56,12 +90,14 @@ async function processSongGeneration(job: PieJob) {
     return;
   }
 
-  const providerBody = {
-    prompt,
-    music_length_ms: Number(input.music_length_ms || 30000),
-    force_instrumental: Boolean(input.force_instrumental),
-    model_id: 'music_v2',
-  };
+  const providerBody = compositionPlan
+    ? { composition_plan: compositionPlan, model_id: 'music_v2' }
+    : {
+        prompt,
+        music_length_ms: Number(input.music_length_ms || 30000),
+        force_instrumental: Boolean(input.force_instrumental),
+        model_id: 'music_v2',
+      };
 
   let response: Response;
   try {

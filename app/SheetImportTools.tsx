@@ -386,6 +386,23 @@ export default function SheetImportTools({analysisPlan='',vocalRange='Baritone'}
     }catch{}
   },[linkSessionId,linkSourceName,linkJobs,linkStatuses,linkChords,linkStatus,linkStemStarted,linkOutputs]);
 
+  function resetSheetChoices() {
+    if (scoreBusy || renderBusy || linkBusy) return;
+    for (const item of renders) URL.revokeObjectURL(item.url);
+    setSelected({});
+    setFullArrangement(false);
+    setRenders([]);
+    setShowRenderConfirm(false);
+    setConfirmKey(score?.key || '');
+    setConfirmBpm(Math.max(35, Math.min(240, Math.round(Number(score?.tempo) || 100))));
+    setConfirmTimeSignature(score?.timeSignature || '4/4');
+    setConfirmVocalRange(vocalRange || 'Baritone');
+    setConfirmRenderMode('Hybrid');
+    setSavedSongId('');
+    setLinkOutputs({stems:true,fullSheet:true,partSheets:false,chords:true});
+    setScoreStatus('Sheet render choices reset. The analyzed score, active processing jobs, and saved Songs were kept.');
+  }
+
   const chooser=(items:Array<{part:ScorePart;index:number}>)=>items.map(({part,index})=><button type="button" key={index} className={selected[index]?'sheetExportCard activeSheetExportCard':'sheetExportCard'} onClick={()=>toggle(index)} style={{minHeight:72}}><span className="sheetExportIcon">{part.choirRole?'🎶':part.isVocal?'🎤':'🎼'}</span><span><strong>{partLabel(part)}</strong><small>{part.instrument}{part.lyrics?' · lyrics detected':''}</small></span><b>{selected[index]?'✓':'+'}</b></button>);
 
   return <div className="sheetImportTools noPrint" style={{paddingBottom:150}}>
@@ -397,7 +414,7 @@ export default function SheetImportTools({analysisPlan='',vocalRange='Baritone'}
       {scoreStatus&&<div className="statusBox">{scoreStatus}</div>}
       {score&&<div className="scorePartChooser" ref={chooserRef} style={{paddingBottom:120,scrollMarginTop:18}}>
         <div className="sheetHeader"><div><p className="sheetBrand">DETECTED SCORE</p><h3>{score.title}</h3><small>{score.key||'Key unknown'} · {score.tempo} BPM · {score.timeSignature||'4/4'}</small></div></div>
-        <h3>What parts do you want to render?</h3>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}><h3>What parts do you want to render?</h3><button type="button" className="secondary" onClick={resetSheetChoices} disabled={scoreBusy||renderBusy||linkBusy}>↺ Reset choices</button></div>
         {choirParts.length>0&&<><p className="eyebrow">Choir</p><div className="sheetExportGrid">{chooser(choirParts)}</div></>}
         {vocalParts.length>0&&<><p className="eyebrow">Vocals</p><div className="sheetExportGrid">{chooser(vocalParts)}</div></>}
         {instrumentParts.length>0&&<><p className="eyebrow">Instruments</p><div className="sheetExportGrid">{chooser(instrumentParts)}</div></>}

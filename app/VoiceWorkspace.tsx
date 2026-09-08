@@ -172,6 +172,35 @@ export default function VoiceWorkspace({ backingUrl, lyrics, songTitle, onUseVoc
     setRenderedUrl('');
   }
 
+  function discardRenderedVocal() {
+    if (renderedUrl) URL.revokeObjectURL(renderedUrl);
+    setRenderedUrl('');
+    setRenderedBlob(null);
+  }
+
+  function resetVocalSettings() {
+    stopPreview();
+    discardRenderedVocal();
+    setPresetName('Natural');
+    setSettings({ ...PRESETS.Natural });
+    setStatus('Vocal settings reset to Natural. Recorded takes, the song, and saved Songs were kept.');
+  }
+
+  function clearVocalTakes() {
+    if (recording) return;
+    stopPreview();
+    discardRenderedVocal();
+    for (const take of takes) URL.revokeObjectURL(take.url);
+    setTakes([]);
+    setSelectedId('');
+    setStatus('Current vocal takes cleared. The backing track and saved Songs were kept.');
+  }
+
+  function clearRenderedVocal() {
+    discardRenderedVocal();
+    setStatus('Current polished render cleared. Recorded takes and saved Songs were kept.');
+  }
+
   async function startRecording() {
     if (!backingUrl) {
       setStatus('Create or open a song with music first, then come back to Voice → Record Live.');
@@ -361,7 +390,7 @@ export default function VoiceWorkspace({ backingUrl, lyrics, songTitle, onUseVoc
 
       {takes.length > 0 && (
         <section className="panel">
-          <h2>Vocal takes</h2>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}><h2>Vocal takes</h2><button type="button" className="secondary" onClick={clearVocalTakes} disabled={recording||takes.length===0}>Clear takes</button></div>
           {takes.map((take, index) => (
             <div className="playerCard" key={take.id}>
               <strong>{take.name || `Take ${index + 1}`}{take.id === selectedTake?.id ? ' · Selected' : ''}</strong>
@@ -374,7 +403,7 @@ export default function VoiceWorkspace({ backingUrl, lyrics, songTitle, onUseVoc
 
       {selectedTake && (
         <section className="panel">
-          <h2>Perfect the vocal</h2>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}><h2>Perfect the vocal</h2><button type="button" className="secondary" onClick={resetVocalSettings}>↺ Reset settings</button></div>
           <div className="chips">{Object.keys(PRESETS).map((name) => <button key={name} className={presetName === name ? 'chip activeChip' : 'chip'} onClick={() => applyPreset(name)}>{name}</button>)}</div>
 
           <div className="playerCard">
@@ -404,7 +433,7 @@ export default function VoiceWorkspace({ backingUrl, lyrics, songTitle, onUseVoc
 
       {renderedUrl && (
         <section className="panel">
-          <h2>Polished vocal</h2>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}><h2>Polished vocal</h2><button type="button" className="secondary" onClick={clearRenderedVocal}>Clear render</button></div>
           <audio controls src={renderedUrl} style={{ width: '100%' }} />
           <button className="primary" onClick={useRenderedVocal}>✓ Use This Vocal in Song</button>
         </section>

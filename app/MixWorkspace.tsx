@@ -513,6 +513,33 @@ export default function MixWorkspace({ musicUrl, leadVocalUrl, guideVocalUrl = '
     setMix((current) => ({ ...current, [key]: value }));
   }
 
+  function resetMixControls() {
+    stop();
+    setTracks({
+      music: { ...DEFAULT_TRACKS.music },
+      lead: { ...DEFAULT_TRACKS.lead },
+      double: { ...DEFAULT_TRACKS.double },
+      harmony: { ...DEFAULT_TRACKS.harmony },
+    });
+    setMix({ ...DEFAULT_MIX });
+    setStatus('Mix and track controls reset. Source audio, uploaded doubles/harmonies, remix audio, and saved Songs were kept.');
+  }
+
+  function resetRemixControls() {
+    setRemixStyle('modern-pop');
+    setRemixCustom('');
+    setRemixStrength('high');
+    setStatus('Remix settings reset. Current remix audio and saved Songs were kept.');
+  }
+
+  function resetMasterControls() {
+    setSelectedMasterProfile('streaming');
+    setExportQuality('studio');
+    setMasterSampleRate(48000);
+    setMasterMetrics(null);
+    setStatus('Master settings reset to Streaming · Studio · 48 kHz. Source audio and saved Songs were kept.');
+  }
+
   function loadUpload(kind: 'double' | 'harmony', file?: File) {
     if (!file) return;
     const url = URL.createObjectURL(file);
@@ -749,6 +776,7 @@ export default function MixWorkspace({ musicUrl, leadVocalUrl, guideVocalUrl = '
           <div className="mixTransport">
             <button className="primary" onClick={playMix}>▶ Play Mix</button>
             <button className="secondary" onClick={stop}>■ Stop</button>
+            <button type="button" className="secondary" onClick={resetMixControls}>↺ Reset mix</button>
           </div>
 
           <div className="mixChannels">
@@ -776,7 +804,7 @@ export default function MixWorkspace({ musicUrl, leadVocalUrl, guideVocalUrl = '
       {workspaceMode === 'remix' && (
         <>
           <div className="playerCard">
-            <strong>Choose a remix style</strong>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}><strong>Choose a remix style</strong><button type="button" className="secondary" onClick={resetRemixControls} disabled={remixing}>↺ Reset remix</button></div>
             <small>The backing is regenerated section-by-section from the current song. Drob stays separate so you keep the same vocal identity.</small>
             <div className="chips" style={{ marginTop: 10 }}>
               {REMIX_STYLES.map((style) => <button key={style.id} className={remixStyle === style.id ? 'chip activeChip' : 'chip'} onClick={() => setRemixStyle(style.id)}>{style.label}</button>)}
@@ -813,7 +841,7 @@ export default function MixWorkspace({ musicUrl, leadVocalUrl, guideVocalUrl = '
       {workspaceMode === 'master' && (
         <>
           <div className="playerCard">
-            <strong>Master for the destination</strong>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12}}><strong>Master for the destination</strong><button type="button" className="secondary" onClick={resetMasterControls} disabled={rendering}>↺ Reset master</button></div>
             <small>Each profile now measures gated K-weighted integrated loudness and a mobile-safe 4× intersample peak estimate, then adjusts final level without crossing the selected peak ceiling. Measurements are production estimates, not a certified broadcast meter.</small>
             {masterMetrics && (
               <div className="statusBox">

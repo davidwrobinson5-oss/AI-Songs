@@ -1,6 +1,6 @@
 'use client';
 
-import { SignUp, useUser } from '@clerk/nextjs';
+import { SignUp, useClerk, useUser } from '@clerk/nextjs';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { DEFAULT_PLAN_ID, PIE_PLANS, TRIAL_DAYS, planById } from '../billingConfig';
 import styles from '../login/login.module.css';
@@ -17,6 +17,7 @@ function normalizePhone(value: string) {
 
 export default function ClerkSecureSignUp() {
   const { isLoaded, isSignedIn } = useUser();
+  const { signOut } = useClerk();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -29,10 +30,17 @@ export default function ClerkSecureSignUp() {
   const plan = useMemo(() => planById(selectedPlan), [selectedPlan]);
 
   useEffect(() => {
-    if (isLoaded && isSignedIn) {
-      window.location.replace('/onboarding');
-    }
-  }, [isLoaded, isSignedIn]);
+    if (!secureStep || !isLoaded || !isSignedIn) return;
+
+    let cancelled = false;
+    void signOut().finally(() => {
+      if (!cancelled) window.location.replace('/signin?created=1');
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [secureStep, isLoaded, isSignedIn, signOut]);
 
   useEffect(() => {
     const syncOnline = () => setIsOnline(navigator.onLine);
@@ -81,12 +89,6 @@ export default function ClerkSecureSignUp() {
     setSecureStep(true);
   }
 
-  function beginGoogleSignup() {
-    saveSignupDetails();
-    setFormError('');
-    setSecureStep(true);
-  }
-
   function submitSecureSignup(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     beginSecureSignup();
@@ -131,35 +133,32 @@ export default function ClerkSecureSignUp() {
       return (
         <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
           <strong>Account verified.</strong>
-          <small style={{ color: '#b9bac0' }}>Taking you to your Pie setup…</small>
+          <small style={{ color: '#b9bac0' }}>Taking you to Pie sign in…</small>
         </div>
       );
     }
 
     return (
       <div style={{ display: 'grid', gap: 14 }}>
-        {(email || name || phone) ? (
-          <div className={styles.signupBlock} style={{ justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-            <span>
-              {email ? <><strong>{email}</strong> · </> : null}{plan.name} · ${plan.monthlyPrice}/mo after {TRIAL_DAYS} days
-            </span>
-            <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>
-              Change details
-            </button>
-          </div>
-        ) : null}
+        <div className={styles.signupBlock} style={{ justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <span>
+            <strong>{email}</strong> · {plan.name} · ${plan.monthlyPrice}/mo after {TRIAL_DAYS} days
+          </span>
+          <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>
+            Change details
+          </button>
+        </div>
 
         <div style={{ display: 'flex', justifyContent: 'center', width: '100%', minHeight: 360, padding: '8px 0' }}>
           <SignUp
             key={secureAttempt}
             routing="path"
             path="/signup"
-            oauthFlow="redirect"
-            forceRedirectUrl="/onboarding"
-            fallbackRedirectUrl="/onboarding"
+            forceRedirectUrl="/signin?created=1"
+            fallbackRedirectUrl="/signin?created=1"
             signInUrl="/signin"
             signInForceRedirectUrl="/onboarding"
-            initialValues={{ emailAddress: email || undefined, phoneNumber: phone || undefined, firstName, lastName }}
+            initialValues={{ emailAddress: email, phoneNumber: phone, firstName, lastName }}
             appearance={{
               variables: {
                 colorPrimary: '#7254a8',
@@ -187,16 +186,9 @@ export default function ClerkSecureSignUp() {
                 },
                 headerTitle: { color: '#f7f7f8', fontWeight: 800 },
                 headerSubtitle: { color: '#b8b9be' },
-                socialButtonsBlockButton: {
-                  background: '#3a3b40',
-                  color: '#f7f7f8',
-                  border: '1px solid #5b5c62',
-                  minHeight: '50px',
-                  borderRadius: '14px',
-                  fontWeight: 800,
-                },
-                dividerLine: { background: '#55565c' },
-                dividerText: { color: '#a9aab0' },
+                socialButtonsBlockButton: { display: 'none' },
+                socialButtonsIconButton: { display: 'none' },
+                dividerRow: { display: 'none' },
                 formFieldLabel: { color: '#d7d8db', fontWeight: 700 },
                 formFieldInput: {
                   background: '#25262a',
@@ -228,7 +220,7 @@ export default function ClerkSecureSignUp() {
 
         <div style={{ display: 'grid', gap: 8, textAlign: 'center' }}>
           <small style={{ color: '#b9bac0' }}>
-            Pie uses Clerk for secure email, Google, phone, and account verification. After verification, you will continue directly to onboarding.
+            Pie verifies your account before you sign in. After verification, you will return to Pie sign in and can use your saved sign-in method on future visits.
           </small>
           <small style={{ color: '#95969d' }}>
             If this panel stops responding, <button type="button" onClick={retrySecureSignup} style={{ border: 0, padding: 0, background: 'transparent', color: '#d7c8f1', font: 'inherit', fontWeight: 800, cursor: 'pointer' }}>restart secure signup</button> or <a href="/signin" style={{ color: '#d7c8f1', fontWeight: 800 }}>sign in</a> if your account was already created.
@@ -240,11 +232,6 @@ export default function ClerkSecureSignUp() {
 
   return (
     <form className={styles.emailLogin} onSubmit={submitSecureSignup}>
-      <button className={styles.googleAuthButton} type="button" onClick={beginGoogleSignup}>
-        Continue with Google
-      </button>
-      <div className={styles.authDivider}><span>or continue with email</span></div>
-
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
         <label className={styles.emailField}>
           <span>Full name</span>

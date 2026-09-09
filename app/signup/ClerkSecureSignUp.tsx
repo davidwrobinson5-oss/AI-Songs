@@ -40,10 +40,11 @@ export default function ClerkSecureSignUp() {
   const [selectedPlan, setSelectedPlan] = useState(DEFAULT_PLAN_ID);
   const [emailCode, setEmailCode] = useState('');
   const [phoneCode, setPhoneCode] = useState('');
+  const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
   const plan = useMemo(() => planById(selectedPlan), [selectedPlan]);
-  const busy = fetchStatus === 'fetching' || step === 'handoff';
+  const busy = fetchStatus === 'fetching' || checkoutBusy;
 
   function saveSignupDetails(nextName: string, nextPhone: string, nextEmail: string) {
     try {
@@ -125,6 +126,40 @@ export default function ClerkSecureSignUp() {
     }
   }
 
+  async function startVerifiedCheckout() {
+    setError('');
+    setCheckoutBusy(true);
+    setInfo('Email and phone verified. Opening Stripe…');
+
+    try {
+      const signupSessionId = signUp.createdSessionId;
+      const signupUserId = signUp.createdUserId;
+      if (!signupSessionId || !signupUserId) {
+        throw new Error('Pie could not verify the completed signup session. Please restart signup.');
+      }
+
+      const response = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          planId: selectedPlan,
+          signupSessionId,
+          signupUserId,
+        }),
+        cache: 'no-store',
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.url) {
+        throw new Error(typeof data?.error === 'string' ? data.error : 'Secure card verification could not be started.');
+      }
+
+      window.location.replace(data.url);
+    } catch (checkoutError) {
+      setError(clerkErrorMessage(checkoutError, 'Secure card verification could not be started.'));
+      setCheckoutBusy(false);
+    }
+  }
+
   async function verifyPhone(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
@@ -143,21 +178,8 @@ export default function ClerkSecureSignUp() {
       }
 
       setPhoneCode('');
-      setInfo('Email and phone verified. Opening secure card verification…');
       setStep('handoff');
-
-      await signUp.finalize({
-        navigate: ({ session, decorateUrl }) => {
-          if (session?.currentTask) {
-            setStep('phone-code');
-            setError('Pie account verification completed, but Clerk returned an unexpected additional setup task. Passkey setup is not required here.');
-            return;
-          }
-          const url = decorateUrl('/checkout/start');
-          if (url.startsWith('http')) window.location.href = url;
-          else window.location.replace(url);
-        },
-      });
+      await startVerifiedCheckout();
     } catch (verifyError) {
       setStep('phone-code');
       setError(clerkErrorMessage(verifyError, 'That phone code could not be verified.'));
@@ -189,8 +211,14 @@ export default function ClerkSecureSignUp() {
   if (step === 'handoff') {
     return (
       <div className={styles.emailLogin} style={{ textAlign: 'center' }}>
-        <div className={styles.methodHeading}>Opening secure card verification…</div>
-        <p className={styles.verifyNote}>{info || 'Your email and phone are verified. Pie is taking you directly to Stripe.'}</p>
+        <div className={styles.methodHeading}>Opening Stripe…</div>
+        <p className={styles.verifyNote}>{info || 'Your email and phone are verified. Pie is opening secure card verification.'}</p>
+        {error ? <div className={styles.authError}>{error}</div> : null}
+        {error ? (
+          <button className={styles.primaryAuthButton} type="button" onClick={() => void startVerifiedCheckout()} disabled={busy}>
+            {busy ? 'Opening Stripe…' : 'Retry Secure Card Verification'}
+          </button>
+        ) : null}
       </div>
     );
   }

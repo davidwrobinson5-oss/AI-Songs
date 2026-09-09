@@ -33,30 +33,43 @@ jobs:
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             echo "PIE_E2E_BASE_URL=https://ai-songs-git-${{ github.head_ref }}-drobinhood1.vercel.app" >> "$GITHUB_ENV"
             echo "PIE_HEALTH_PUBLIC_REQUIRED=false" >> "$GITHUB_ENV"
+            echo "PIE_EXPECTED_COMMIT_SHA=${{ github.event.pull_request.head.sha }}" >> "$GITHUB_ENV"
           else
             echo "PIE_E2E_BASE_URL=https://ai-songs-drobinhood1.vercel.app" >> "$GITHUB_ENV"
             echo "PIE_HEALTH_PUBLIC_REQUIRED=true" >> "$GITHUB_ENV"
           fi
-      - name: Wait for finished Pie preview
+      - name: Wait for exact finished Pie preview
         if: github.event_name == 'pull_request'
         shell: bash
         run: |
           set -euo pipefail
-          for attempt in {1..48}; do
+          for attempt in {1..60}; do
             status="$(curl --location --silent --show-error --dump-header /tmp/pie-headers --output /tmp/pie-health --write-out '%{http_code}' "$PIE_E2E_BASE_URL/api/health" || true)"
             content_type="$(grep -i '^content-type:' /tmp/pie-headers 2>/dev/null | tail -1 | tr -d '\r' || true)"
-            if [[ "$content_type" == *"application/json"* ]] && grep -Eq '"service"[[:space:]]*:[[:space:]]*"pie"|Authentication required' /tmp/pie-health; then
-              echo "Finished Pie preview is ready: $PIE_E2E_BASE_URL (HTTP $status)"
+            service_ready=false
+            commit_ready=false
+
+            if [[ "$content_type" == *"application/json"* ]] && grep -Eq '"service"[[:space:]]*:[[:space:]]*"pie"' /tmp/pie-health; then
+              service_ready=true
+            fi
+            if grep -Eq '"commitSha"[[:space:]]*:[[:space:]]*"'"$PIE_EXPECTED_COMMIT_SHA"'"' /tmp/pie-health 2>/dev/null; then
+              commit_ready=true
+            fi
+
+            if [[ "$service_ready" == true && "$commit_ready" == true ]]; then
+              echo "Exact Pie preview is ready: $PIE_E2E_BASE_URL @ $PIE_EXPECTED_COMMIT_SHA (HTTP $status)"
               exit 0
             fi
-            echo "Preview not fully ready yet (HTTP $status, content-type: ${content_type:-unknown}, attempt $attempt/48)."
+
+            current_sha="$(sed -n 's/.*"commitSha"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /tmp/pie-health | head -1 || true)"
+            echo "Preview not on expected commit yet (HTTP $status, current=${current_sha:-unknown}, expected=$PIE_EXPECTED_COMMIT_SHA, attempt $attempt/60)."
             sleep 10
           done
-          echo "Finished Pie preview did not become ready for browser E2E."
+          echo "Exact Pie preview did not become ready for browser E2E."
           echo "Last response headers:"
           cat /tmp/pie-headers || true
-          echo "Last response body (first 500 bytes):"
-          head -c 500 /tmp/pie-health || true
+          echo "Last response body (first 1000 bytes):"
+          head -c 1000 /tmp/pie-health || true
           exit 1
       - name: Install app dependencies
         run: npm ci

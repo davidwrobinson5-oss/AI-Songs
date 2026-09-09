@@ -1,0 +1,6 @@
+.clerkPhoneTheme :global(.cl-phoneInputBox){display:flex;align-items:stretch;width:100%;min-height:50px;background:#25262a!important;border:1px solid #55565c!important;border-radius:14px!important;overflow:hidden;box-shadow:none!important}
+.clerkPhoneTheme :global(.cl-phoneInputBox .cl-selectButton),.clerkPhoneTheme :global(.cl-phoneInputBox .cl-selectButton__countryCode){background:#25262a!important;color:#f5f5f6!important;border:0!important;border-right:1px solid #55565c!important;border-radius:0!important;min-height:50px;box-shadow:none!important}
+.clerkPhoneTheme :global(.cl-phoneInputBox .cl-selectButton__countryCode p),.clerkPhoneTheme :global(.cl-phoneInputBox .cl-selectButton svg){color:#f5f5f6!important;fill:#f5f5f6!important}
+.clerkPhoneTheme :global(.cl-phoneInputBox .cl-formFieldInput){background:#25262a!important;color:#f5f5f6!important;border:0!important;border-radius:0!important;min-height:50px;box-shadow:none!important}
+.clerkPhoneTheme :global(.cl-phoneInputBox .cl-formFieldInput::placeholder){color:#8f9096!important}
+.clerkPhoneTheme :global(.cl-phoneInputBox:focus-within){border-color:#8a6bc0!important;box-shadow:0 0 0 3px rgba(138,107,192,.15)!important}

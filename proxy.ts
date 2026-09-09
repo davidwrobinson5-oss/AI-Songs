@@ -73,6 +73,13 @@ function clerkConfigured() {
   );
 }
 
+function clerkFrontendApiProxyEnabled() {
+  // Clerk's Frontend API proxy is for production instances only. Preview is
+  // currently using Clerk development keys, so proxying /__clerk causes
+  // Clerk to reject the Vercel preview host with host_invalid.
+  return process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim().startsWith('pk_live_') === true;
+}
+
 function addVercelParty(parties: Set<string>, value: string | undefined) {
   const host = value?.trim().toLowerCase();
   if (host && /^[a-z0-9.-]+\.vercel\.app$/.test(host)) {
@@ -175,8 +182,9 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
 
-  // Clerk's built-in Frontend API proxy handles /__clerk before this auth callback.
-  // Customer authentication/onboarding remains separate from the private owner login.
+  // Clerk's built-in Frontend API proxy handles /__clerk before this auth callback
+  // only when production Clerk keys are in use. Customer authentication/onboarding
+  // remains separate from the private owner login.
   // The durable worker route authenticates itself with a separate rotating bearer token.
   if (isPublicAccessRequest(pathname) || isHealthRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname)) {
     return NextResponse.next();
@@ -203,7 +211,7 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   return response;
 }, {
   frontendApiProxy: {
-    enabled: true,
+    enabled: clerkFrontendApiProxyEnabled(),
     path: '/__clerk',
   },
   authorizedParties: clerkAuthorizedParties(),

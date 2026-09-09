@@ -35,10 +35,11 @@ function isCustomerAuthRoute(pathname: string) {
 }
 
 function isSignupCheckoutRequest(pathname: string) {
-  // This endpoint must be reachable before a new Clerk signup session is activated.
-  // The route itself verifies either an authenticated Clerk user or the exact
-  // completed signup session + user pair before creating a Stripe Checkout session.
   return pathname === '/api/billing/checkout';
+}
+
+function isStripeWebhookRequest(pathname: string) {
+  return pathname === '/api/billing/webhook';
 }
 
 function isPublicAccessRequest(pathname: string) {
@@ -81,17 +82,12 @@ function clerkConfigured() {
 }
 
 function clerkFrontendApiProxyEnabled() {
-  // Clerk's Frontend API proxy is for production instances only. Preview is
-  // currently using Clerk development keys, so proxying /__clerk causes
-  // Clerk to reject the Vercel preview host with host_invalid.
   return process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim().startsWith('pk_live_') === true;
 }
 
 function addVercelParty(parties: Set<string>, value: string | undefined) {
   const host = value?.trim().toLowerCase();
-  if (host && /^[a-z0-9.-]+\.vercel\.app$/.test(host)) {
-    parties.add(`https://${host}`);
-  }
+  if (host && /^[a-z0-9.-]+\.vercel\.app$/.test(host)) parties.add(`https://${host}`);
 }
 
 function clerkAuthorizedParties() {
@@ -100,13 +96,8 @@ function clerkAuthorizedParties() {
     'https://ai-songs-bice.vercel.app',
     'https://ai-songs-git-main-drobinhood1.vercel.app',
   ]);
-
-  // VERCEL_URL is the immutable deployment URL. VERCEL_BRANCH_URL is the
-  // generated Git branch alias that browsers and Preview E2E use. Add only
-  // those exact Vercel hosts; never authorize a wildcard *.vercel.app origin.
   addVercelParty(parties, process.env.VERCEL_URL);
   addVercelParty(parties, process.env.VERCEL_BRANCH_URL);
-
   return [...parties];
 }
 
@@ -118,29 +109,16 @@ function enforceApiEnvelope(req: NextRequest) {
   const allowHeader = allowedMethods.join(', ');
 
   if (method === 'OPTIONS') {
-    return new NextResponse(null, {
-      status: 204,
-      headers: {
-        Allow: allowHeader,
-        'Access-Control-Allow-Methods': allowHeader,
-        'Access-Control-Allow-Origin': 'null',
-        'Cache-Control': 'no-store',
-      },
-    });
+    return new NextResponse(null, { status: 204, headers: { Allow: allowHeader, 'Access-Control-Allow-Methods': allowHeader, 'Access-Control-Allow-Origin': 'null', 'Cache-Control': 'no-store' } });
   }
-
   if (!allowedMethods.includes(method)) {
-    return NextResponse.json(
-      { error: 'Method not allowed.' },
-      { status: 405, headers: { Allow: allowHeader, 'Cache-Control': 'no-store' } },
-    );
+    return NextResponse.json({ error: 'Method not allowed.' }, { status: 405, headers: { Allow: allowHeader, 'Cache-Control': 'no-store' } });
   }
 
-  if (!sameOrigin(req) && !isLegacyVerifyRequest(req.nextUrl.pathname) && !isJobWorkerRequest(req.nextUrl.pathname)) {
-    return NextResponse.json(
-      { error: 'Cross-site API requests are not allowed.' },
-      { status: 403, headers: { 'Cache-Control': 'no-store' } },
-    );
+  // Stripe webhooks are cross-site by design and authenticate with Stripe's
+  // signed webhook header inside the route itself.
+  if (!sameOrigin(req) && !isLegacyVerifyRequest(req.nextUrl.pathname) && !isJobWorkerRequest(req.nextUrl.pathname) && !isStripeWebhookRequest(req.nextUrl.pathname)) {
+    return NextResponse.json({ error: 'Cross-site API requests are not allowed.' }, { status: 403, headers: { 'Cache-Control': 'no-store' } });
   }
   return null;
 }
@@ -155,30 +133,22 @@ async function legacyProxy(req: NextRequest) {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isHealthRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname) || isSignupCheckoutRequest(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isHealthRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname) || isSignupCheckoutRequest(pathname) || isStripeWebhookRequest(pathname)) return NextResponse.next();
 
   if (!authConfigured()) {
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Studio authentication is not configured.' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
-    const login = req.nextUrl.clone();
-    login.pathname = '/login';
-    login.search = '';
-    return NextResponse.redirect(login);
+    const login = req.nextUrl.clone(); login.pathname = '/login'; login.search = ''; return NextResponse.redirect(login);
   }
 
   const validSession = await legacySessionValid(req);
   if (!validSession) {
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Authentication required.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
-    const login = req.nextUrl.clone();
-    login.pathname = '/login';
-    login.search = '';
-    return NextResponse.redirect(login);
+    const login = req.nextUrl.clone(); login.pathname = '/login'; login.search = ''; return NextResponse.redirect(login);
   }
 
   const response = NextResponse.next();
   if (pathname.startsWith('/api/')) {
-    response.headers.set('Cache-Control', 'no-store');
-    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
-    response.headers.set('Access-Control-Allow-Origin', 'null');
+    response.headers.set('Cache-Control', 'no-store'); response.headers.set('X-Robots-Tag', 'noindex, nofollow'); response.headers.set('Access-Control-Allow-Origin', 'null');
   }
   return response;
 }
@@ -189,11 +159,7 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
 
-  // Clerk's built-in Frontend API proxy handles /__clerk before this auth callback
-  // only when production Clerk keys are in use. Customer authentication/onboarding
-  // remains separate from the private owner login.
-  // The durable worker route authenticates itself with a separate rotating bearer token.
-  if (isPublicAccessRequest(pathname) || isHealthRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname) || isSignupCheckoutRequest(pathname)) {
+  if (isPublicAccessRequest(pathname) || isHealthRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname) || isSignupCheckoutRequest(pathname) || isStripeWebhookRequest(pathname)) {
     return NextResponse.next();
   }
 
@@ -203,46 +169,24 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
 
   if (!authenticated) {
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Authentication required.' }, { status: 401, headers: { 'Cache-Control': 'no-store' } });
-    const signin = req.nextUrl.clone();
-    signin.pathname = '/signin';
-    signin.search = '';
-    return NextResponse.redirect(signin);
+    const signin = req.nextUrl.clone(); signin.pathname = '/signin'; signin.search = ''; return NextResponse.redirect(signin);
   }
 
   const response = NextResponse.next();
   if (pathname.startsWith('/api/')) {
-    response.headers.set('Cache-Control', 'no-store');
-    response.headers.set('X-Robots-Tag', 'noindex, nofollow');
-    response.headers.set('Access-Control-Allow-Origin', 'null');
+    response.headers.set('Cache-Control', 'no-store'); response.headers.set('X-Robots-Tag', 'noindex, nofollow'); response.headers.set('Access-Control-Allow-Origin', 'null');
   }
   return response;
 }, {
-  frontendApiProxy: {
-    enabled: clerkFrontendApiProxyEnabled(),
-    path: '/__clerk',
-  },
+  frontendApiProxy: { enabled: clerkFrontendApiProxyEnabled(), path: '/__clerk' },
   authorizedParties: clerkAuthorizedParties(),
-  contentSecurityPolicy: {
-    strict: true,
-    directives: {
-      'media-src': ["'self'", 'blob:', 'data:'],
-      'connect-src': ['blob:'],
-      'manifest-src': ["'self'"],
-      'object-src': ["'none'"],
-      'frame-ancestors': ["'none'"],
-    },
-  },
+  contentSecurityPolicy: { strict: true, directives: { 'media-src': ["'self'", 'blob:', 'data:'], 'connect-src': ['blob:'], 'manifest-src': ["'self'"], 'object-src': ["'none'"], 'frame-ancestors': ["'none'"] } },
 });
 
 export async function proxy(req: NextRequest, event: NextFetchEvent) {
   if (!clerkConfigured()) return legacyProxy(req);
-
-  try {
-    return await clerkProxy(req, event);
-  } catch (error) {
-    console.error('Clerk middleware failed; preserving owner studio fallback.', error);
-    return legacyProxy(req);
-  }
+  try { return await clerkProxy(req, event); }
+  catch (error) { console.error('Clerk middleware failed; preserving owner studio fallback.', error); return legacyProxy(req); }
 }
 
 export const config = { matcher: ['/((?!_next/static|_next/image|favicon.ico).*)', '/(api|trpc)(.*)', '/__clerk/(.*)'] };

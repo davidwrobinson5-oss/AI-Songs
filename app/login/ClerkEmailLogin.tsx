@@ -5,7 +5,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import styles from './login.module.css';
 
 type SignInMode = 'password' | 'phone' | 'phone-code';
-type SignupGate = 'idle' | 'checking' | 'email-code' | 'phone-code' | 'signing-out' | 'failed';
+type SignupGate = 'idle' | 'checking' | 'email-code' | 'phone-code' | 'checkout' | 'failed';
 
 function normalizePhone(value: string) {
   const raw = value.trim();
@@ -43,7 +43,7 @@ export default function ClerkEmailLogin() {
   const [signupGate, setSignupGate] = useState<SignupGate>('idle');
   const [signupCode, setSignupCode] = useState('');
   const [signupMessage, setSignupMessage] = useState('');
-  const busy = fetchStatus === 'fetching' || ['checking', 'signing-out'].includes(signupGate);
+  const busy = fetchStatus === 'fetching' || ['checking', 'checkout'].includes(signupGate);
 
   useEffect(() => {
     try {
@@ -54,7 +54,8 @@ export default function ClerkEmailLogin() {
 
   useEffect(() => {
     if (!userLoaded) return;
-    const created = new URLSearchParams(window.location.search).get('created') === '1';
+    const params = new URLSearchParams(window.location.search);
+    const created = params.get('created') === '1';
     if (!created) return;
 
     if (!isSignedIn || !user) {
@@ -70,21 +71,37 @@ export default function ClerkEmailLogin() {
   function savedSignupIdentity() {
     let savedEmail = email.trim().toLowerCase();
     let savedPhone = '';
+    let savedPlan = '';
     try {
       savedEmail = (sessionStorage.getItem('pieSignupEmail') || savedEmail).trim().toLowerCase();
       savedPhone = normalizePhone(sessionStorage.getItem('pieSignupPhone') || '');
+      savedPlan = sessionStorage.getItem('pieSignupPlan') || '';
     } catch {}
-    return { savedEmail, savedPhone };
+    return { savedEmail, savedPhone, savedPlan };
   }
 
-  async function finishVerifiedSignup() {
-    setSignupGate('signing-out');
-    setSignupMessage('Email and phone verified. Preparing your Pie sign-in…');
-    await signOut();
-    window.history.replaceState({}, '', '/signin');
-    setSignupCode('');
-    setSignupMessage('');
-    setSignupGate('idle');
+  async function startCardVerification() {
+    const { savedPlan } = savedSignupIdentity();
+    if (!savedPlan) throw new Error('Pie could not recover your selected plan. Start signup again and choose a plan.');
+
+    setSignupGate('checkout');
+    setSignupMessage('Email and phone verified. Opening secure card verification…');
+
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 25000);
+    try {
+      const response = await fetch('/api/billing/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId: savedPlan }),
+        signal: controller.signal,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data?.url) throw new Error(data?.error || 'Secure card verification could not be started.');
+      window.location.href = data.url;
+    } finally {
+      window.clearTimeout(timeout);
+    }
   }
 
   async function continueSignupGate() {
@@ -96,9 +113,7 @@ export default function ClerkEmailLogin() {
       const { savedEmail, savedPhone } = savedSignupIdentity();
 
       const emailAddress = user.emailAddresses.find((item) => item.emailAddress.toLowerCase() === savedEmail) || user.emailAddresses[0];
-      if (!emailAddress) {
-        throw new Error('Pie could not find the email address from this signup attempt.');
-      }
+      if (!emailAddress) throw new Error('Pie could not find the email address from this signup attempt.');
 
       if (emailAddress.verification.status !== 'verified') {
         await emailAddress.prepareVerification({ strategy: 'email_code' });
@@ -108,9 +123,7 @@ export default function ClerkEmailLogin() {
         return;
       }
 
-      if (!savedPhone) {
-        throw new Error('Pie could not recover the phone number from this signup attempt. Start signup again so phone verification can be completed.');
-      }
+      if (!savedPhone) throw new Error('Pie could not recover the phone number from this signup attempt. Start signup again so phone verification can be completed.');
 
       let phoneNumber = user.phoneNumbers.find((item) => item.phoneNumber === savedPhone);
       if (!phoneNumber) {
@@ -119,9 +132,7 @@ export default function ClerkEmailLogin() {
         phoneNumber = user.phoneNumbers.find((item) => item.id === createdPhone.id) || user.phoneNumbers.find((item) => item.phoneNumber === savedPhone);
       }
 
-      if (!phoneNumber) {
-        throw new Error('Pie could not attach your phone number for verification.');
-      }
+      if (!phoneNumber) throw new Error('Pie could not attach your phone number for verification.');
 
       if (phoneNumber.verification.status !== 'verified') {
         await phoneNumber.prepareVerification();
@@ -131,7 +142,7 @@ export default function ClerkEmailLogin() {
         return;
       }
 
-      await finishVerifiedSignup();
+      await startCardVerification();
     } catch (gateError) {
       setSignupGate('failed');
       setError(errorMessage(gateError, 'Pie could not finish the required signup verification.'));
@@ -160,9 +171,7 @@ export default function ClerkEmailLogin() {
         if (!phoneNumber) throw new Error('Pie could not find the phone number to verify.');
         const result = await phoneNumber.attemptVerification({ code: nextCode });
         if (result.verification.status !== 'verified') throw new Error('That phone code was not verified.');
-      } else {
-        return;
-      }
+      } else return;
 
       await user.reload();
       setSignupCode('');
@@ -199,7 +208,6 @@ export default function ClerkEmailLogin() {
       setError('Pie needs an additional verification step before sign-in can finish.');
       return false;
     }
-
     await signIn.finalize({
       navigate: ({ decorateUrl }) => {
         const url = decorateUrl('/onboarding');
@@ -211,174 +219,61 @@ export default function ClerkEmailLogin() {
   }
 
   async function resetTo(nextMode: SignInMode) {
-    setError('');
-    setInfo('');
-    setCode('');
-    await signIn.reset();
-    setMode(nextMode);
+    setError(''); setInfo(''); setCode(''); await signIn.reset(); setMode(nextMode);
   }
 
   async function submitPassword(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError('');
-    setInfo('');
+    event.preventDefault(); setError(''); setInfo('');
     const nextEmail = email.trim().toLowerCase();
-    if (!nextEmail || !password) {
-      setError('Enter your email address and password.');
-      return;
-    }
-
+    if (!nextEmail || !password) { setError('Enter your email address and password.'); return; }
     const result = await signIn.password({ emailAddress: nextEmail, password });
-    if (result.error) {
-      setError(errorMessage(result.error, 'Pie could not sign you in with that email and password.'));
-      return;
-    }
+    if (result.error) { setError(errorMessage(result.error, 'Pie could not sign you in with that email and password.')); return; }
     await finalizeIfComplete();
   }
 
   async function usePasskey() {
-    setError('');
-    setInfo('');
-    await signIn.reset();
+    setError(''); setInfo(''); await signIn.reset();
     const result = await signIn.passkey({ flow: 'discoverable' });
-    if (result.error) {
-      setError(errorMessage(result.error, 'No usable Pie passkey was found on this device. You can use email/password or your verified phone number instead.'));
-      return;
-    }
+    if (result.error) { setError(errorMessage(result.error, 'No usable Pie passkey was found on this device. You can use email/password or your verified phone number instead.')); return; }
     await finalizeIfComplete();
   }
 
   async function sendPhoneCode(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError('');
-    setInfo('');
+    event.preventDefault(); setError(''); setInfo('');
     const nextPhone = normalizePhone(phone);
-    if (!/^\+\d{8,15}$/.test(nextPhone)) {
-      setError('Enter the verified phone number on your Pie account.');
-      return;
-    }
-
+    if (!/^\+\d{8,15}$/.test(nextPhone)) { setError('Enter the verified phone number on your Pie account.'); return; }
     setPhone(nextPhone);
     const result = await signIn.phoneCode.sendCode({ phoneNumber: nextPhone, channel: 'sms' });
-    if (result.error) {
-      setError(errorMessage(result.error, 'Pie could not send a code to that phone number. Make sure it is the verified number on your account.'));
-      return;
-    }
-    setMode('phone-code');
-    setInfo(`We sent a one-time sign-in code to ${nextPhone}.`);
+    if (result.error) { setError(errorMessage(result.error, 'Pie could not send a code to that phone number. Make sure it is the verified number on your account.')); return; }
+    setMode('phone-code'); setInfo(`We sent a one-time sign-in code to ${nextPhone}.`);
   }
 
   async function verifyPhoneCode(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError('');
+    event.preventDefault(); setError('');
     const nextCode = code.trim();
-    if (!nextCode) {
-      setError('Enter the code Pie sent to your phone.');
-      return;
-    }
+    if (!nextCode) { setError('Enter the code Pie sent to your phone.'); return; }
     const result = await signIn.phoneCode.verifyCode({ code: nextCode });
-    if (result.error) {
-      setError(errorMessage(result.error, 'That code could not be verified. Try again or request a new code.'));
-      return;
-    }
+    if (result.error) { setError(errorMessage(result.error, 'That code could not be verified. Try again or request a new code.')); return; }
     await finalizeIfComplete();
   }
 
   if (signupGate !== 'idle') {
-    if (signupGate === 'checking' || signupGate === 'signing-out') {
-      return (
-        <div className={styles.emailLogin} style={{ textAlign: 'center' }}>
-          <div className={styles.methodHeading}>{signupGate === 'signing-out' ? 'Signup verification complete.' : 'Finish setting up Pie'}</div>
-          <p className={styles.verifyNote}>{signupMessage || 'Checking your required signup steps…'}</p>
-        </div>
-      );
+    if (signupGate === 'checking' || signupGate === 'checkout') {
+      return <div className={styles.emailLogin} style={{ textAlign:'center' }}><div className={styles.methodHeading}>{signupGate === 'checkout' ? 'Secure payment method' : 'Finish setting up Pie'}</div><p className={styles.verifyNote}>{signupMessage || 'Checking your required signup steps…'}</p></div>;
     }
-
     if (signupGate === 'failed') {
-      return (
-        <div className={styles.emailLogin}>
-          <div className={styles.methodHeading}>Finish setting up Pie</div>
-          {error ? <div className={styles.authError}>{error}</div> : null}
-          <button className={styles.primaryAuthButton} type="button" onClick={() => { setSignupGate('checking'); void continueSignupGate(); }}>Retry Verification</button>
-          <a href="/signup" style={{ color: '#d7c8f1', textAlign: 'center', fontWeight: 800 }}>Start signup again</a>
-        </div>
-      );
+      return <div className={styles.emailLogin}><div className={styles.methodHeading}>Finish setting up Pie</div>{error ? <div className={styles.authError}>{error}</div> : null}<button className={styles.primaryAuthButton} type='button' onClick={() => { setSignupGate('checking'); void continueSignupGate(); }}>Retry</button><a href='/signup' style={{ color:'#d7c8f1', textAlign:'center', fontWeight:800 }}>Start signup again</a></div>;
     }
-
-    return (
-      <div className={styles.emailLogin}>
-        <div className={styles.methodHeading}>{signupGate === 'email-code' ? 'Verify your email' : 'Verify your phone'}</div>
-        <p className={styles.verifyNote}>{signupMessage}</p>
-        <form className={styles.emailLogin} onSubmit={verifySignupCode}>
-          <label className={styles.emailField}>
-            <span>Verification code</span>
-            <input value={signupCode} onChange={(event) => setSignupCode(event.target.value.replace(/\D/g, ''))} autoComplete="one-time-code" inputMode="numeric" placeholder="123456" required />
-          </label>
-          {error ? <div className={styles.authError}>{error}</div> : null}
-          <button className={styles.primaryAuthButton} type="submit">Verify & Continue</button>
-          <button className={styles.resendButton} type="button" onClick={resendSignupCode}>Send a new code</button>
-        </form>
-      </div>
-    );
+    return <div className={styles.emailLogin}><div className={styles.methodHeading}>{signupGate === 'email-code' ? 'Verify your email' : 'Verify your phone'}</div><p className={styles.verifyNote}>{signupMessage}</p><form className={styles.emailLogin} onSubmit={verifySignupCode}><label className={styles.emailField}><span>Verification code</span><input value={signupCode} onChange={(event)=>setSignupCode(event.target.value.replace(/\D/g,''))} autoComplete='one-time-code' inputMode='numeric' placeholder='123456' required /></label>{error ? <div className={styles.authError}>{error}</div> : null}<button className={styles.primaryAuthButton} type='submit'>Verify & Continue</button><button className={styles.resendButton} type='button' onClick={resendSignupCode}>Send a new code</button></form></div>;
   }
 
   if (mode === 'phone') {
-    return (
-      <div className={styles.emailLogin}>
-        <button className={styles.backButton} type="button" onClick={() => resetTo('password')} disabled={busy}>← Back to email sign-in</button>
-        <div className={styles.methodHeading}>Sign in with your phone</div>
-        <p className={styles.verifyNote}>Use the verified phone number on your Pie account. We’ll text you a one-time code.</p>
-        <form className={styles.emailLogin} onSubmit={sendPhoneCode}>
-          <label className={styles.emailField}>
-            <span>Phone number</span>
-            <input type="tel" value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" inputMode="tel" placeholder="(555) 555-5555" required />
-          </label>
-          {error ? <div className={styles.authError}>{error}</div> : null}
-          <button className={styles.primaryAuthButton} type="submit" disabled={busy}>{busy ? 'Sending code…' : 'Text Me a Sign-In Code'}</button>
-        </form>
-      </div>
-    );
+    return <div className={styles.emailLogin}><button className={styles.backButton} type='button' onClick={()=>resetTo('password')} disabled={busy}>← Back to email sign-in</button><div className={styles.methodHeading}>Sign in with your phone</div><p className={styles.verifyNote}>Use the verified phone number on your Pie account. We’ll text you a one-time code.</p><form className={styles.emailLogin} onSubmit={sendPhoneCode}><label className={styles.emailField}><span>Phone number</span><input type='tel' value={phone} onChange={(event)=>setPhone(event.target.value)} autoComplete='tel' inputMode='tel' placeholder='(555) 555-5555' required /></label>{error ? <div className={styles.authError}>{error}</div> : null}<button className={styles.primaryAuthButton} type='submit' disabled={busy}>{busy ? 'Sending code…' : 'Text Me a Sign-In Code'}</button></form></div>;
   }
 
   if (mode === 'phone-code') {
-    return (
-      <div className={styles.emailLogin}>
-        <button className={styles.backButton} type="button" onClick={() => resetTo('phone')} disabled={busy}>← Change phone number</button>
-        <div className={styles.methodHeading}>Enter your Pie code</div>
-        {info ? <div className={styles.authInfo}>{info}</div> : null}
-        <form className={styles.emailLogin} onSubmit={verifyPhoneCode}>
-          <label className={styles.emailField}>
-            <span>One-time code</span>
-            <input value={code} onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))} autoComplete="one-time-code" inputMode="numeric" placeholder="123456" required />
-          </label>
-          {error ? <div className={styles.authError}>{error}</div> : null}
-          <button className={styles.primaryAuthButton} type="submit" disabled={busy}>{busy ? 'Verifying…' : 'Verify & Sign In'}</button>
-          <button className={styles.resendButton} type="button" onClick={() => resetTo('phone')} disabled={busy}>Send a new code</button>
-        </form>
-      </div>
-    );
+    return <div className={styles.emailLogin}><button className={styles.backButton} type='button' onClick={()=>resetTo('phone')} disabled={busy}>← Change phone number</button><div className={styles.methodHeading}>Enter your Pie code</div>{info ? <div className={styles.authInfo}>{info}</div> : null}<form className={styles.emailLogin} onSubmit={verifyPhoneCode}><label className={styles.emailField}><span>One-time code</span><input value={code} onChange={(event)=>setCode(event.target.value.replace(/\D/g,''))} autoComplete='one-time-code' inputMode='numeric' placeholder='123456' required /></label>{error ? <div className={styles.authError}>{error}</div> : null}<button className={styles.primaryAuthButton} type='submit' disabled={busy}>{busy ? 'Verifying…' : 'Verify & Sign In'}</button><button className={styles.resendButton} type='button' onClick={()=>resetTo('phone')} disabled={busy}>Send a new code</button></form></div>;
   }
 
-  return (
-    <div className={styles.emailLogin}>
-      <form className={styles.emailLogin} onSubmit={submitPassword}>
-        <label className={styles.emailField}>
-          <span>Email address</span>
-          <input type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" autoCapitalize="none" inputMode="email" placeholder="you@example.com" required />
-        </label>
-        <label className={styles.emailField}>
-          <span>Password</span>
-          <input type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" placeholder="Your password" required />
-        </label>
-        {error ? <div className={styles.authError}>{error}</div> : null}
-        <button className={styles.primaryAuthButton} type="submit" disabled={busy}>{busy ? 'Signing in…' : 'Sign In'}</button>
-      </form>
-
-      <div className={styles.authDivider}><span>or</span></div>
-
-      <button className={styles.googleAuthButton} type="button" onClick={usePasskey} disabled={busy}>Use a Passkey</button>
-      <button className={styles.googleAuthButton} type="button" onClick={() => resetTo('phone')} disabled={busy}>Sign In with Phone Code</button>
-      <p className={styles.verifyNote} style={{ textAlign: 'center', marginBottom: 0 }}>Forgot your password or can’t access your email? Use your verified phone number to get back into Pie.</p>
-    </div>
-  );
+  return <div className={styles.emailLogin}><form className={styles.emailLogin} onSubmit={submitPassword}><label className={styles.emailField}><span>Email address</span><input type='email' value={email} onChange={(event)=>setEmail(event.target.value)} autoComplete='email' autoCapitalize='none' inputMode='email' placeholder='you@example.com' required /></label><label className={styles.emailField}><span>Password</span><input type='password' value={password} onChange={(event)=>setPassword(event.target.value)} autoComplete='current-password' placeholder='Your password' required /></label>{error ? <div className={styles.authError}>{error}</div> : null}<button className={styles.primaryAuthButton} type='submit' disabled={busy}>{busy ? 'Signing in…' : 'Sign In'}</button></form><div className={styles.authDivider}><span>or</span></div><button className={styles.googleAuthButton} type='button' onClick={usePasskey} disabled={busy}>Use a Passkey</button><button className={styles.googleAuthButton} type='button' onClick={()=>resetTo('phone')} disabled={busy}>Sign In with Phone Code</button><p className={styles.verifyNote} style={{ textAlign:'center', marginBottom:0 }}>Forgot your password or can’t access your email? Use your verified phone number to get back into Pie.</p></div>;
 }

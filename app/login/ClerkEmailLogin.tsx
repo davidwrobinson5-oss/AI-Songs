@@ -8,7 +8,6 @@ export default function ClerkEmailLogin() {
       <SignIn
         routing="path"
         path="/signin"
-        oauthFlow="redirect"
         fallback={<div style={{ minHeight: 220, display: 'grid', placeItems: 'center', color: '#b8b9be' }}>Loading secure sign-in…</div>}
         forceRedirectUrl="/onboarding"
         fallbackRedirectUrl="/onboarding"
@@ -40,16 +39,9 @@ export default function ClerkEmailLogin() {
             },
             headerTitle: { color: '#f7f7f8', fontWeight: 800 },
             headerSubtitle: { color: '#b8b9be' },
-            socialButtonsBlockButton: {
-              background: '#3a3b40',
-              color: '#f7f7f8',
-              border: '1px solid #5b5c62',
-              minHeight: '50px',
-              borderRadius: '14px',
-              fontWeight: 800,
-            },
-            dividerLine: { background: '#55565c' },
-            dividerText: { color: '#a9aab0' },
+            socialButtonsBlockButton: { display: 'none' },
+            socialButtonsIconButton: { display: 'none' },
+            dividerRow: { display: 'none' },
             formFieldLabel: { color: '#d7d8db', fontWeight: 700 },
             formFieldInput: {
               background: '#25262a',

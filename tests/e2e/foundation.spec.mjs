@@ -17,14 +17,14 @@ test('health endpoint reports Pie runtime status', async ({ request }) => {
   expect(body.checks?.app).toBe(true);
 });
 
-test('signup renders Pie auth with Google available', async ({ page }) => {
+test('signup renders Pie email-first auth', async ({ page }) => {
   await page.goto('/signup', { waitUntil: 'domcontentloaded' });
   await expect(page.getByAltText(/Pie/i)).toBeVisible();
   await expect(page.getByText(/Create your Pie account/i)).toBeVisible();
   await expect(page.getByLabel(/Full name/i)).toBeVisible();
   await expect(page.getByLabel(/Phone number/i)).toBeVisible();
   await expect(page.getByLabel(/Email address/i)).toBeVisible();
-  await expect(page.getByRole('button', { name: /Continue with Google/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Continue with Google/i })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Continue to Secure Signup/i })).toBeVisible();
 });
 
@@ -36,15 +36,15 @@ test('signup local step advances to Clerk without creating an account', async ({
   await page.getByRole('button', { name: /Continue to Secure Signup/i }).click();
 
   await expect(page.getByText(/Loading secure signup|Create your account|Secure signup is taking longer/i)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/SMS verification is deferred|Clerk Pro upgrade/i)).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Continue with Google/i })).toHaveCount(0);
 });
 
-test('signin renders Clerk secure sign-in', async ({ page }) => {
+test('signin renders Clerk secure sign-in without Google', async ({ page }) => {
   await page.goto('/signin', { waitUntil: 'domcontentloaded' });
   await expect(page.getByAltText(/Pie/i)).toBeVisible();
   await expect(page.getByText(/Sign in to your Pie account/i)).toBeVisible();
   await expect(page.getByText(/Sign in|Welcome back/i).first()).toBeVisible({ timeout: 20000 });
-  await expect(page.getByRole('button', { name: /Continue with Google/i })).toBeVisible({ timeout: 20000 });
+  await expect(page.getByRole('button', { name: /Continue with Google/i })).toHaveCount(0);
 });
 
 test('unauthenticated billing checkout is denied', async ({ request }) => {

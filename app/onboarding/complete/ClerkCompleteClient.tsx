@@ -1,45 +1,60 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useUser } from '@clerk/nextjs';
+import { useClerk, useUser } from '@clerk/nextjs';
 
 export default function ClerkCompleteClient() {
   const { user } = useUser();
-  const [status, setStatus] = useState('Verifying your Pie subscription…');
+  const { signOut } = useClerk();
+  const [status, setStatus] = useState('Verifying your payment method and Pie trial…');
+  const [error, setError] = useState('');
 
   useEffect(() => {
     let stopped = false;
     let attempts = 0;
-    async function refresh() {
+
+    async function finishSignup() {
       attempts += 1;
       try { await user?.reload(); } catch {}
       const metadata = (user?.publicMetadata || {}) as Record<string, unknown>;
       const planLevel = Number(metadata.piePlanLevel || 1);
       const subscriptionStatus = String(metadata.pieSubscriptionStatus || '');
+
       if (planLevel > 1 && ['active', 'trialing'].includes(subscriptionStatus)) {
-        if (!stopped) {
-          setStatus(`Stage ${planLevel} unlocked. Taking you into Pie…`);
-          window.setTimeout(() => { window.location.href = '/'; }, 900);
+        if (stopped) return;
+        setStatus('Payment method verified. Your Pie account is ready. Preparing sign in…');
+        try {
+          await signOut();
+          try {
+            sessionStorage.removeItem('pieSignupName');
+            sessionStorage.removeItem('pieSignupPhone');
+            sessionStorage.removeItem('pieSignupPlan');
+          } catch {}
+          window.location.replace('/signin?setup=complete');
+        } catch {
+          setError('Your payment method was verified, but Pie could not close the temporary signup session. Refresh this page to finish.');
         }
         return;
       }
-      if (attempts >= 10) {
-        if (!stopped) setStatus('Payment was submitted. Pie is still syncing the subscription. Refresh in a moment if access has not appeared yet.');
+
+      if (attempts >= 12) {
+        if (!stopped) setStatus('Payment method submitted. Pie is still syncing your trial. Keep this page open or refresh once to finish setup.');
         return;
       }
-      window.setTimeout(refresh, 1200);
+      window.setTimeout(finishSignup, 1100);
     }
-    refresh();
+
+    void finishSignup();
     return () => { stopped = true; };
-  }, [user]);
+  }, [user, signOut]);
 
   return (
-    <main style={{ minHeight: '100vh', display: 'grid', placeItems: 'center', padding: 20, background: '#08090d', color: '#fff' }}>
-      <section style={{ width: 'min(100%,480px)', padding: 24, borderRadius: 22, background: '#12141c', border: '1px solid #2e3040', textAlign: 'center' }}>
-        <div style={{ fontSize: 42 }}>🥧</div>
-        <h1 style={{ margin: '10px 0 8px' }}>Welcome to the next stage.</h1>
-        <p style={{ color: '#a7a8b5', lineHeight: 1.55 }}>{status}</p>
-        <button type="button" onClick={() => { window.location.href = '/'; }} style={{ minHeight: 48, padding: '0 18px', border: 0, borderRadius: 13, background: '#7c3aed', color: '#fff', fontWeight: 900 }}>Enter Pie</button>
+    <main style={{ minHeight:'100vh', display:'grid', placeItems:'center', padding:20, background:'radial-gradient(circle at top,#3a3b41 0,#24252a 46%,#17181c 100%)', color:'#fff' }}>
+      <section style={{ width:'min(100%,480px)', padding:24, borderRadius:22, background:'#2d2e33', border:'1px solid #4c4d53', textAlign:'center', boxShadow:'0 24px 80px rgba(0,0,0,.36)' }}>
+        <img src='/pieinears-horizontal.svg' alt='Pie' style={{ width:'min(100%,360px)', margin:'0 auto 10px', display:'block' }} />
+        <h1 style={{ margin:'8px 0' }}>Finishing your Pie account</h1>
+        <p style={{ color:'#c0c1c6', lineHeight:1.55 }}>{status}</p>
+        {error ? <p style={{ color:'#ffd0d6', lineHeight:1.5 }}>{error}</p> : null}
       </section>
     </main>
   );

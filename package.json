@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/reset-pie-clerk-test-user.mjs && next build",
     "start": "next start",
     "smoke": "node scripts/smoke-test.mjs",
     "health:repo": "node scripts/code-health-agent.mjs code-health-report.md",

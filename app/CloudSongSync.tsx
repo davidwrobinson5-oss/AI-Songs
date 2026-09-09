@@ -173,29 +173,12 @@ async function uploadVersion(song: SavedSong, version: SavedVersion) {
   }
 }
 
-async function cloudVersionToLocal(version: CloudVersion): Promise<SavedVersion> {
-  const local = cloudMetadataVersion(version);
-  const field = (['masterBlob','generatedBlob','backingBlob'] as const).find((candidate) => Boolean(version.files?.[candidate]?.url));
-  if (!field) return local;
-  const file = version.files?.[field];
-  if (!file?.url) return local;
-  try {
-    const res = await fetch(file.url, { cache: 'no-store' });
-    if (!res.ok) return local;
-    const raw = await res.blob();
-    if (raw.size > 0) local[field] = new Blob([raw], { type: file.type || raw.type || 'application/octet-stream' });
-  } catch (error) {
-    console.warn(`Pie cloud playback restore skipped ${field}:`, error);
-  }
-  return local;
-}
-
 async function synchronize() {
   const local = await exportLocalLibrary();
   let cloud = await libraryRequest({ action: 'list' }) as CloudLibrary;
 
-  // Restore visible cloud metadata immediately. Audio is best-effort and must never
-  // prevent the Songs list from appearing.
+  // Keep cloud metadata in IndexedDB, but do not eagerly download full audio files.
+  // Saved songs now stream directly from short-lived signed storage URLs on demand.
   await importCloudLibrary(cloud.songs, cloud.versions.map(cloudMetadataVersion));
   window.dispatchEvent(new CustomEvent('pie-library-synced', {
     detail: { cloudSongs: cloud.songs.length, uploadedVersions: 0, downloadedVersions: 0 },
@@ -217,50 +200,16 @@ async function synchronize() {
     }
   }
 
-  cloud = await libraryRequest({ action: 'list' }) as CloudLibrary;
-  const refreshedLocal = await exportLocalLibrary();
-  const playbackFields = ['masterBlob','generatedBlob','backingBlob'] as const;
-  const localPlayableSongIds = new Set(
-    refreshedLocal.versions
-      .filter((version) => playbackFields.some((field) => {
-        const blob = version[field];
-        return blob instanceof Blob && blob.size > 0;
-      }))
-      .map((version) => version.songId),
-  );
-  const scheduledSongIds = new Set<string>();
-  const cloudVersionsNeedingAudio = cloud.versions.filter((version) => {
-    if (localPlayableSongIds.has(version.songId) || scheduledSongIds.has(version.songId)) return false;
-    const hasCloudPlayback = playbackFields.some((field) => Boolean(version.files?.[field]?.url));
-    if (!hasCloudPlayback) return false;
-    scheduledSongIds.add(version.songId);
-    return true;
-  });
-
-  let downloadedVersions = 0;
-  for (const version of cloudVersionsNeedingAudio) {
-    try {
-      const restored = await cloudVersionToLocal(version);
-      const playable = playbackFields.some((field) => {
-        const blob = restored[field];
-        return blob instanceof Blob && blob.size > 0;
-      });
-      if (!playable) continue;
-      await importCloudLibrary([], [restored]);
-      downloadedVersions += 1;
-      window.dispatchEvent(new CustomEvent('pie-library-synced', {
-        detail: { cloudSongs: cloud.songs.length, uploadedVersions, downloadedVersions },
-      }));
-    } catch (error) {
-      console.error('Pie cloud playback restore skipped:', error);
-    }
+  if (uploadedVersions > 0) {
+    cloud = await libraryRequest({ action: 'list' }) as CloudLibrary;
+    await importCloudLibrary(cloud.songs, cloud.versions.map(cloudMetadataVersion));
   }
 
   window.dispatchEvent(new CustomEvent('pie-library-synced', {
     detail: {
       cloudSongs: cloud.songs.length,
       uploadedVersions,
-      downloadedVersions,
+      downloadedVersions: 0,
     },
   }));
 }

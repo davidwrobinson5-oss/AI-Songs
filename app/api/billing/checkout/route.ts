@@ -24,6 +24,13 @@ export async function POST(request: NextRequest) {
   const stripeSecret = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecret) return NextResponse.json({ error: 'Stripe billing is not configured yet.' }, { status: 503 });
 
+  if (process.env.VERCEL_ENV !== 'production' && stripeSecret.startsWith('sk_live_')) {
+    return NextResponse.json(
+      { error: 'Pie Preview is configured with a live Stripe key. Use the Pie sandbox secret key in Vercel Preview, then retry.' },
+      { status: 503 },
+    );
+  }
+
   const body = await request.json().catch(() => ({}));
   const planId = String(body?.planId || '');
   const plan = PRICE_BY_PLAN[planId];
@@ -94,7 +101,21 @@ export async function POST(request: NextRequest) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data?.url) {
-    return NextResponse.json({ error: data?.error?.message || 'Secure card verification could not be started.' }, { status: 502 });
+    const stripeError = data?.error && typeof data.error === 'object' ? data.error : {};
+    console.error('Pie Stripe checkout failed', {
+      status: response.status,
+      type: typeof stripeError?.type === 'string' ? stripeError.type : undefined,
+      code: typeof stripeError?.code === 'string' ? stripeError.code : undefined,
+    });
+
+    if (response.status === 401) {
+      return NextResponse.json(
+        { error: 'Pie Stripe sandbox credentials need attention. Update the Preview STRIPE_SECRET_KEY and retry.' },
+        { status: 503 },
+      );
+    }
+
+    return NextResponse.json({ error: 'Secure card verification could not be started. Please try again.' }, { status: 502 });
   }
 
   return NextResponse.json({ url: data.url }, { headers: { 'Cache-Control': 'no-store' } });

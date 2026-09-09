@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import styles from './login.module.css';
 
 type SignInMode = 'password' | 'phone' | 'phone-code';
+type SignupGate = 'idle' | 'checking' | 'email-code' | 'phone-code' | 'signing-out' | 'failed';
 
 function normalizePhone(value: string) {
   const raw = value.trim();
@@ -31,7 +32,7 @@ function errorMessage(error: unknown, fallback: string) {
 export default function ClerkEmailLogin() {
   const { signIn, fetchStatus } = useSignIn();
   const { signOut } = useClerk();
-  const { isLoaded: userLoaded, isSignedIn } = useUser();
+  const { user, isLoaded: userLoaded, isSignedIn } = useUser();
   const [mode, setMode] = useState<SignInMode>('password');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -39,8 +40,10 @@ export default function ClerkEmailLogin() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
-  const [clearingSignupSession, setClearingSignupSession] = useState(false);
-  const busy = fetchStatus === 'fetching' || clearingSignupSession;
+  const [signupGate, setSignupGate] = useState<SignupGate>('idle');
+  const [signupCode, setSignupCode] = useState('');
+  const [signupMessage, setSignupMessage] = useState('');
+  const busy = fetchStatus === 'fetching' || ['checking', 'signing-out'].includes(signupGate);
 
   useEffect(() => {
     try {
@@ -51,20 +54,145 @@ export default function ClerkEmailLogin() {
 
   useEffect(() => {
     if (!userLoaded) return;
-
     const created = new URLSearchParams(window.location.search).get('created') === '1';
-    if (!created || !isSignedIn || clearingSignupSession) return;
+    if (!created) return;
 
-    setClearingSignupSession(true);
-    void signOut()
-      .then(() => {
-        window.history.replaceState({}, '', '/signin');
-      })
-      .catch(() => {
-        setError('Pie created your account, but could not clear the temporary signup session. Please refresh and try sign in again.');
-      })
-      .finally(() => setClearingSignupSession(false));
-  }, [userLoaded, isSignedIn, signOut, clearingSignupSession]);
+    if (!isSignedIn || !user) {
+      window.history.replaceState({}, '', '/signin');
+      return;
+    }
+
+    if (signupGate !== 'idle') return;
+    setSignupGate('checking');
+    void continueSignupGate();
+  }, [userLoaded, isSignedIn, user, signupGate]);
+
+  function savedSignupIdentity() {
+    let savedEmail = email.trim().toLowerCase();
+    let savedPhone = '';
+    try {
+      savedEmail = (sessionStorage.getItem('pieSignupEmail') || savedEmail).trim().toLowerCase();
+      savedPhone = normalizePhone(sessionStorage.getItem('pieSignupPhone') || '');
+    } catch {}
+    return { savedEmail, savedPhone };
+  }
+
+  async function finishVerifiedSignup() {
+    setSignupGate('signing-out');
+    setSignupMessage('Email and phone verified. Preparing your Pie sign-in…');
+    await signOut();
+    window.history.replaceState({}, '', '/signin');
+    setSignupCode('');
+    setSignupMessage('');
+    setSignupGate('idle');
+  }
+
+  async function continueSignupGate() {
+    if (!user) return;
+    try {
+      setError('');
+      setSignupMessage('Checking your required Pie signup verification…');
+      await user.reload();
+      const { savedEmail, savedPhone } = savedSignupIdentity();
+
+      const emailAddress = user.emailAddresses.find((item) => item.emailAddress.toLowerCase() === savedEmail) || user.emailAddresses[0];
+      if (!emailAddress) {
+        throw new Error('Pie could not find the email address from this signup attempt.');
+      }
+
+      if (emailAddress.verification.status !== 'verified') {
+        await emailAddress.prepareVerification({ strategy: 'email_code' });
+        setSignupCode('');
+        setSignupMessage(`Enter the verification code sent to ${emailAddress.emailAddress}.`);
+        setSignupGate('email-code');
+        return;
+      }
+
+      if (!savedPhone) {
+        throw new Error('Pie could not recover the phone number from this signup attempt. Start signup again so phone verification can be completed.');
+      }
+
+      let phoneNumber = user.phoneNumbers.find((item) => item.phoneNumber === savedPhone);
+      if (!phoneNumber) {
+        const createdPhone = await user.createPhoneNumber({ phoneNumber: savedPhone });
+        await user.reload();
+        phoneNumber = user.phoneNumbers.find((item) => item.id === createdPhone.id) || user.phoneNumbers.find((item) => item.phoneNumber === savedPhone);
+      }
+
+      if (!phoneNumber) {
+        throw new Error('Pie could not attach your phone number for verification.');
+      }
+
+      if (phoneNumber.verification.status !== 'verified') {
+        await phoneNumber.prepareVerification();
+        setSignupCode('');
+        setSignupMessage(`Enter the SMS verification code sent to ${phoneNumber.phoneNumber}.`);
+        setSignupGate('phone-code');
+        return;
+      }
+
+      await finishVerifiedSignup();
+    } catch (gateError) {
+      setSignupGate('failed');
+      setError(errorMessage(gateError, 'Pie could not finish the required signup verification.'));
+    }
+  }
+
+  async function verifySignupCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!user) return;
+    const nextCode = signupCode.trim();
+    if (!nextCode) {
+      setError('Enter the verification code.');
+      return;
+    }
+
+    setError('');
+    try {
+      const { savedEmail, savedPhone } = savedSignupIdentity();
+      if (signupGate === 'email-code') {
+        const emailAddress = user.emailAddresses.find((item) => item.emailAddress.toLowerCase() === savedEmail) || user.emailAddresses[0];
+        if (!emailAddress) throw new Error('Pie could not find the email address to verify.');
+        const result = await emailAddress.attemptVerification({ code: nextCode });
+        if (result.verification.status !== 'verified') throw new Error('That email code was not verified.');
+      } else if (signupGate === 'phone-code') {
+        const phoneNumber = user.phoneNumbers.find((item) => item.phoneNumber === savedPhone) || user.phoneNumbers[0];
+        if (!phoneNumber) throw new Error('Pie could not find the phone number to verify.');
+        const result = await phoneNumber.attemptVerification({ code: nextCode });
+        if (result.verification.status !== 'verified') throw new Error('That phone code was not verified.');
+      } else {
+        return;
+      }
+
+      await user.reload();
+      setSignupCode('');
+      setSignupGate('checking');
+      await continueSignupGate();
+    } catch (verifyError) {
+      setError(errorMessage(verifyError, 'That verification code could not be confirmed.'));
+    }
+  }
+
+  async function resendSignupCode() {
+    if (!user) return;
+    setError('');
+    try {
+      const { savedEmail, savedPhone } = savedSignupIdentity();
+      if (signupGate === 'email-code') {
+        const emailAddress = user.emailAddresses.find((item) => item.emailAddress.toLowerCase() === savedEmail) || user.emailAddresses[0];
+        if (!emailAddress) throw new Error('Pie could not find the email address to verify.');
+        await emailAddress.prepareVerification({ strategy: 'email_code' });
+        setSignupMessage(`A new verification code was sent to ${emailAddress.emailAddress}.`);
+      } else if (signupGate === 'phone-code') {
+        const phoneNumber = user.phoneNumbers.find((item) => item.phoneNumber === savedPhone) || user.phoneNumbers[0];
+        if (!phoneNumber) throw new Error('Pie could not find the phone number to verify.');
+        await phoneNumber.prepareVerification();
+        setSignupMessage(`A new SMS verification code was sent to ${phoneNumber.phoneNumber}.`);
+      }
+    } catch (resendError) {
+      setError(errorMessage(resendError, 'Pie could not resend that verification code.'));
+    }
+  }
 
   async function finalizeIfComplete() {
     if (signIn.status !== 'complete') {
@@ -148,7 +276,6 @@ export default function ClerkEmailLogin() {
       setError('Enter the code Pie sent to your phone.');
       return;
     }
-
     const result = await signIn.phoneCode.verifyCode({ code: nextCode });
     if (result.error) {
       setError(errorMessage(result.error, 'That code could not be verified. Try again or request a new code.'));
@@ -157,11 +284,40 @@ export default function ClerkEmailLogin() {
     await finalizeIfComplete();
   }
 
-  if (clearingSignupSession) {
+  if (signupGate !== 'idle') {
+    if (signupGate === 'checking' || signupGate === 'signing-out') {
+      return (
+        <div className={styles.emailLogin} style={{ textAlign: 'center' }}>
+          <div className={styles.methodHeading}>{signupGate === 'signing-out' ? 'Signup verification complete.' : 'Finish setting up Pie'}</div>
+          <p className={styles.verifyNote}>{signupMessage || 'Checking your required signup steps…'}</p>
+        </div>
+      );
+    }
+
+    if (signupGate === 'failed') {
+      return (
+        <div className={styles.emailLogin}>
+          <div className={styles.methodHeading}>Finish setting up Pie</div>
+          {error ? <div className={styles.authError}>{error}</div> : null}
+          <button className={styles.primaryAuthButton} type="button" onClick={() => { setSignupGate('checking'); void continueSignupGate(); }}>Retry Verification</button>
+          <a href="/signup" style={{ color: '#d7c8f1', textAlign: 'center', fontWeight: 800 }}>Start signup again</a>
+        </div>
+      );
+    }
+
     return (
-      <div className={styles.emailLogin} style={{ textAlign: 'center' }}>
-        <div className={styles.methodHeading}>Account created.</div>
-        <p className={styles.verifyNote}>Preparing your Pie sign-in…</p>
+      <div className={styles.emailLogin}>
+        <div className={styles.methodHeading}>{signupGate === 'email-code' ? 'Verify your email' : 'Verify your phone'}</div>
+        <p className={styles.verifyNote}>{signupMessage}</p>
+        <form className={styles.emailLogin} onSubmit={verifySignupCode}>
+          <label className={styles.emailField}>
+            <span>Verification code</span>
+            <input value={signupCode} onChange={(event) => setSignupCode(event.target.value.replace(/\D/g, ''))} autoComplete="one-time-code" inputMode="numeric" placeholder="123456" required />
+          </label>
+          {error ? <div className={styles.authError}>{error}</div> : null}
+          <button className={styles.primaryAuthButton} type="submit">Verify & Continue</button>
+          <button className={styles.resendButton} type="button" onClick={resendSignupCode}>Send a new code</button>
+        </form>
       </div>
     );
   }

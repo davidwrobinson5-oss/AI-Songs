@@ -16,7 +16,7 @@ function normalizePhone(value: string) {
 }
 
 export default function ClerkSecureSignUp() {
-  const { isLoaded } = useUser();
+  const { isLoaded, isSignedIn } = useUser();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -38,6 +38,11 @@ export default function ClerkSecureSignUp() {
       window.removeEventListener('offline', syncOnline);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) return;
+    window.location.replace('/checkout/start');
+  }, [isLoaded, isSignedIn]);
 
   useEffect(() => {
     setClerkLoadSlow(false);
@@ -85,6 +90,17 @@ export default function ClerkSecureSignUp() {
     setSecureAttempt((attempt) => attempt + 1);
   }
 
+  if (!isLoaded || isSignedIn) {
+    return (
+      <div style={{ display: 'grid', gap: 10, textAlign: 'center', padding: 18 }}>
+        <strong>{isSignedIn ? 'Opening secure card verification…' : 'Loading secure signup…'}</strong>
+        <small style={{ color: '#b9bac0' }}>
+          {isSignedIn ? 'Your email and phone are verified. Pie is taking you directly to Stripe.' : 'Pie is connecting to the verification service.'}
+        </small>
+      </div>
+    );
+  }
+
   if (secureStep) {
     const pieces = name.trim().split(/\s+/).filter(Boolean);
     const firstName = pieces[0] || undefined;
@@ -96,20 +112,6 @@ export default function ClerkSecureSignUp() {
           <strong>Internet connection lost.</strong>
           <small style={{ color: '#b9bac0' }}>Your Pie signup details are saved in this tab. Reconnect, then retry secure signup.</small>
           <button className={styles.primaryAuthButton} type="button" onClick={retrySecureSignup}>Retry Secure Signup</button>
-          <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>Change details</button>
-        </div>
-      );
-    }
-
-    if (!isLoaded) {
-      return (
-        <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
-          <strong>{clerkLoadSlow ? 'Secure signup is taking longer than expected.' : 'Loading secure signup…'}</strong>
-          <small style={{ color: '#b9bac0' }}>
-            {clerkLoadSlow ? 'Retry the secure connection. If the account was already created, use Sign In instead of starting over.' : 'Pie is connecting to the verification service.'}
-          </small>
-          {clerkLoadSlow ? <button className={styles.primaryAuthButton} type="button" onClick={retrySecureSignup}>Retry Secure Signup</button> : null}
-          {clerkLoadSlow ? <a href="/signin" style={{ color: '#d7c8f1', fontWeight: 800 }}>Sign In to an Existing Account</a> : null}
           <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>Change details</button>
         </div>
       );
@@ -131,8 +133,8 @@ export default function ClerkSecureSignUp() {
             key={secureAttempt}
             routing="path"
             path="/signup"
-            forceRedirectUrl="/signin?created=1"
-            fallbackRedirectUrl="/signin?created=1"
+            forceRedirectUrl="/checkout/start"
+            fallbackRedirectUrl="/checkout/start"
             signInUrl="/signin"
             signInForceRedirectUrl="/onboarding"
             initialValues={{ emailAddress: email, phoneNumber: phone, firstName, lastName }}
@@ -197,7 +199,7 @@ export default function ClerkSecureSignUp() {
 
         <div style={{ display: 'grid', gap: 8, textAlign: 'center' }}>
           <small style={{ color: '#b9bac0' }}>
-            Pie verifies your account before you sign in. After verification, you will return to Pie sign in and can use your saved sign-in method on future visits.
+            Pie verifies your email and phone, then takes you directly to Stripe to verify your payment method.
           </small>
           <small style={{ color: '#95969d' }}>
             If this panel stops responding, <button type="button" onClick={retrySecureSignup} style={{ border: 0, padding: 0, background: 'transparent', color: '#d7c8f1', font: 'inherit', fontWeight: 800, cursor: 'pointer' }}>restart secure signup</button> or <a href="/signin" style={{ color: '#d7c8f1', fontWeight: 800 }}>sign in</a> if your account was already created.

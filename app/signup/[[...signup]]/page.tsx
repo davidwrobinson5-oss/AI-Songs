@@ -1,5 +1,5 @@
-import ClerkSecureSignUp from './ClerkSecureSignUp';
-import styles from '../login/login.module.css';
+import ClerkSecureSignUp from '../ClerkSecureSignUp';
+import styles from '../../login/login.module.css';
 
 function clerkConfigured() {
   return Boolean(

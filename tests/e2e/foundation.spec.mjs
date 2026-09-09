@@ -43,7 +43,7 @@ test('signin renders Clerk secure sign-in', async ({ page }) => {
   await page.goto('/signin', { waitUntil: 'domcontentloaded' });
   await expect(page.getByAltText(/Pie/i)).toBeVisible();
   await expect(page.getByText(/Sign in to your Pie account/i)).toBeVisible();
-  await expect(page.getByText(/Sign in|Welcome back/i).first()).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText(/Sign in|Welcome back/i).first()).toBeVisible({ timeout: 20000 });\n  await expect(page.getByRole('button', { name: /Continue with Google/i })).toBeVisible({ timeout: 20000 });
 });
 
 test('unauthenticated billing checkout is denied', async ({ request }) => {

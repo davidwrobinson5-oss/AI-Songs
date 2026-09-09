@@ -28,6 +28,13 @@ function clerkClientConfigured() {
   return Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY);
 }
 
+function clerkFrontendApiProxyEnabled() {
+  // Clerk's Frontend API proxy is only valid for Pie's production Clerk instance.
+  // Preview currently uses Clerk development keys, so forcing /__clerk here causes
+  // the browser SDK to fail before the sign-in form can render.
+  return process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY?.trim().startsWith('pk_live_') === true;
+}
+
 function Document({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
@@ -47,10 +54,12 @@ function Document({ children }: { children: React.ReactNode }) {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   if (!clerkClientConfigured()) return <Document>{children}<PrivateStudioAccountControl /></Document>;
 
+  const proxyProps = clerkFrontendApiProxyEnabled() ? { proxyUrl: '/__clerk' } : {};
+
   return (
     <ClerkProvider
       dynamic
-      proxyUrl="/__clerk"
+      {...proxyProps}
       signInUrl="/signin"
       signUpUrl="/signup"
       afterSignOutUrl="/signin"

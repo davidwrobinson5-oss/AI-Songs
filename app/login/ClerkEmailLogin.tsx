@@ -1,7 +1,7 @@
 'use client';
 
-import { useSignIn } from '@clerk/nextjs';
-import { FormEvent, useState } from 'react';
+import { useClerk, useSignIn, useUser } from '@clerk/nextjs';
+import { FormEvent, useEffect, useState } from 'react';
 import styles from './login.module.css';
 
 type SignInMode = 'password' | 'phone' | 'phone-code';
@@ -30,6 +30,8 @@ function errorMessage(error: unknown, fallback: string) {
 
 export default function ClerkEmailLogin() {
   const { signIn, fetchStatus } = useSignIn();
+  const { signOut } = useClerk();
+  const { isLoaded: userLoaded, isSignedIn } = useUser();
   const [mode, setMode] = useState<SignInMode>('password');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -37,7 +39,32 @@ export default function ClerkEmailLogin() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
-  const busy = fetchStatus === 'fetching';
+  const [clearingSignupSession, setClearingSignupSession] = useState(false);
+  const busy = fetchStatus === 'fetching' || clearingSignupSession;
+
+  useEffect(() => {
+    try {
+      const savedEmail = sessionStorage.getItem('pieSignupEmail');
+      if (savedEmail) setEmail(savedEmail);
+    } catch {}
+  }, []);
+
+  useEffect(() => {
+    if (!userLoaded) return;
+
+    const created = new URLSearchParams(window.location.search).get('created') === '1';
+    if (!created || !isSignedIn || clearingSignupSession) return;
+
+    setClearingSignupSession(true);
+    void signOut()
+      .then(() => {
+        window.history.replaceState({}, '', '/signin');
+      })
+      .catch(() => {
+        setError('Pie created your account, but could not clear the temporary signup session. Please refresh and try sign in again.');
+      })
+      .finally(() => setClearingSignupSession(false));
+  }, [userLoaded, isSignedIn, signOut, clearingSignupSession]);
 
   async function finalizeIfComplete() {
     if (signIn.status !== 'complete') {
@@ -128,6 +155,15 @@ export default function ClerkEmailLogin() {
       return;
     }
     await finalizeIfComplete();
+  }
+
+  if (clearingSignupSession) {
+    return (
+      <div className={styles.emailLogin} style={{ textAlign: 'center' }}>
+        <div className={styles.methodHeading}>Account created.</div>
+        <p className={styles.verifyNote}>Preparing your Pie sign-in…</p>
+      </div>
+    );
   }
 
   if (mode === 'phone') {

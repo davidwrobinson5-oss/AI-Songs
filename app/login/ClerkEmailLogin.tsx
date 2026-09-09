@@ -6,8 +6,10 @@ export default function ClerkEmailLogin() {
   return (
     <div style={{ display: 'flex', justifyContent: 'center', width: '100%' }}>
       <SignIn
-        routing="hash"
-        oauthFlow="auto"
+        routing="path"
+        path="/signin"
+        oauthFlow="redirect"
+        fallback={<div style={{ minHeight: 220, display: 'grid', placeItems: 'center', color: '#b8b9be' }}>Loading secure sign-in…</div>}
         forceRedirectUrl="/"
         fallbackRedirectUrl="/"
         signUpUrl="/signup"

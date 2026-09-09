@@ -1,9 +1,11 @@
 'use client';
 
-import { SignUp, useUser } from '@clerk/nextjs';
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { useSignUp } from '@clerk/nextjs';
+import { FormEvent, useMemo, useState } from 'react';
 import { DEFAULT_PLAN_ID, PIE_PLANS, TRIAL_DAYS, planById } from '../billingConfig';
 import styles from '../login/login.module.css';
+
+type SignupStep = 'details' | 'email-code' | 'phone-code' | 'handoff';
 
 function normalizePhone(value: string) {
   const raw = value.trim();
@@ -15,201 +17,220 @@ function normalizePhone(value: string) {
   return `+${digits}`;
 }
 
+function clerkErrorMessage(error: unknown, fallback: string) {
+  if (error && typeof error === 'object') {
+    const value = error as {
+      errors?: Array<{ longMessage?: string; message?: string }>;
+      longMessage?: string;
+      message?: string;
+    };
+    return value.errors?.[0]?.longMessage || value.errors?.[0]?.message || value.longMessage || value.message || fallback;
+  }
+  return fallback;
+}
+
 export default function ClerkSecureSignUp() {
-  const { isLoaded, isSignedIn } = useUser();
+  const { signUp, fetchStatus } = useSignUp();
+  const [step, setStep] = useState<SignupStep>('details');
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [selectedPlan, setSelectedPlan] = useState(DEFAULT_PLAN_ID);
-  const [secureStep, setSecureStep] = useState(false);
-  const [secureAttempt, setSecureAttempt] = useState(0);
-  const [isOnline, setIsOnline] = useState(true);
-  const [clerkLoadSlow, setClerkLoadSlow] = useState(false);
-  const [formError, setFormError] = useState('');
+  const [emailCode, setEmailCode] = useState('');
+  const [phoneCode, setPhoneCode] = useState('');
+  const [error, setError] = useState('');
+  const [info, setInfo] = useState('');
   const plan = useMemo(() => planById(selectedPlan), [selectedPlan]);
+  const busy = fetchStatus === 'fetching' || step === 'handoff';
 
-  useEffect(() => {
-    const syncOnline = () => setIsOnline(navigator.onLine);
-    syncOnline();
-    window.addEventListener('online', syncOnline);
-    window.addEventListener('offline', syncOnline);
-    return () => {
-      window.removeEventListener('online', syncOnline);
-      window.removeEventListener('offline', syncOnline);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isLoaded || !isSignedIn) return;
-    window.location.replace('/checkout/start');
-  }, [isLoaded, isSignedIn]);
-
-  useEffect(() => {
-    setClerkLoadSlow(false);
-    if (!secureStep || isLoaded) return;
-    const timer = window.setTimeout(() => setClerkLoadSlow(true), 12000);
-    return () => window.clearTimeout(timer);
-  }, [secureStep, secureAttempt, isLoaded]);
-
-  function saveSignupDetails(nextName = name.trim(), nextPhone = normalizePhone(phone), nextEmail = email.trim().toLowerCase()) {
+  function saveSignupDetails(nextName: string, nextPhone: string, nextEmail: string) {
     try {
-      if (nextName) sessionStorage.setItem('pieSignupName', nextName);
-      if (nextPhone) sessionStorage.setItem('pieSignupPhone', nextPhone);
-      if (nextEmail) sessionStorage.setItem('pieSignupEmail', nextEmail);
+      sessionStorage.setItem('pieSignupName', nextName);
+      sessionStorage.setItem('pieSignupPhone', nextPhone);
+      sessionStorage.setItem('pieSignupEmail', nextEmail);
       sessionStorage.setItem('pieSignupPlan', selectedPlan);
     } catch {}
   }
 
-  function beginSecureSignup() {
+  async function submitDetails(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    setInfo('');
+
     const nextName = name.trim();
     const nextPhone = normalizePhone(phone);
     const nextEmail = email.trim().toLowerCase();
-    if (!nextName || !nextPhone || !nextEmail) {
-      setFormError('Please enter your name, phone number, and email address.');
+    if (!nextName || !nextPhone || !nextEmail || !password) {
+      setError('Enter your name, phone number, email address, and password.');
       return;
     }
     if (!/^\+\d{8,15}$/.test(nextPhone)) {
-      setFormError('Please enter a valid phone number including country code if outside the U.S.');
+      setError('Enter a valid phone number including country code if outside the U.S.');
       return;
     }
 
-    saveSignupDetails(nextName, nextPhone, nextEmail);
-    setPhone(nextPhone);
-    setEmail(nextEmail);
-    setFormError('');
-    setSecureStep(true);
+    const pieces = nextName.split(/\s+/).filter(Boolean);
+    const firstName = pieces[0] || undefined;
+    const lastName = pieces.slice(1).join(' ') || undefined;
+
+    try {
+      saveSignupDetails(nextName, nextPhone, nextEmail);
+      setPhone(nextPhone);
+      setEmail(nextEmail);
+
+      const result = await signUp.password({
+        emailAddress: nextEmail,
+        password,
+        phoneNumber: nextPhone,
+        firstName,
+        lastName,
+      });
+      if (result.error) throw result.error;
+
+      const sendResult = await signUp.verifications.sendEmailCode();
+      if (sendResult.error) throw sendResult.error;
+
+      setPassword('');
+      setInfo(`We sent a verification code to ${nextEmail}.`);
+      setStep('email-code');
+    } catch (signupError) {
+      setError(clerkErrorMessage(signupError, 'Pie could not start secure signup. Please try again.'));
+    }
   }
 
-  function submitSecureSignup(event: FormEvent<HTMLFormElement>) {
+  async function verifyEmail(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    beginSecureSignup();
+    setError('');
+    const code = emailCode.trim();
+    if (!code) {
+      setError('Enter the email verification code.');
+      return;
+    }
+
+    try {
+      const result = await signUp.verifications.verifyEmailCode({ code });
+      if (result.error) throw result.error;
+
+      const sendPhoneResult = await signUp.verifications.sendPhoneCode({ channel: 'sms' });
+      if (sendPhoneResult.error) throw sendPhoneResult.error;
+
+      setEmailCode('');
+      setInfo(`Email verified. We sent an SMS code to ${phone}.`);
+      setStep('phone-code');
+    } catch (verifyError) {
+      setError(clerkErrorMessage(verifyError, 'That email code could not be verified.'));
+    }
   }
 
-  function retrySecureSignup() {
-    setClerkLoadSlow(false);
-    setSecureAttempt((attempt) => attempt + 1);
+  async function verifyPhone(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError('');
+    const code = phoneCode.trim();
+    if (!code) {
+      setError('Enter the SMS verification code.');
+      return;
+    }
+
+    try {
+      const result = await signUp.verifications.verifyPhoneCode({ code });
+      if (result.error) throw result.error;
+      if (signUp.status !== 'complete') {
+        const missing = Array.isArray(signUp.missingFields) ? signUp.missingFields.join(', ') : '';
+        throw new Error(missing ? `Pie signup still requires: ${missing}.` : 'Pie signup is still waiting for a required verification step.');
+      }
+
+      setPhoneCode('');
+      setInfo('Email and phone verified. Opening secure card verification…');
+      setStep('handoff');
+
+      await signUp.finalize({
+        navigate: ({ session, decorateUrl }) => {
+          if (session?.currentTask) {
+            setStep('phone-code');
+            setError('Pie account verification completed, but Clerk returned an unexpected additional setup task. Passkey setup is not required here.');
+            return;
+          }
+          const url = decorateUrl('/checkout/start');
+          if (url.startsWith('http')) window.location.href = url;
+          else window.location.replace(url);
+        },
+      });
+    } catch (verifyError) {
+      setStep('phone-code');
+      setError(clerkErrorMessage(verifyError, 'That phone code could not be verified.'));
+    }
   }
 
-  if (!isLoaded || isSignedIn) {
+  async function resendEmailCode() {
+    setError('');
+    try {
+      const result = await signUp.verifications.sendEmailCode();
+      if (result.error) throw result.error;
+      setInfo(`A new verification code was sent to ${email}.`);
+    } catch (resendError) {
+      setError(clerkErrorMessage(resendError, 'Pie could not resend the email code.'));
+    }
+  }
+
+  async function resendPhoneCode() {
+    setError('');
+    try {
+      const result = await signUp.verifications.sendPhoneCode({ channel: 'sms' });
+      if (result.error) throw result.error;
+      setInfo(`A new SMS code was sent to ${phone}.`);
+    } catch (resendError) {
+      setError(clerkErrorMessage(resendError, 'Pie could not resend the SMS code.'));
+    }
+  }
+
+  if (step === 'handoff') {
     return (
-      <div style={{ display: 'grid', gap: 10, textAlign: 'center', padding: 18 }}>
-        <strong>{isSignedIn ? 'Opening secure card verification…' : 'Loading secure signup…'}</strong>
-        <small style={{ color: '#b9bac0' }}>
-          {isSignedIn ? 'Your email and phone are verified. Pie is taking you directly to Stripe.' : 'Pie is connecting to the verification service.'}
-        </small>
+      <div className={styles.emailLogin} style={{ textAlign: 'center' }}>
+        <div className={styles.methodHeading}>Opening secure card verification…</div>
+        <p className={styles.verifyNote}>{info || 'Your email and phone are verified. Pie is taking you directly to Stripe.'}</p>
       </div>
     );
   }
 
-  if (secureStep) {
-    const pieces = name.trim().split(/\s+/).filter(Boolean);
-    const firstName = pieces[0] || undefined;
-    const lastName = pieces.slice(1).join(' ') || undefined;
-
-    if (!isOnline) {
-      return (
-        <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
-          <strong>Internet connection lost.</strong>
-          <small style={{ color: '#b9bac0' }}>Your Pie signup details are saved in this tab. Reconnect, then retry secure signup.</small>
-          <button className={styles.primaryAuthButton} type="button" onClick={retrySecureSignup}>Retry Secure Signup</button>
-          <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>Change details</button>
-        </div>
-      );
-    }
-
+  if (step === 'email-code') {
     return (
-      <div style={{ display: 'grid', gap: 14 }}>
-        <div className={styles.signupBlock} style={{ justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-          <span>
-            <strong>{email}</strong> · {plan.name} · ${plan.monthlyPrice}/mo after {TRIAL_DAYS} days
-          </span>
-          <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>
-            Change details
-          </button>
-        </div>
+      <div className={styles.emailLogin}>
+        <div className={styles.methodHeading}>Verify your email</div>
+        {info ? <div className={styles.authInfo}>{info}</div> : null}
+        <form className={styles.emailLogin} onSubmit={verifyEmail}>
+          <label className={styles.emailField}>
+            <span>Email verification code</span>
+            <input value={emailCode} onChange={(event) => setEmailCode(event.target.value.replace(/\D/g, ''))} autoComplete="one-time-code" inputMode="numeric" placeholder="123456" required />
+          </label>
+          {error ? <div className={styles.authError}>{error}</div> : null}
+          <button className={styles.primaryAuthButton} type="submit" disabled={busy}>{busy ? 'Verifying…' : 'Verify Email'}</button>
+          <button className={styles.resendButton} type="button" onClick={resendEmailCode} disabled={busy}>Send a new code</button>
+        </form>
+      </div>
+    );
+  }
 
-        <div style={{ display: 'flex', justifyContent: 'center', width: '100%', minHeight: 360, padding: '8px 0' }}>
-          <SignUp
-            key={secureAttempt}
-            routing="hash"
-            forceRedirectUrl="/checkout/start"
-            fallbackRedirectUrl="/checkout/start"
-            signInUrl="/signin"
-            signInForceRedirectUrl="/onboarding"
-            initialValues={{ emailAddress: email, phoneNumber: phone, firstName, lastName }}
-            appearance={{
-              variables: {
-                colorPrimary: '#7254a8',
-                colorPrimaryForeground: '#ffffff',
-                colorForeground: '#f2f2f3',
-                colorMutedForeground: '#b8b9be',
-                colorBackground: '#303136',
-                colorInput: '#25262a',
-                colorInputForeground: '#f5f5f6',
-                colorBorder: '#515258',
-                colorNeutral: '#a9aab0',
-                colorRing: '#8a6bc0',
-                borderRadius: '16px',
-              },
-              elements: {
-                rootBox: { width: '100%', maxWidth: '520px' },
-                cardBox: { width: '100%' },
-                card: {
-                  width: '100%',
-                  background: '#303136',
-                  color: '#f2f2f3',
-                  border: '1px solid #515258',
-                  borderRadius: '22px',
-                  boxShadow: '0 20px 60px rgba(0,0,0,.28)',
-                },
-                headerTitle: { color: '#f7f7f8', fontWeight: 800 },
-                headerSubtitle: { color: '#b8b9be' },
-                socialButtonsBlockButton: { display: 'none' },
-                socialButtonsIconButton: { display: 'none' },
-                dividerRow: { display: 'none' },
-                formFieldLabel: { color: '#d7d8db', fontWeight: 700 },
-                formFieldInput: {
-                  background: '#25262a',
-                  color: '#f5f5f6',
-                  border: '1px solid #55565c',
-                  minHeight: '50px',
-                  borderRadius: '14px',
-                  boxShadow: 'none',
-                },
-                formFieldInputShowPasswordButton: { color: '#b8b9be' },
-                formButtonPrimary: {
-                  background: '#7254a8',
-                  color: '#ffffff',
-                  minHeight: '52px',
-                  borderRadius: '14px',
-                  fontWeight: 800,
-                  fontSize: '16px',
-                  boxShadow: '0 8px 20px rgba(42,31,63,.24)',
-                },
-                footer: { background: '#2b2c30' },
-                footerActionText: { color: '#b8b9be' },
-                footerActionLink: { color: '#d7c8f1', fontWeight: 700 },
-                identityPreviewText: { color: '#f2f2f3' },
-                identityPreviewEditButton: { color: '#d7c8f1', fontWeight: 700 },
-              },
-            }}
-          />
-        </div>
-
-        <div style={{ display: 'grid', gap: 8, textAlign: 'center' }}>
-          <small style={{ color: '#b9bac0' }}>
-            Pie verifies your email and phone, then takes you directly to Stripe to verify your payment method.
-          </small>
-          <small style={{ color: '#95969d' }}>
-            If this panel stops responding, <button type="button" onClick={retrySecureSignup} style={{ border: 0, padding: 0, background: 'transparent', color: '#d7c8f1', font: 'inherit', fontWeight: 800, cursor: 'pointer' }}>restart secure signup</button> or <a href="/signin" style={{ color: '#d7c8f1', fontWeight: 800 }}>sign in</a> if your account was already created.
-          </small>
-        </div>
+  if (step === 'phone-code') {
+    return (
+      <div className={styles.emailLogin}>
+        <div className={styles.methodHeading}>Verify your phone</div>
+        {info ? <div className={styles.authInfo}>{info}</div> : null}
+        <form className={styles.emailLogin} onSubmit={verifyPhone}>
+          <label className={styles.emailField}>
+            <span>SMS verification code</span>
+            <input value={phoneCode} onChange={(event) => setPhoneCode(event.target.value.replace(/\D/g, ''))} autoComplete="one-time-code" inputMode="numeric" placeholder="123456" required />
+          </label>
+          {error ? <div className={styles.authError}>{error}</div> : null}
+          <button className={styles.primaryAuthButton} type="submit" disabled={busy}>{busy ? 'Verifying…' : 'Verify Phone & Continue'}</button>
+          <button className={styles.resendButton} type="button" onClick={resendPhoneCode} disabled={busy}>Send a new code</button>
+        </form>
       </div>
     );
   }
 
   return (
-    <form className={styles.emailLogin} onSubmit={submitSecureSignup}>
+    <form className={styles.emailLogin} onSubmit={submitDetails}>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 10 }}>
         <label className={styles.emailField}>
           <span>Full name</span>
@@ -224,6 +245,11 @@ export default function ClerkSecureSignUp() {
       <label className={styles.emailField}>
         <span>Email address</span>
         <input name="email" type="email" value={email} onChange={(event) => setEmail(event.target.value)} autoComplete="email" autoCapitalize="none" inputMode="email" placeholder="you@example.com" required />
+      </label>
+
+      <label className={styles.emailField}>
+        <span>Create password</span>
+        <input name="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" placeholder="Create your Pie password" required />
       </label>
 
       <div style={{ display: 'grid', gap: 9, marginTop: 4 }}>
@@ -241,11 +267,13 @@ export default function ClerkSecureSignUp() {
       </div>
 
       <div style={{ padding: 12, borderRadius: 13, background: '#292a2e', border: '1px solid #505157', color: '#c3c4c9', fontSize: 12, lineHeight: 1.45 }}>
-        <strong style={{ color:'#fff' }}>{TRIAL_DAYS}-day free trial</strong> of {plan.name}, then ${plan.monthlyPrice}/month unless canceled. Pie verifies your account before checkout. The paid plan includes <strong style={{ color:'#fff' }}>{plan.monthlyCredits} Pie credits each billing cycle</strong>. Optional prepaid top-ups are available if you need more; Pie never adds surprise overage charges. Stripe remains in sandbox during this test.
+        <strong style={{ color:'#fff' }}>{TRIAL_DAYS}-day free trial</strong> of {plan.name}, then ${plan.monthlyPrice}/month unless canceled. Pie verifies your email and phone before opening Stripe. The paid plan includes <strong style={{ color:'#fff' }}>{plan.monthlyCredits} Pie credits each billing cycle</strong>. Optional prepaid top-ups are available if you need more; Pie never adds surprise overage charges. Stripe remains in sandbox during this test.
       </div>
 
-      {formError ? <p className={styles.authError}>{formError}</p> : null}
-      <button className={styles.primaryAuthButton} type="submit">Continue to Secure Signup</button>
+      {error ? <div className={styles.authError}>{error}</div> : null}
+      <button className={styles.primaryAuthButton} type="submit" disabled={busy}>{busy ? 'Starting secure signup…' : 'Create Pie Account'}</button>
+
+      <div id="clerk-captcha" />
     </form>
   );
 }

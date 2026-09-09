@@ -152,7 +152,8 @@ export default function ClerkSecureSignUp() {
         <div style={{ display: 'flex', justifyContent: 'center', width: '100%', minHeight: 360, padding: '8px 0' }}>
           <SignUp
             key={secureAttempt}
-            routing="path"\n            path="/signup"
+            routing="path"
+            path="/signup"
             oauthFlow="redirect"
             forceRedirectUrl="/onboarding"
             fallbackRedirectUrl="/onboarding"

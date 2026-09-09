@@ -1,4 +1,5 @@
 import ClerkSecureSignUp from '../ClerkSecureSignUp';
+import phoneStyles from '../clerkPhoneFix.module.css';
 import styles from '../../login/login.module.css';
 
 function clerkConfigured() {
@@ -11,7 +12,7 @@ function clerkConfigured() {
 export default function SignUpPage() {
   return (
     <main className={styles.shell}>
-      <section className={styles.card} style={{ width: 'min(100%,760px)' }}>
+      <section className={`${styles.card} ${phoneStyles.clerkPhoneTheme}`} style={{ width: 'min(100%,760px)' }}>
         <img
           src="/pieinears-horizontal.svg"
           alt="Pieinears — The Kitchens Open. Let Them Cook!"

@@ -1,6 +1,6 @@
 'use client';
 
-import { useClerk, useSignIn, useUser } from '@clerk/nextjs';
+import { useSignIn, useUser } from '@clerk/nextjs';
 import { FormEvent, useEffect, useState } from 'react';
 import styles from './login.module.css';
 
@@ -50,6 +50,16 @@ export default function ClerkEmailLogin() {
       if (savedEmail) setEmail(savedEmail);
     } catch {}
   }, []);
+
+  useEffect(() => {
+    if (!userLoaded || !isSignedIn) return;
+    const params = new URLSearchParams(window.location.search);
+    // Keep the legacy created=1 recovery flow available for older in-flight tests.
+    // Any normally authenticated customer who lands on /signin should enter Pie
+    // instead of seeing a sign-in form that Clerk will reject as already signed in.
+    if (params.get('created') === '1') return;
+    window.location.replace('/');
+  }, [userLoaded, isSignedIn]);
 
   useEffect(() => {
     if (!userLoaded) return;
@@ -251,6 +261,13 @@ export default function ClerkEmailLogin() {
     const result = await signIn.phoneCode.verifyCode({ code: nextCode });
     if (result.error) { setError(errorMessage(result.error, 'That code could not be verified. Try again or request a new code.')); return; }
     await finalizeIfComplete();
+  }
+
+  if (userLoaded && isSignedIn) {
+    const created = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('created') === '1';
+    if (!created) {
+      return <div className={styles.emailLogin} style={{ textAlign:'center' }}><div className={styles.methodHeading}>Opening Pie…</div><p className={styles.verifyNote}>Your account is already authenticated.</p></div>;
+    }
   }
 
   if (signupGate !== 'idle') {

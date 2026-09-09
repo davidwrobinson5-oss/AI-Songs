@@ -1,6 +1,6 @@
 'use client';
 
-import { SignUp, useClerk, useUser } from '@clerk/nextjs';
+import { SignUp, useUser } from '@clerk/nextjs';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { DEFAULT_PLAN_ID, PIE_PLANS, TRIAL_DAYS, planById } from '../billingConfig';
 import styles from '../login/login.module.css';
@@ -16,8 +16,7 @@ function normalizePhone(value: string) {
 }
 
 export default function ClerkSecureSignUp() {
-  const { isLoaded, isSignedIn } = useUser();
-  const { signOut } = useClerk();
+  const { isLoaded } = useUser();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
@@ -28,19 +27,6 @@ export default function ClerkSecureSignUp() {
   const [clerkLoadSlow, setClerkLoadSlow] = useState(false);
   const [formError, setFormError] = useState('');
   const plan = useMemo(() => planById(selectedPlan), [selectedPlan]);
-
-  useEffect(() => {
-    if (!secureStep || !isLoaded || !isSignedIn) return;
-
-    let cancelled = false;
-    void signOut().finally(() => {
-      if (!cancelled) window.location.replace('/signin?created=1');
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [secureStep, isLoaded, isSignedIn, signOut]);
 
   useEffect(() => {
     const syncOnline = () => setIsOnline(navigator.onLine);
@@ -125,15 +111,6 @@ export default function ClerkSecureSignUp() {
           {clerkLoadSlow ? <button className={styles.primaryAuthButton} type="button" onClick={retrySecureSignup}>Retry Secure Signup</button> : null}
           {clerkLoadSlow ? <a href="/signin" style={{ color: '#d7c8f1', fontWeight: 800 }}>Sign In to an Existing Account</a> : null}
           <button className={styles.resendButton} type="button" onClick={() => setSecureStep(false)}>Change details</button>
-        </div>
-      );
-    }
-
-    if (isSignedIn) {
-      return (
-        <div style={{ display: 'grid', gap: 12, textAlign: 'center', padding: 18 }}>
-          <strong>Account verified.</strong>
-          <small style={{ color: '#b9bac0' }}>Taking you to Pie sign in…</small>
         </div>
       );
     }

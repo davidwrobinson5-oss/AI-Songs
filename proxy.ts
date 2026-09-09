@@ -34,6 +34,13 @@ function isCustomerAuthRoute(pathname: string) {
   );
 }
 
+function isSignupCheckoutRequest(pathname: string) {
+  // This endpoint must be reachable before a new Clerk signup session is activated.
+  // The route itself verifies either an authenticated Clerk user or the exact
+  // completed signup session + user pair before creating a Stripe Checkout session.
+  return pathname === '/api/billing/checkout';
+}
+
 function isPublicAccessRequest(pathname: string) {
   return pathname === '/api/access-request';
 }
@@ -148,7 +155,7 @@ async function legacyProxy(req: NextRequest) {
   if (isPublicAsset(pathname)) return NextResponse.next();
   const apiEnvelope = enforceApiEnvelope(req);
   if (apiEnvelope) return apiEnvelope;
-  if (isPublicAccessRequest(pathname) || isHealthRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname)) return NextResponse.next();
+  if (isPublicAccessRequest(pathname) || isHealthRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname) || isSignupCheckoutRequest(pathname)) return NextResponse.next();
 
   if (!authConfigured()) {
     if (pathname.startsWith('/api/')) return NextResponse.json({ error: 'Studio authentication is not configured.' }, { status: 503, headers: { 'Cache-Control': 'no-store' } });
@@ -186,7 +193,7 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
   // only when production Clerk keys are in use. Customer authentication/onboarding
   // remains separate from the private owner login.
   // The durable worker route authenticates itself with a separate rotating bearer token.
-  if (isPublicAccessRequest(pathname) || isHealthRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname)) {
+  if (isPublicAccessRequest(pathname) || isHealthRequest(pathname) || isCustomerAuthRoute(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isCaptureBootstrap(pathname) || isJobWorkerRequest(pathname) || isSignupCheckoutRequest(pathname)) {
     return NextResponse.next();
   }
 

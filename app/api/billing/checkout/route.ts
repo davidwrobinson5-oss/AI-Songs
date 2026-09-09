@@ -36,7 +36,12 @@ export async function POST(request: NextRequest) {
 
   const primaryEmail = user.primaryEmailAddress;
   if (!primaryEmail?.emailAddress || !verificationIsComplete(primaryEmail)) {
-    return NextResponse.json({ error: 'Verify your email address before starting the free trial.' }, { status: 403 });
+    return NextResponse.json({ error: 'Verify your email address before verifying your payment method.' }, { status: 403 });
+  }
+
+  const verifiedPhone = user.phoneNumbers.find((phone) => verificationIsComplete(phone));
+  if (!verifiedPhone) {
+    return NextResponse.json({ error: 'Verify your phone number before verifying your payment method.' }, { status: 403 });
   }
 
   const email = primaryEmail.emailAddress;
@@ -49,7 +54,7 @@ export async function POST(request: NextRequest) {
   params.set('client_reference_id', userId);
   params.set('customer_email', email);
   params.set('success_url', `${origin}/onboarding/complete?session_id={CHECKOUT_SESSION_ID}`);
-  params.set('cancel_url', `${origin}/onboarding?cancelled=1`);
+  params.set('cancel_url', `${origin}/signin?created=1&checkout=cancelled`);
   params.set('allow_promotion_codes', 'true');
   params.set('payment_method_collection', 'always');
   params.set('subscription_data[trial_period_days]', String(TRIAL_DAYS));
@@ -57,6 +62,7 @@ export async function POST(request: NextRequest) {
   params.set('metadata[pie_plan_id]', planId);
   params.set('metadata[pie_plan_level]', String(plan.level));
   params.set('metadata[pie_trial_days]', String(TRIAL_DAYS));
+  params.set('metadata[pie_phone_verified]', 'true');
   params.set('subscription_data[metadata][pie_user_id]', userId);
   params.set('subscription_data[metadata][pie_plan_id]', planId);
   params.set('subscription_data[metadata][pie_plan_level]', String(plan.level));
@@ -79,7 +85,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const timedOut = error instanceof Error && error.name === 'AbortError';
     return NextResponse.json(
-      { error: timedOut ? 'Checkout took too long to respond. Please try again.' : 'Checkout could not be reached. Please try again.' },
+      { error: timedOut ? 'Card verification took too long to respond. Please try again.' : 'Secure card verification could not be reached. Please try again.' },
       { status: 504 },
     );
   } finally {
@@ -88,7 +94,7 @@ export async function POST(request: NextRequest) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok || !data?.url) {
-    return NextResponse.json({ error: data?.error?.message || 'Checkout could not be started.' }, { status: 502 });
+    return NextResponse.json({ error: data?.error?.message || 'Secure card verification could not be started.' }, { status: 502 });
   }
 
   return NextResponse.json({ url: data.url }, { headers: { 'Cache-Control': 'no-store' } });

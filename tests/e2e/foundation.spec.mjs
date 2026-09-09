@@ -39,12 +39,24 @@ test('signup local step advances to Clerk without creating an account', async ({
   await expect(page.getByRole('button', { name: /Continue with Google/i })).toHaveCount(0);
 });
 
-test('signin renders Clerk secure sign-in without Google', async ({ page }) => {
+test('signin renders password, passkey, and phone recovery without Google', async ({ page }) => {
   await page.goto('/signin', { waitUntil: 'domcontentloaded' });
   await expect(page.getByAltText(/Pie/i)).toBeVisible();
   await expect(page.getByText(/Sign in to your Pie account/i)).toBeVisible();
-  await expect(page.getByText(/Sign in|Welcome back/i).first()).toBeVisible({ timeout: 20000 });
+  await expect(page.getByLabel(/Email address/i)).toBeVisible();
+  await expect(page.getByLabel(/Password/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Sign In$/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Use a Passkey/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Sign In with Phone Code/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Continue with Google/i })).toHaveCount(0);
+});
+
+test('phone recovery opens verified-phone SMS flow', async ({ page }) => {
+  await page.goto('/signin', { waitUntil: 'domcontentloaded' });
+  await page.getByRole('button', { name: /Sign In with Phone Code/i }).click();
+  await expect(page.getByText(/Sign in with your phone/i)).toBeVisible();
+  await expect(page.getByLabel(/Phone number/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: /Text Me a Sign-In Code/i })).toBeVisible();
 });
 
 test('unauthenticated billing checkout is denied', async ({ request }) => {

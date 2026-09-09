@@ -31,7 +31,6 @@ function errorMessage(error: unknown, fallback: string) {
 
 export default function ClerkEmailLogin() {
   const { signIn, fetchStatus } = useSignIn();
-  const { signOut } = useClerk();
   const { user, isLoaded: userLoaded, isSignedIn } = useUser();
   const [mode, setMode] = useState<SignInMode>('password');
   const [email, setEmail] = useState('');
@@ -98,7 +97,7 @@ export default function ClerkEmailLogin() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok || !data?.url) throw new Error(data?.error || 'Secure card verification could not be started.');
-      window.location.href = data.url;
+      window.location.replace(data.url);
     } finally {
       window.clearTimeout(timeout);
     }
@@ -153,10 +152,7 @@ export default function ClerkEmailLogin() {
     event.preventDefault();
     if (!user) return;
     const nextCode = signupCode.trim();
-    if (!nextCode) {
-      setError('Enter the verification code.');
-      return;
-    }
+    if (!nextCode) { setError('Enter the verification code.'); return; }
 
     setError('');
     try {
@@ -210,7 +206,7 @@ export default function ClerkEmailLogin() {
     }
     await signIn.finalize({
       navigate: ({ decorateUrl }) => {
-        const url = decorateUrl('/onboarding');
+        const url = decorateUrl('/');
         if (url.startsWith('http')) window.location.href = url;
         else window.location.replace(url);
       },

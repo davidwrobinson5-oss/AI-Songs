@@ -36,6 +36,7 @@ export default function ClerkSecureSignUp() {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [selectedPlan, setSelectedPlan] = useState(DEFAULT_PLAN_ID);
   const [emailCode, setEmailCode] = useState('');
   const [phoneCode, setPhoneCode] = useState('');
@@ -92,6 +93,7 @@ export default function ClerkSecureSignUp() {
       if (sendResult.error) throw sendResult.error;
 
       setPassword('');
+      setShowPassword(false);
       setInfo(`We sent a verification code to ${nextEmail}.`);
       setStep('email-code');
     } catch (signupError) {
@@ -249,7 +251,38 @@ export default function ClerkSecureSignUp() {
 
       <label className={styles.emailField}>
         <span>Create password</span>
-        <input name="password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="new-password" placeholder="Create your Pie password" required />
+        <div style={{ position: 'relative' }}>
+          <input
+            name="password"
+            type={showPassword ? 'text' : 'password'}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            autoComplete="new-password"
+            placeholder="Create your Pie password"
+            required
+            style={{ width: '100%', paddingRight: 96 }}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((current) => !current)}
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+            aria-pressed={showPassword}
+            style={{
+              position: 'absolute',
+              right: 12,
+              top: '50%',
+              transform: 'translateY(-50%)',
+              border: 0,
+              background: 'transparent',
+              color: '#d7c8f1',
+              fontWeight: 800,
+              cursor: 'pointer',
+              padding: '8px 4px',
+            }}
+          >
+            {showPassword ? 'Hide' : 'Show'}
+          </button>
+        </div>
       </label>
 
       <div style={{ display: 'grid', gap: 9, marginTop: 4 }}>

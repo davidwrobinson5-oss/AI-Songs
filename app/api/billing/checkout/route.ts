@@ -120,3 +120,5 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ url: data.url }, { headers: { 'Cache-Control': 'no-store' } });
 }
+
+// Preview redeploy trigger after Stripe sandbox environment update.

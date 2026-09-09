@@ -1,4 +1,4 @@
-import { auth, currentUser } from '@clerk/nextjs/server';
+import { auth, clerkClient, currentUser } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
 
 const TRIAL_DAYS = 7;
@@ -18,8 +18,12 @@ function verificationIsComplete(item: { verification?: { status?: string | null 
 }
 
 export async function POST(request: NextRequest) {
-  const { userId } = await auth();
-  if (!userId) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
+  const body = await request.json().catch(() => ({}));
+  const planId = String(body?.planId || '');
+  const signupSessionId = String(body?.signupSessionId || '');
+  const signupUserId = String(body?.signupUserId || '');
+  const plan = PRICE_BY_PLAN[planId];
+  if (!plan) return NextResponse.json({ error: 'Choose a valid paid Pie plan.' }, { status: 400 });
 
   const stripeSecret = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecret) return NextResponse.json({ error: 'Stripe billing is not configured yet.' }, { status: 503 });
@@ -31,14 +35,31 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const body = await request.json().catch(() => ({}));
-  const planId = String(body?.planId || '');
-  const plan = PRICE_BY_PLAN[planId];
-  if (!plan) return NextResponse.json({ error: 'Choose a valid paid Pie plan.' }, { status: 400 });
+  let userId = '';
+  let user: Awaited<ReturnType<typeof currentUser>> = null;
 
-  const user = await currentUser();
+  const signedIn = await auth();
+  if (signedIn.userId) {
+    userId = signedIn.userId;
+    user = await currentUser();
+  } else if (signupSessionId && signupUserId) {
+    try {
+      const client = await clerkClient();
+      const session = await client.sessions.getSession(signupSessionId);
+      if (session.userId !== signupUserId || !['active', 'pending'].includes(String(session.status))) {
+        return NextResponse.json({ error: 'Pie could not verify this signup session. Please restart signup.' }, { status: 401 });
+      }
+      userId = session.userId;
+      user = await client.users.getUser(userId);
+    } catch {
+      return NextResponse.json({ error: 'Pie could not verify this signup session. Please restart signup.' }, { status: 401 });
+    }
+  } else {
+    return NextResponse.json({ error: 'Complete Pie signup verification first.' }, { status: 401 });
+  }
+
   if (!user || user.id !== userId) {
-    return NextResponse.json({ error: 'We could not verify your Pie account. Please sign in again.' }, { status: 401 });
+    return NextResponse.json({ error: 'We could not verify your Pie account.' }, { status: 401 });
   }
 
   const primaryEmail = user.primaryEmailAddress;
@@ -120,5 +141,3 @@ export async function POST(request: NextRequest) {
 
   return NextResponse.json({ url: data.url }, { headers: { 'Cache-Control': 'no-store' } });
 }
-
-// Preview redeploy trigger after Stripe sandbox environment update.

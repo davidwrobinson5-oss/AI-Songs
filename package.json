@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/reset-pie-clerk-test-user.mjs && next build",
     "start": "next start",
     "smoke": "node scripts/smoke-test.mjs",
     "health:repo": "node scripts/code-health-agent.mjs code-health-report.md",
@@ -28,7 +28,7 @@
     "react-dom": "19.2.8",
     "rusty-chromaprint-wasm": "0.1.5",
     "tus-js-client": "4.3.1",
-    "youtube-dl-exec": "3.1.13",
+    "youtube-dl-exec": "1.13.5",
     "youtubei.js": "18.0.0"
   },
   "devDependencies": {

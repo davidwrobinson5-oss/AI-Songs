@@ -1,3 +1,5 @@
+import { auth } from '@clerk/nextjs/server';
+import { redirect } from 'next/navigation';
 import ClerkEmailLogin from '../../login/ClerkEmailLogin';
 import styles from '../../login/login.module.css';
 
@@ -8,7 +10,12 @@ function clerkConfigured() {
   );
 }
 
-export default function CustomerSignInPage() {
+export default async function CustomerSignInPage() {
+  if (clerkConfigured()) {
+    const session = await auth();
+    if (session.userId) redirect('/');
+  }
+
   return (
     <main className={styles.shell}>
       <section className={styles.card}>

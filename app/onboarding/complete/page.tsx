@@ -1,5 +1,9 @@
 import { clerkClient } from '@clerk/nextjs/server';
+import { getVercelOidcToken } from '@vercel/oidc';
 import ActivatePieSession from './ActivatePieSession';
+
+const ENTITLEMENT_URL = 'https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-entitlements';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
 
 function safeSessionId(value: unknown) {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -20,6 +24,37 @@ async function retrieveCheckoutSession(sessionId: string) {
   return response.json().catch(() => null);
 }
 
+async function syncSupabaseBilling(session: any, userId: string, planId: string, planLevel: number) {
+  const oidc = await getVercelOidcToken().catch(() => '');
+  if (!oidc) throw new Error('Billing sync identity unavailable.');
+
+  const response = await fetch(ENTITLEMENT_URL, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      apikey: SUPABASE_PUBLISHABLE_KEY,
+      'X-Pie-Vercel-OIDC': oidc,
+    },
+    body: JSON.stringify({
+      action: 'syncBilling',
+      userId,
+      planId,
+      planLevel,
+      status: 'trialing',
+      stripeCustomerId: session?.customer || null,
+      stripeSubscriptionId: session?.subscription || null,
+      stripePriceId: null,
+      cancelAtPeriodEnd: false,
+    }),
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(typeof data?.error === 'string' ? data.error : 'Billing database sync failed.');
+  }
+}
+
 async function finalizePieAccount(session: any) {
   const userId = String(session?.client_reference_id || session?.metadata?.pie_user_id || '');
   const metadataUserId = String(session?.metadata?.pie_user_id || '');
@@ -33,18 +68,21 @@ async function finalizePieAccount(session: any) {
 
   const client = await clerkClient();
   const user = await client.users.getUser(userId);
-  await client.users.updateUserMetadata(userId, {
-    publicMetadata: {
-      ...(user.publicMetadata || {}),
-      pieSubscriptionStatus: subscriptionStatus || 'trialing',
-      piePlanId: planId,
-      piePlanLevel: planLevel,
-      pieStripeCustomerId: session?.customer || null,
-      pieStripeSubscriptionId: session?.subscription || null,
-      pieOnboardingCompleted: true,
-      pieEntitlementUpdatedAt: new Date().toISOString(),
-    },
-  });
+  await Promise.all([
+    client.users.updateUserMetadata(userId, {
+      publicMetadata: {
+        ...(user.publicMetadata || {}),
+        pieSubscriptionStatus: subscriptionStatus || 'trialing',
+        piePlanId: planId,
+        piePlanLevel: planLevel,
+        pieStripeCustomerId: session?.customer || null,
+        pieStripeSubscriptionId: session?.subscription || null,
+        pieOnboardingCompleted: true,
+        pieEntitlementUpdatedAt: new Date().toISOString(),
+      },
+    }),
+    syncSupabaseBilling(session, userId, planId, planLevel),
+  ]);
 }
 
 export default async function OnboardingCompletePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {

@@ -4,8 +4,9 @@ import { useSignIn, useUser } from '@clerk/nextjs';
 import { FormEvent, useEffect, useState } from 'react';
 import styles from './login.module.css';
 
-type SignInMode = 'password' | 'phone' | 'phone-code';
+type SignInMode = 'password' | 'phone' | 'phone-code' | 'trust-code';
 type SignupGate = 'idle' | 'checking' | 'email-code' | 'phone-code' | 'checkout' | 'failed';
+type ChallengeChannel = 'sms' | 'email';
 
 function normalizePhone(value: string) {
   const raw = value.trim();
@@ -39,6 +40,8 @@ export default function ClerkEmailLogin() {
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
+  const [challengeChannel, setChallengeChannel] = useState<ChallengeChannel>('sms');
+  const [offerPasskeyAfterChallenge, setOfferPasskeyAfterChallenge] = useState(true);
   const [signupGate, setSignupGate] = useState<SignupGate>('idle');
   const [signupCode, setSignupCode] = useState('');
   const [signupMessage, setSignupMessage] = useState('');
@@ -207,10 +210,7 @@ export default function ClerkEmailLogin() {
   }
 
   async function finalizeIfComplete(offerPasskey = false) {
-    if (signIn.status !== 'complete') {
-      setError('Pie needs an additional verification step before sign-in can finish.');
-      return false;
-    }
+    if (signIn.status !== 'complete') return false;
     await signIn.finalize({
       navigate: ({ decorateUrl }) => {
         const destination = offerPasskey ? '/signin?passkey=offer' : '/';
@@ -220,6 +220,76 @@ export default function ClerkEmailLogin() {
       },
     });
     return true;
+  }
+
+  async function startRequiredVerification(offerPasskey: boolean) {
+    if (signIn.status !== 'needs_client_trust' && signIn.status !== 'needs_second_factor') return false;
+
+    setOfferPasskeyAfterChallenge(offerPasskey);
+    setCode('');
+    setError('');
+
+    const phoneFactor = signIn.supportedSecondFactors.find((factor) => factor.strategy === 'phone_code');
+    const emailFactor = signIn.supportedSecondFactors.find((factor) => factor.strategy === 'email_code');
+
+    try {
+      if (phoneFactor) {
+        await signIn.mfa.sendPhoneCode();
+        setChallengeChannel('sms');
+        setInfo('For your security, Pie sent a verification code to the verified phone number on your account.');
+        setMode('trust-code');
+        return true;
+      }
+      if (emailFactor) {
+        await signIn.mfa.sendEmailCode();
+        setChallengeChannel('email');
+        setInfo('For your security, Pie sent a verification code to the verified email address on your account.');
+        setMode('trust-code');
+        return true;
+      }
+    } catch (challengeError) {
+      setError(errorMessage(challengeError, 'Pie could not send the additional verification code.'));
+      return true;
+    }
+
+    setError('This account requires another verification step, but no supported phone or email code method is available.');
+    return true;
+  }
+
+  async function continueAfterPrimaryFactor(offerPasskey: boolean) {
+    if (await finalizeIfComplete(offerPasskey)) return;
+    if (await startRequiredVerification(offerPasskey)) return;
+    setError('Pie could not complete this sign-in method. Please try another sign-in option.');
+  }
+
+  async function verifyRequiredCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const nextCode = code.trim();
+    if (!nextCode) { setError('Enter the verification code Pie sent you.'); return; }
+    setError('');
+    try {
+      const result = challengeChannel === 'sms'
+        ? await signIn.mfa.verifyPhoneCode({ code: nextCode })
+        : await signIn.mfa.verifyEmailCode({ code: nextCode });
+      if (result.error) {
+        setError(errorMessage(result.error, 'That verification code could not be confirmed.'));
+        return;
+      }
+      await continueAfterPrimaryFactor(offerPasskeyAfterChallenge);
+    } catch (verifyError) {
+      setError(errorMessage(verifyError, 'That verification code could not be confirmed.'));
+    }
+  }
+
+  async function resendRequiredCode() {
+    setError('');
+    try {
+      if (challengeChannel === 'sms') await signIn.mfa.sendPhoneCode();
+      else await signIn.mfa.sendEmailCode();
+      setInfo(`A new verification code was sent to your verified ${challengeChannel === 'sms' ? 'phone number' : 'email address'}.`);
+    } catch (resendError) {
+      setError(errorMessage(resendError, 'Pie could not resend the verification code.'));
+    }
   }
 
   async function resetTo(nextMode: SignInMode) {
@@ -232,14 +302,14 @@ export default function ClerkEmailLogin() {
     if (!nextEmail || !password) { setError('Enter your email address and password.'); return; }
     const result = await signIn.password({ emailAddress: nextEmail, password });
     if (result.error) { setError(errorMessage(result.error, 'Pie could not sign you in with that email and password.')); return; }
-    await finalizeIfComplete(true);
+    await continueAfterPrimaryFactor(true);
   }
 
   async function usePasskey() {
     setError(''); setInfo(''); await signIn.reset();
     const result = await signIn.passkey({ flow: 'discoverable' });
     if (result.error) { setError(errorMessage(result.error, 'No usable Pie passkey was found on this device. You can use email/password or your verified phone number instead.')); return; }
-    await finalizeIfComplete(false);
+    await continueAfterPrimaryFactor(false);
   }
 
   async function sendPhoneCode(event: FormEvent<HTMLFormElement>) {
@@ -258,7 +328,7 @@ export default function ClerkEmailLogin() {
     if (!nextCode) { setError('Enter the code Pie sent to your phone.'); return; }
     const result = await signIn.phoneCode.verifyCode({ code: nextCode });
     if (result.error) { setError(errorMessage(result.error, 'That code could not be verified. Try again or request a new code.')); return; }
-    await finalizeIfComplete(true);
+    await continueAfterPrimaryFactor(true);
   }
 
   if (userLoaded && isSignedIn) {
@@ -276,6 +346,10 @@ export default function ClerkEmailLogin() {
       return <div className={styles.emailLogin}><div className={styles.methodHeading}>Finish setting up Pie</div>{error ? <div className={styles.authError}>{error}</div> : null}<button className={styles.primaryAuthButton} type='button' onClick={() => { setSignupGate('checking'); void continueSignupGate(); }}>Retry</button><a href='/signup' style={{ color:'#d7c8f1', textAlign:'center', fontWeight:800 }}>Start signup again</a></div>;
     }
     return <div className={styles.emailLogin}><div className={styles.methodHeading}>{signupGate === 'email-code' ? 'Verify your email' : 'Verify your phone'}</div><p className={styles.verifyNote}>{signupMessage}</p><form className={styles.emailLogin} onSubmit={verifySignupCode}><label className={styles.emailField}><span>Verification code</span><input value={signupCode} onChange={(event)=>setSignupCode(event.target.value.replace(/\D/g,''))} autoComplete='one-time-code' inputMode='numeric' placeholder='123456' required /></label>{error ? <div className={styles.authError}>{error}</div> : null}<button className={styles.primaryAuthButton} type='submit'>Verify & Continue</button><button className={styles.resendButton} type='button' onClick={resendSignupCode}>Send a new code</button></form></div>;
+  }
+
+  if (mode === 'trust-code') {
+    return <div className={styles.emailLogin}><button className={styles.backButton} type='button' onClick={()=>resetTo('password')} disabled={busy}>← Start over</button><div className={styles.methodHeading}>Verify this sign-in</div>{info ? <div className={styles.authInfo}>{info}</div> : null}<form className={styles.emailLogin} onSubmit={verifyRequiredCode}><label className={styles.emailField}><span>Verification code</span><input value={code} onChange={(event)=>setCode(event.target.value.replace(/\D/g,''))} autoComplete='one-time-code' inputMode='numeric' placeholder='123456' required /></label>{error ? <div className={styles.authError}>{error}</div> : null}<button className={styles.primaryAuthButton} type='submit' disabled={busy}>{busy ? 'Verifying…' : 'Verify & Continue'}</button><button className={styles.resendButton} type='button' onClick={resendRequiredCode} disabled={busy}>Send a new code</button></form></div>;
   }
 
   if (mode === 'phone') {

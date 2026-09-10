@@ -13,17 +13,31 @@ export default function ActivatePieSession() {
     async function finish() {
       try {
         const signupSessionId = sessionStorage.getItem('pieSignupSessionId') || '';
+
+        const clearSignupState = () => {
+          try {
+            sessionStorage.removeItem('pieSignupSessionId');
+            sessionStorage.removeItem('pieSignupName');
+            sessionStorage.removeItem('pieSignupPhone');
+            sessionStorage.removeItem('pieSignupEmail');
+            sessionStorage.removeItem('pieSignupPlan');
+          } catch {}
+        };
+
         if (signupSessionId) {
-          await clerk.setActive({ session: signupSessionId });
+          await clerk.setActive({
+            session: signupSessionId,
+            navigate: async ({ decorateUrl }) => {
+              if (cancelled) return;
+              clearSignupState();
+              const url = decorateUrl('/');
+              window.location.replace(url);
+            },
+          });
+          return;
         }
-        if (cancelled) return;
-        try {
-          sessionStorage.removeItem('pieSignupSessionId');
-          sessionStorage.removeItem('pieSignupName');
-          sessionStorage.removeItem('pieSignupPhone');
-          sessionStorage.removeItem('pieSignupEmail');
-          sessionStorage.removeItem('pieSignupPlan');
-        } catch {}
+
+        clearSignupState();
         window.location.replace('/');
       } catch {
         if (cancelled) return;

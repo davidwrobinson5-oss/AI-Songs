@@ -1,5 +1,5 @@
 import { clerkClient } from '@clerk/nextjs/server';
-import { redirect } from 'next/navigation';
+import ActivatePieSession from './ActivatePieSession';
 
 function safeSessionId(value: unknown) {
   const raw = Array.isArray(value) ? value[0] : value;
@@ -92,7 +92,5 @@ export default async function OnboardingCompletePage({ searchParams }: { searchP
     console.error('Pie checkout completion metadata sync failed', error instanceof Error ? error.message : 'unknown');
   }
 
-  // Go straight to Pie. Middleware will send genuinely unauthenticated users
-  // to /signin, while an already-active Clerk session opens the app with no flash.
-  redirect('/');
+  return <ActivatePieSession />;
 }

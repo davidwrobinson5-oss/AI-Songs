@@ -1,4 +1,5 @@
 import ClerkSecureSignUp from '../ClerkSecureSignUp';
+import MobileFocusScroll from '../MobileFocusScroll';
 import phoneStyles from '../clerkPhoneFix.module.css';
 import styles from '../../login/login.module.css';
 
@@ -12,6 +13,7 @@ function clerkConfigured() {
 export default function SignUpPage() {
   return (
     <main className={styles.shell}>
+      <MobileFocusScroll />
       <section className={`${styles.card} ${phoneStyles.clerkPhoneTheme}`} style={{ width: 'min(100%,760px)' }}>
         <img
           src="/pieinears-horizontal.svg"

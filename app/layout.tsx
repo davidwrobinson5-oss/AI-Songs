@@ -2,7 +2,6 @@ import './globals.css';
 import './pie-brand.css';
 import type { Metadata } from 'next';
 import { ClerkProvider } from '@clerk/nextjs';
-import PasskeySetupBanner from './PasskeySetupBanner';
 import AccountControl from './AccountControl';
 import PrivateStudioAccountControl from './PrivateStudioAccountControl';
 import AudioPolicy from './AudioPolicy';
@@ -66,7 +65,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     >
       <Document>
         {children}
-        <PasskeySetupBanner />
         <AccountControl />
       </Document>
     </ClerkProvider>

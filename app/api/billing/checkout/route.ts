@@ -1,17 +1,9 @@
 import { auth, clerkClient, currentUser } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
+import { pieDeploymentTarget } from '../../../deploymentEnvironment';
+import { stripeEnvironmentSafe, stripePlan } from '../../../stripePlans';
 
 const TRIAL_DAYS = 7;
-
-const PRICE_BY_PLAN: Record<string, { priceId: string; level: number }> = {
-  release_planning: { priceId: 'price_1UC0VzGnh6vO8OMLvPvwc5pX', level: 2 },
-  prelaunch: { priceId: 'price_1UC0W7Gnh6vO8OMLtkDefW54', level: 3 },
-  launch: { priceId: 'price_1UC0WGGnh6vO8OMLTjv4lQpA', level: 4 },
-  campaign: { priceId: 'price_1UC0WPGnh6vO8OMLf2Dtnuwf', level: 5 },
-  gigs: { priceId: 'price_1UC0WbGnh6vO8OMLdDzJKJcJ', level: 6 },
-  national: { priceId: 'price_1UC0WlGnh6vO8OMLaDaGHl4H', level: 7 },
-  international: { priceId: 'price_1UC0WsGnh6vO8OMLboLKsv3o', level: 8 },
-};
 
 function verificationIsComplete(item: { verification?: { status?: string | null } | null } | null | undefined) {
   return item?.verification?.status === 'verified';
@@ -22,15 +14,17 @@ export async function POST(request: NextRequest) {
   const planId = String(body?.planId || '');
   const signupSessionId = String(body?.signupSessionId || '');
   const signupUserId = String(body?.signupUserId || '');
-  const plan = PRICE_BY_PLAN[planId];
+  const plan = stripePlan(planId);
   if (!plan) return NextResponse.json({ error: 'Choose a valid paid Pie plan.' }, { status: 400 });
 
   const stripeSecret = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecret) return NextResponse.json({ error: 'Stripe billing is not configured yet.' }, { status: 503 });
 
-  if (process.env.VERCEL_ENV !== 'production' && stripeSecret.startsWith('sk_live_')) {
+  if (!stripeEnvironmentSafe()) {
     return NextResponse.json(
-      { error: 'Pie Preview is configured with a live Stripe key. Use the Pie sandbox secret key in Vercel Preview, then retry.' },
+      { error: pieDeploymentTarget() === 'production'
+        ? 'Production billing is not fully configured with live Stripe prices.'
+        : 'This non-production deployment must use the Pie Stripe test configuration.' },
       { status: 503 },
     );
   }
@@ -135,7 +129,7 @@ export async function POST(request: NextRequest) {
 
     if (response.status === 401) {
       return NextResponse.json(
-        { error: 'Pie Stripe sandbox credentials need attention. Update the Preview STRIPE_SECRET_KEY and retry.' },
+        { error: 'Pie Stripe credentials need attention for this environment.' },
         { status: 503 },
       );
     }

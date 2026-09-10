@@ -5,8 +5,8 @@ import { cookies } from 'next/headers';
 import { SESSION_COOKIE, verifySessionToken } from '../../auth';
 import { rateLimit, readJsonObject, safeId } from '../../security';
 
-const CAPTURE_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-capture';
-const SUPABASE_PUBLISHABLE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const CAPTURE_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-capture`;
+const SUPABASE_PUBLISHABLE_KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 const LEGACY_OWNER_ID='pie-primary';
 function noStore(body:unknown,status=200){return NextResponse.json(body,{status,headers:{'Cache-Control':'no-store'}});}
 function errorText(value:unknown,fallback:string){if(typeof value==='string'&&value.trim())return value;if(value&&typeof value==='object'){const record=value as Record<string,unknown>;for(const key of ['message','error','details','hint']){const candidate=record[key];if(typeof candidate==='string'&&candidate.trim())return candidate;}}return fallback;}

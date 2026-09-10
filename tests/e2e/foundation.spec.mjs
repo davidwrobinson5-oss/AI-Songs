@@ -75,6 +75,18 @@ test('unauthenticated billing checkout is denied', async ({ request }) => {
   expect([401, 403]).toContain(response.status());
 });
 
+test('Stripe webhook reaches signature verification without customer auth', async ({ request }) => {
+  const response = await request.post('/api/billing/webhook', {
+    data: '{}',
+    headers: {
+      'Content-Type': 'application/json',
+      Origin: 'https://hooks.stripe.com',
+      'stripe-signature': 't=1,v1=invalid',
+    },
+  });
+  expect([400, 503]).toContain(response.status());
+});
+
 test('onboarding does not expose trial setup to signed-out visitors', async ({ page }) => {
   await page.goto('/onboarding', { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(1000);

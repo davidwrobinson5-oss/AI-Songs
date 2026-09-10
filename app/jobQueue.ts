@@ -2,9 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { randomUUID } from 'node:crypto';
 
-const SUPABASE_URL = 'https://ynkrlatwwwaachijacmb.supabase.co';
+const SUPABASE_URL = (process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '');
 const JOBS_URL = `${SUPABASE_URL}/functions/v1/pie-jobs`;
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const SUPABASE_PUBLISHABLE_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 
 export type PieJobStatus = 'queued' | 'running' | 'retrying' | 'succeeded' | 'failed' | 'cancelled';
 

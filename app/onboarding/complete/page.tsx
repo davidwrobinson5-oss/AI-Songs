@@ -2,8 +2,8 @@ import { clerkClient } from '@clerk/nextjs/server';
 import { getVercelOidcToken } from '@vercel/oidc';
 import ActivatePieSession from './ActivatePieSession';
 
-const ENTITLEMENT_URL = 'https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-entitlements';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const ENTITLEMENT_URL = `${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-entitlements`;
+const SUPABASE_PUBLISHABLE_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 
 function safeSessionId(value: unknown) {
   const raw = Array.isArray(value) ? value[0] : value;

@@ -1,7 +1,7 @@
 import { getVercelOidcToken } from '@vercel/oidc';
 
-const STAGING_URL = 'https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-staging';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const STAGING_URL = `${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-staging`;
+const SUPABASE_PUBLISHABLE_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 
 async function request(action:string,path:string){
   const oidc=await getVercelOidcToken().catch(()=> '');

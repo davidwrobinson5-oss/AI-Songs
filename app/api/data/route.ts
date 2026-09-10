@@ -4,8 +4,8 @@ import { auth, currentUser } from '@clerk/nextjs/server';
 import { resolvePieUserId } from '../../usageEntitlements';
 import { awardPieScore } from '../../scoreServer';
 
-const DATA_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-data';
-const SUPABASE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const DATA_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-data`;
+const SUPABASE_KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 const PRIVATE_STUDIO_OWNER_ID='pie-primary';
 
 async function resolveDataAccess(userId:string){

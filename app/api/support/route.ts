@@ -3,8 +3,8 @@ import { getVercelOidcToken } from '@vercel/oidc';
 import { currentUser } from '@clerk/nextjs/server';
 import { resolvePieUserId } from '../../usageEntitlements';
 
-const SUPPORT_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-support';
-const SUPABASE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const SUPPORT_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-support`;
+const SUPABASE_KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 
 export async function POST(req:NextRequest){
   try{

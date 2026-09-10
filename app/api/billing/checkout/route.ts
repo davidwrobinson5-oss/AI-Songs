@@ -85,10 +85,10 @@ export async function POST(request: NextRequest) {
   params.set('cancel_url', `${origin}/signin?created=1&checkout=cancelled`);
   params.set('allow_promotion_codes', 'true');
   params.set('payment_method_collection', 'always');
-  // Signup intentionally uses card-only Checkout. Explicit payment method types
-  // keep Stripe from showing Link, Amazon Pay, Klarna, Cash App, bank methods,
-  // and the extra payment-method chooser before the card form.
   params.set('payment_method_types[0]', 'card');
+  // Card-only still permits Stripe's Link wallet unless Link is explicitly
+  // suppressed at the wallet layer. This keeps signup focused on card entry.
+  params.set('wallet_options[link][display]', 'never');
   params.set('subscription_data[trial_period_days]', String(TRIAL_DAYS));
   params.set('metadata[pie_user_id]', userId);
   params.set('metadata[pie_plan_id]', planId);

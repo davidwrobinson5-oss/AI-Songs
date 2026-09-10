@@ -49,7 +49,8 @@ export async function GET(request: NextRequest) {
   const production = target === 'production';
   const ownerPassword = process.env.AI_SONGS_PASSWORD || '';
   const ownerSecret = process.env.AI_SONGS_SESSION_SECRET || '';
-  const supabaseConfigured = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY);
+  const supabaseUrlConfigured = Boolean(process.env.SUPABASE_URL);
+  const supabaseKeyConfigured = Boolean(process.env.SUPABASE_PUBLISHABLE_KEY);
   const webhookConfigured = Boolean(process.env.STRIPE_WEBHOOK_SECRET);
   const clerkMode = clerkKeyMode();
   const expectedClerkMode = production ? 'live' : 'test';
@@ -58,8 +59,12 @@ export async function GET(request: NextRequest) {
     ownerAuth: ownerPassword.length >= 12 && ownerSecret.length >= 32,
     clerk: clerkMode === expectedClerkMode,
     stripe: stripeEnvironmentSafe() && webhookConfigured,
+    stripeWebhook: webhookConfigured,
     stripePrices: stripePlanConfigurationReady(),
-    supabase: supabaseConfigured && Boolean(oidc),
+    supabase: supabaseUrlConfigured && supabaseKeyConfigured && Boolean(oidc),
+    supabaseUrl: supabaseUrlConfigured,
+    supabaseKey: supabaseKeyConfigured,
+    vercelOidc: Boolean(oidc),
     mapbox: Boolean(process.env.MAPBOX_ACCESS_TOKEN),
   };
 

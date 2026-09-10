@@ -1,8 +1,8 @@
 import { getVercelOidcToken } from '@vercel/oidc';
 import { resolvePieUserId } from './usageEntitlements';
 
-const SCORE_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-score';
-const SUPABASE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const SCORE_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-score`;
+const SUPABASE_KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 
 export async function awardPieScore(eventKey:string,sourceRef:string,metric=0,metadata:Record<string,unknown>={}){
   const userId=await resolvePieUserId();

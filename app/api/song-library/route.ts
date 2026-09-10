@@ -6,8 +6,8 @@ import { SESSION_COOKIE, verifySessionToken } from '../../auth';
 import { rateLimit, readJsonObject, safeId } from '../../security';
 import { awardPieScore } from '../../scoreServer';
 
-const LIBRARY_URL = 'https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-library';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const LIBRARY_URL = `${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-library`;
+const SUPABASE_PUBLISHABLE_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 const LEGACY_OWNER_ID = 'pie-primary';
 
 type PlaybackResponse = { url?: string; type?: string; expiresIn?: number; error?: string };

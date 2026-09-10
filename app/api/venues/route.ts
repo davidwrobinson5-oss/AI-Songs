@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { resolvePieUserId } from '../../usageEntitlements';
 
-const VENUES_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-venues';
-const SUPABASE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const VENUES_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-venues`;
+const SUPABASE_KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 
 function finite(value:string|null){const n=Number(value);return Number.isFinite(n)?n:null;}
 function categories(value:string|null){return (value||'').split(',').map(v=>v.trim().toLowerCase()).filter(Boolean).slice(0,20);}

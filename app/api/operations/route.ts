@@ -5,8 +5,8 @@ import { cookies } from 'next/headers';
 import { SESSION_COOKIE, verifySessionToken } from '../../auth';
 import { awardPieScore } from '../../scoreServer';
 
-const OPERATIONS_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-operations';
-const SUPABASE_PUBLISHABLE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const OPERATIONS_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-operations`;
+const SUPABASE_PUBLISHABLE_KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 const LEGACY_OWNER_ID='pie-primary';
 function noStore(body:unknown,status=200){return NextResponse.json(body,{status,headers:{'Cache-Control':'no-store'}});}
 async function resolvePieUser(){

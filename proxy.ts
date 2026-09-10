@@ -1,6 +1,7 @@
 import { NextFetchEvent, NextRequest, NextResponse } from 'next/server';
 import { clerkMiddleware } from '@clerk/nextjs/server';
 import { authConfigured, SESSION_COOKIE, verifySessionToken } from './app/auth';
+import { pieLaunchGateEnabled } from './app/deploymentEnvironment';
 
 function sameOrigin(req: NextRequest) {
   const origin = req.headers.get('origin');
@@ -66,6 +67,10 @@ function isAudioUploadRequest(pathname: string) {
   return pathname === '/api/song-audio-upload';
 }
 
+function isVoiceSwapRequest(pathname: string) {
+  return pathname === '/api/voice-swap' || pathname.startsWith('/api/voice-swap/');
+}
+
 function isJobWorkerRequest(pathname: string) {
   return pathname === '/api/jobs/process';
 }
@@ -105,7 +110,8 @@ function enforceApiEnvelope(req: NextRequest) {
   if (!req.nextUrl.pathname.startsWith('/api/')) return null;
   const method = req.method.toUpperCase();
   const allowPatch = isAudioUploadRequest(req.nextUrl.pathname);
-  const allowedMethods = allowPatch ? ['GET', 'POST', 'PATCH', 'HEAD'] : ['GET', 'POST', 'HEAD'];
+  const allowDelete = isVoiceSwapRequest(req.nextUrl.pathname);
+  const allowedMethods = ['GET', 'POST', ...(allowPatch ? ['PATCH'] : []), ...(allowDelete ? ['DELETE'] : []), 'HEAD'];
   const allowHeader = allowedMethods.join(', ');
 
   if (method === 'OPTIONS') {
@@ -126,6 +132,25 @@ function enforceApiEnvelope(req: NextRequest) {
 async function legacySessionValid(req: NextRequest) {
   if (!authConfigured()) return false;
   return verifySessionToken(req.cookies.get(SESSION_COOKIE)?.value, process.env.AI_SONGS_SESSION_SECRET);
+}
+
+async function enforceLaunchGate(req: NextRequest) {
+  if (!pieLaunchGateEnabled()) return null;
+  const pathname = req.nextUrl.pathname;
+  if (isPublicAsset(pathname) || isHealthRequest(pathname) || isOwnerLoginRoute(pathname) || isLegacyVerifyRequest(pathname) || isStripeWebhookRequest(pathname)) return null;
+  if (await legacySessionValid(req)) return null;
+
+  if (pathname.startsWith('/api/')) {
+    return NextResponse.json(
+      { error: 'Pie is not open to the public yet.' },
+      { status: 503, headers: { 'Cache-Control': 'no-store', 'X-Robots-Tag': 'noindex, nofollow' } },
+    );
+  }
+
+  const login = req.nextUrl.clone();
+  login.pathname = '/login';
+  login.search = 'launch=private';
+  return NextResponse.redirect(login);
 }
 
 async function legacyProxy(req: NextRequest) {
@@ -184,6 +209,8 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
 });
 
 export async function proxy(req: NextRequest, event: NextFetchEvent) {
+  const launchGate = await enforceLaunchGate(req);
+  if (launchGate) return launchGate;
   if (!clerkConfigured()) return legacyProxy(req);
   try { return await clerkProxy(req, event); }
   catch (error) { console.error('Clerk middleware failed; preserving owner studio fallback.', error); return legacyProxy(req); }

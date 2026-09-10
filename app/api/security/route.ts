@@ -2,8 +2,8 @@ import { getVercelOidcToken } from '@vercel/oidc';
 import { NextResponse } from 'next/server';
 import { isPieAdmin } from '../../adminAuth';
 
-const SECURITY_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-security';
-const SUPABASE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const SECURITY_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-security`;
+const SUPABASE_KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 const REPO='davidwrobinson5-oss/AI-Songs';
 const SECURITY_WORKFLOWS=['Pie Runtime Security Alarm','Pie Code Health Agent','Pie CodeQL Security','CodeQL'];
 const COMPLIANCE_STATUSES=new Set(['planned','in_progress','evidence_gathering','audit_ready','conditional','not_in_scope']);

@@ -332,7 +332,7 @@ export default function ClerkSecureSignUp() {
       </div>
 
       <div style={{ padding: 12, borderRadius: 13, background: '#292a2e', border: '1px solid #505157', color: '#c3c4c9', fontSize: 12, lineHeight: 1.45 }}>
-        <strong style={{ color:'#fff' }}>{TRIAL_DAYS}-day free trial</strong> of {plan.name}, then ${plan.monthlyPrice}/month unless canceled. Pie verifies your email and phone before opening Stripe. The paid plan includes <strong style={{ color:'#fff' }}>{plan.monthlyCredits} Pie credits each billing cycle</strong>. Optional prepaid top-ups are available if you need more; Pie never adds surprise overage charges. Stripe remains in sandbox during this test.
+        <strong style={{ color:'#fff' }}>{TRIAL_DAYS}-day free trial</strong> of {plan.name}, then ${plan.monthlyPrice}/month unless canceled. Pie verifies your email and phone before opening Stripe. The paid plan includes <strong style={{ color:'#fff' }}>{plan.monthlyCredits} Pie credits each billing cycle</strong>. Optional prepaid top-ups are available if you need more; Pie never adds surprise overage charges.
       </div>
 
       {error ? <div className={styles.authError}>{error}</div> : null}

@@ -1,8 +1,8 @@
 import { getVercelOidcToken } from '@vercel/oidc';
 import { resolvePieUserId } from './usageEntitlements';
 
-const FINANCE_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-finance';
-const SUPABASE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const FINANCE_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-finance`;
+const SUPABASE_KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 
 export class PlaidApiError extends Error{
   code:string;

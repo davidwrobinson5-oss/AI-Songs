@@ -1,12 +1,12 @@
 import { getVercelOidcToken } from '@vercel/oidc';
 import { resolvePieUserId } from './usageEntitlements';
-const KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 async function edge(url:string,body:Record<string,unknown>,userId:string,oidc:string){const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json',apikey:KEY,'X-Pie-Vercel-OIDC':oidc},body:JSON.stringify({...body,userId}),cache:'no-store'});if(!r.ok)return null;return r.json().catch(()=>null);}
 export async function getPieContextSnapshot(){const userId=await resolvePieUserId();if(!userId)return null;const oidc=await getVercelOidcToken().catch(()=>'');if(!oidc)return null;const [score,data,finance,support]=await Promise.all([
-edge('https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-operations',{action:'scoreProfile'},userId,oidc),
-edge('https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-data',{action:'list'},userId,oidc),
-edge('https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-finance',{action:'list'},userId,oidc),
-edge('https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-support',{action:'list',isAdmin:false},userId,oidc),
+edge(`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-operations`,{action:'scoreProfile'},userId,oidc),
+edge(`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-data`,{action:'list'},userId,oidc),
+edge(`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-finance`,{action:'list'},userId,oidc),
+edge(`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-support`,{action:'list',isAdmin:false},userId,oidc),
 ]);
 const requests=Array.isArray(data?.requests)?data.requests:[];const transactions=Array.isArray(finance?.transactions)?finance.transactions:[];const accounts=Array.isArray(finance?.accounts)?finance.accounts:[];const cases=Array.isArray(support?.cases)?support.cases:[];const openCases=cases.filter((c:any)=>c.status!=='closed');
 const recentScoreEvents=Array.isArray(score?.events)?score.events.slice(0,12):[];

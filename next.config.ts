@@ -2,7 +2,7 @@ import type { NextConfig } from 'next';
 
 const isDev = process.env.NODE_ENV !== 'production';
 const clerkConfigured = Boolean(process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY && process.env.CLERK_SECRET_KEY);
-const mobileCaptureUploadEdge = 'https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-mobile-process';
+const mobileCaptureUploadEdge = `${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-mobile-process`;
 
 const contentSecurityPolicy = [
   "default-src 'self'",

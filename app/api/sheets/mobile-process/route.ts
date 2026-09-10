@@ -5,9 +5,9 @@ import { rateLimit, safeClientError, safeId, textField, validateAudioFile } from
 export const runtime='nodejs';
 export const maxDuration=60;
 
-const CAPTURE_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-capture';
-const LIBRARY_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-library';
-const SUPABASE_PUBLISHABLE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const CAPTURE_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-capture`;
+const LIBRARY_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-library`;
+const SUPABASE_PUBLISHABLE_KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 const CHUNK_BYTES=2*1024*1024;
 const MAX_MULTIPART_BYTES=48*1024*1024;
 

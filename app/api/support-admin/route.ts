@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isPieAdmin } from '../../adminAuth';
 import { rateLimit, readJsonObject, safeId, textField } from '../../security';
 
-const SUPPORT_ADMIN_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-support-admin';
-const SUPABASE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const SUPPORT_ADMIN_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-support-admin`;
+const SUPABASE_KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 
 async function callSupportAdmin(body:Record<string,unknown>){
   const oidc=await getVercelOidcToken().catch(()=>'');

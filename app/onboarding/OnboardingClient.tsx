@@ -134,7 +134,7 @@ export default function OnboardingClient() {
         <section style={{ padding:14, borderRadius:16, background:'#292a2e', border:'1px solid #505157' }}>
           <strong>{TRIAL_DAYS}-day free trial of {plan.name}</strong>
           <div style={{ color:'#c0c1c6', fontSize:12, lineHeight:1.5, marginTop:5 }}>
-            Trial usage is capped to protect generation costs. A payment method is collected in Stripe sandbox, and the subscription begins at ${plan.monthlyPrice}/month after the trial unless canceled. No live charge is made during this test.
+            Trial usage is capped to protect generation costs. Stripe securely collects your payment method, and the subscription begins at ${plan.monthlyPrice}/month after the trial unless canceled.
           </div>
         </section>
 

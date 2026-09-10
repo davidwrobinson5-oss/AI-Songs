@@ -3,8 +3,8 @@ import { getVercelOidcToken } from '@vercel/oidc';
 import { cookies } from 'next/headers';
 import { SESSION_COOKIE, verifySessionToken } from './auth';
 
-const ENTITLEMENT_URL = 'https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-entitlements';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const ENTITLEMENT_URL = `${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-entitlements`;
+const SUPABASE_PUBLISHABLE_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 const LEGACY_OWNER_ID = 'pie-primary';
 
 export type UsageEntitlement = {

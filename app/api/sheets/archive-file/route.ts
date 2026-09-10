@@ -8,8 +8,8 @@ import { signedStagingUrl } from '../staging';
 export const runtime='nodejs';
 export const maxDuration=60;
 
-const LIBRARY_URL='https://ynkrlatwwwaachijacmb.supabase.co/functions/v1/pie-library';
-const SUPABASE_PUBLISHABLE_KEY='sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg';
+const LIBRARY_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-library`;
+const SUPABASE_PUBLISHABLE_KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 const CHUNK_BYTES=2*1024*1024;
 const STEMS=new Set(['vocals','drums','bass','guitar','piano','other']);
 

@@ -92,5 +92,7 @@ export default async function OnboardingCompletePage({ searchParams }: { searchP
     console.error('Pie checkout completion metadata sync failed', error instanceof Error ? error.message : 'unknown');
   }
 
-  redirect('/signin?setup=complete');
+  // Go straight to Pie. Middleware will send genuinely unauthenticated users
+  // to /signin, while an already-active Clerk session opens the app with no flash.
+  redirect('/');
 }

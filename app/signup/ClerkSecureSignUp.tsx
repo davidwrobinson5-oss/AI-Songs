@@ -138,6 +138,10 @@ export default function ClerkSecureSignUp() {
         throw new Error('Pie could not verify the completed signup session. Please restart signup.');
       }
 
+      try {
+        sessionStorage.setItem('pieSignupSessionId', signupSessionId);
+      } catch {}
+
       const response = await fetch('/api/billing/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

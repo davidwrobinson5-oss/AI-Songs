@@ -54,9 +54,6 @@ export default function ClerkEmailLogin() {
   useEffect(() => {
     if (!userLoaded || !isSignedIn) return;
     const params = new URLSearchParams(window.location.search);
-    // Keep the legacy created=1 recovery flow available for older in-flight tests.
-    // Any normally authenticated customer who lands on /signin should enter Pie
-    // instead of seeing a sign-in form that Clerk will reject as already signed in.
     if (params.get('created') === '1') return;
     window.location.replace('/');
   }, [userLoaded, isSignedIn]);
@@ -209,14 +206,15 @@ export default function ClerkEmailLogin() {
     }
   }
 
-  async function finalizeIfComplete() {
+  async function finalizeIfComplete(offerPasskey = false) {
     if (signIn.status !== 'complete') {
       setError('Pie needs an additional verification step before sign-in can finish.');
       return false;
     }
     await signIn.finalize({
       navigate: ({ decorateUrl }) => {
-        const url = decorateUrl('/');
+        const destination = offerPasskey ? '/signin?passkey=offer' : '/';
+        const url = decorateUrl(destination);
         if (url.startsWith('http')) window.location.href = url;
         else window.location.replace(url);
       },
@@ -234,14 +232,14 @@ export default function ClerkEmailLogin() {
     if (!nextEmail || !password) { setError('Enter your email address and password.'); return; }
     const result = await signIn.password({ emailAddress: nextEmail, password });
     if (result.error) { setError(errorMessage(result.error, 'Pie could not sign you in with that email and password.')); return; }
-    await finalizeIfComplete();
+    await finalizeIfComplete(true);
   }
 
   async function usePasskey() {
     setError(''); setInfo(''); await signIn.reset();
     const result = await signIn.passkey({ flow: 'discoverable' });
     if (result.error) { setError(errorMessage(result.error, 'No usable Pie passkey was found on this device. You can use email/password or your verified phone number instead.')); return; }
-    await finalizeIfComplete();
+    await finalizeIfComplete(false);
   }
 
   async function sendPhoneCode(event: FormEvent<HTMLFormElement>) {
@@ -260,7 +258,7 @@ export default function ClerkEmailLogin() {
     if (!nextCode) { setError('Enter the code Pie sent to your phone.'); return; }
     const result = await signIn.phoneCode.verifyCode({ code: nextCode });
     if (result.error) { setError(errorMessage(result.error, 'That code could not be verified. Try again or request a new code.')); return; }
-    await finalizeIfComplete();
+    await finalizeIfComplete(true);
   }
 
   if (userLoaded && isSignedIn) {

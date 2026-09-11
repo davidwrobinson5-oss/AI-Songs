@@ -47,8 +47,8 @@ export function pieLaunchGateEnabled() {
 
 export function stripeSecretMode() {
   const secret = process.env.STRIPE_SECRET_KEY?.trim() || '';
-  if (secret.startsWith('sk_live_')) return 'live' as const;
-  if (secret.startsWith('sk_test_')) return 'test' as const;
+  if (/^(?:sk|rk)_live_/.test(secret)) return 'live' as const;
+  if (/^(?:sk|rk)_test_/.test(secret)) return 'test' as const;
   return 'missing' as const;
 }
 

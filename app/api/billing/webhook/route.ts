@@ -1,6 +1,7 @@
 import { clerkClient } from '@clerk/nextjs/server';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { NextRequest, NextResponse } from 'next/server';
+import { pieDeploymentTarget } from '../../../deploymentEnvironment';
 
 const ENTITLEMENT_URL = `${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-entitlements`;
 const SUPABASE_PUBLISHABLE_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
@@ -98,6 +99,17 @@ export async function POST(request: NextRequest) {
   }
 
   const event = JSON.parse(rawBody);
+  const target = pieDeploymentTarget();
+  const expectsLiveEvent = target === 'production';
+  if (Boolean(event?.livemode) !== expectsLiveEvent) {
+    console.error('Rejected Stripe webhook from the wrong billing environment.', {
+      target,
+      livemode: Boolean(event?.livemode),
+      eventType: String(event?.type || ''),
+    });
+    return NextResponse.json({ error: 'Stripe event environment mismatch.' }, { status: 400 });
+  }
+
   const object = event?.data?.object || {};
   const checkoutType = String(object.metadata?.pie_checkout_type || '');
 

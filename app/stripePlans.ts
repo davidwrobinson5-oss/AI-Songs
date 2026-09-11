@@ -1,13 +1,13 @@
 import { pieDeploymentTarget, stripeSecretMode } from './deploymentEnvironment';
 
 const TEST_PRICE_BY_PLAN = {
-  release_planning: { priceId: 'price_1UC0VzGnh6vO8OMLvPvwc5pX', level: 2 },
-  prelaunch: { priceId: 'price_1UC0W7Gnh6vO8OMLtkDefW54', level: 3 },
-  launch: { priceId: 'price_1UC0WGGnh6vO8OMLTjv4lQpA', level: 4 },
-  campaign: { priceId: 'price_1UC0WPGnh6vO8OMLf2Dtnuwf', level: 5 },
-  gigs: { priceId: 'price_1UC0WbGnh6vO8OMLdDzJKJcJ', level: 6 },
-  national: { priceId: 'price_1UC0WlGnh6vO8OMLaDaGHl4H', level: 7 },
-  international: { priceId: 'price_1UC0WsGnh6vO8OMLboLKsv3o', level: 8 },
+  release_planning: { priceId: 'price_1UEZoKGthW0xzGswohEcWSUS', level: 2 },
+  prelaunch: { priceId: 'price_1UEZoPGthW0xzGswk2qNGV5H', level: 3 },
+  launch: { priceId: 'price_1UEZoWGthW0xzGswoOF72y84', level: 4 },
+  campaign: { priceId: 'price_1UEZoaGthW0xzGsw7YIKucaL', level: 5 },
+  gigs: { priceId: 'price_1UEZoeGthW0xzGsw7BydvjoQ', level: 6 },
+  national: { priceId: 'price_1UEZojGthW0xzGsw68pvnSbJ', level: 7 },
+  international: { priceId: 'price_1UEZoqGthW0xzGswW1U7ausC', level: 8 },
 } as const;
 
 const configuredPriceByPlan = {
@@ -41,4 +41,3 @@ export function stripeEnvironmentSafe() {
   if (pieDeploymentTarget() === 'production') return mode === 'live' && stripePlanConfigurationReady();
   return mode === 'test';
 }
-

@@ -1,6 +1,8 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { NextRequest, NextResponse } from 'next/server';
+import { pieDeploymentTarget } from '../../../deploymentEnvironment';
+import { stripeEnvironmentSafe } from '../../../stripePlans';
 
 const ENTITLEMENT_URL = `${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-entitlements`;
 const SUPABASE_PUBLISHABLE_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
@@ -37,6 +39,15 @@ export async function POST(request: NextRequest) {
 
   const stripeSecret = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecret) return NextResponse.json({ error: 'Stripe billing is not configured yet.' }, { status: 503 });
+
+  if (!stripeEnvironmentSafe()) {
+    return NextResponse.json(
+      { error: pieDeploymentTarget() === 'production'
+        ? 'Production billing is not fully configured with live Stripe prices.'
+        : 'This non-production deployment must use the Pie Stripe test configuration.' },
+      { status: 503 },
+    );
+  }
 
   const body = await request.json().catch(() => ({}));
   const packId = String(body?.packId || '');

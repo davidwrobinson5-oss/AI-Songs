@@ -25,7 +25,7 @@ test('signup renders current Pie email-first auth', async ({ page }) => {
   await expect(page.getByLabel(/Phone number/i)).toBeVisible();
   await expect(page.getByLabel(/Email address/i)).toBeVisible();
   await expect(page.locator('input[autocomplete="new-password"]')).toBeVisible();
-  await expect(page.getByRole('button', { name: /Start 7-Day Free Trial/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Create Pie Account/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Continue with Google/i })).toHaveCount(0);
 });
 
@@ -36,7 +36,7 @@ test('signup plan selection updates locally without creating an account', async 
   await expect(talentShowPlan).toBeVisible();
   await talentShowPlan.click();
   await expect(page.getByText(/then \$19\/month unless canceled/i)).toBeVisible();
-  await expect(page.getByRole('button', { name: /Start 7-Day Free Trial/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Create Pie Account/i })).toBeVisible();
 });
 
 test('signin renders password, passkey, and phone recovery without Google', async ({ page }) => {

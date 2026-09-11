@@ -1,5 +1,6 @@
 import { pieDeploymentTarget, stripeSecretMode } from './deploymentEnvironment';
 
+// Preview uses a dedicated Stripe test catalog; Production never falls back to these IDs.
 const TEST_PRICE_BY_PLAN = {
   release_planning: { priceId: 'price_1UEZoKGthW0xzGswohEcWSUS', level: 2 },
   prelaunch: { priceId: 'price_1UEZoPGthW0xzGswk2qNGV5H', level: 3 },

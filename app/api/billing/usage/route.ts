@@ -6,9 +6,9 @@ const ENTITLEMENT_URL = `${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachi
 const SUPABASE_PUBLISHABLE_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 
 export const OVERAGE_PACKS = [
-  { id: 'boost', name: 'Boost', credits: 10, price: 6 },
-  { id: 'plus', name: 'Plus', credits: 25, price: 12 },
-  { id: 'power', name: 'Power', credits: 60, price: 24 },
+  { id: 'boost', name: 'Boost', credits: 10, price: 8 },
+  { id: 'plus', name: 'Plus', credits: 25, price: 18 },
+  { id: 'power', name: 'Power', credits: 60, price: 39 },
 ] as const;
 
 export async function GET() {

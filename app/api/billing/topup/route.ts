@@ -8,9 +8,9 @@ const ENTITLEMENT_URL = `${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachi
 const SUPABASE_PUBLISHABLE_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 
 const PACKS: Record<string, { name: string; credits: number; amountCents: number }> = {
-  boost: { name: 'Pie Boost — 10 credits', credits: 10, amountCents: 600 },
-  plus: { name: 'Pie Plus — 25 credits', credits: 25, amountCents: 1200 },
-  power: { name: 'Pie Power — 60 credits', credits: 60, amountCents: 2400 },
+  boost: { name: 'Pie Boost — 10 credits', credits: 10, amountCents: 800 },
+  plus: { name: 'Pie Plus — 25 credits', credits: 25, amountCents: 1800 },
+  power: { name: 'Pie Power — 60 credits', credits: 60, amountCents: 3900 },
 };
 
 async function activeSubscription(userId: string) {

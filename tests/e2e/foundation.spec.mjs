@@ -17,26 +17,26 @@ test('health endpoint reports Pie runtime status', async ({ request }) => {
   expect(body.checks?.app).toBe(true);
 });
 
-test('signup renders Pie email-first auth', async ({ page }) => {
+test('signup renders current Pie email-first auth', async ({ page }) => {
   await page.goto('/signup', { waitUntil: 'domcontentloaded' });
   await expect(page.getByAltText(/Pie/i)).toBeVisible();
   await expect(page.getByText(/Create your Pie account/i)).toBeVisible();
   await expect(page.getByLabel(/Full name/i)).toBeVisible();
   await expect(page.getByLabel(/Phone number/i)).toBeVisible();
   await expect(page.getByLabel(/Email address/i)).toBeVisible();
+  await expect(page.locator('input[autocomplete="new-password"]')).toBeVisible();
+  await expect(page.getByRole('button', { name: /Start 7-Day Free Trial/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Continue with Google/i })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: /Continue to Secure Signup/i })).toBeVisible();
 });
 
-test('signup local step advances to Clerk without creating an account', async ({ page }) => {
+test('signup plan selection updates locally without creating an account', async ({ page }) => {
   await page.goto('/signup', { waitUntil: 'domcontentloaded' });
-  await page.getByLabel(/Full name/i).fill('Pie Browser Test');
-  await page.getByLabel(/Phone number/i).fill('+12025550123');
-  await page.getByLabel(/Email address/i).fill('pie-browser-test@example.invalid');
-  await page.getByRole('button', { name: /Continue to Secure Signup/i }).click();
-
-  await expect(page.getByText(/Loading secure signup|Create your account|Secure signup is taking longer/i)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByRole('button', { name: /Continue with Google/i })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Hot Prospect/i })).toBeVisible();
+  const talentShowPlan = page.getByRole('button', { name: /Talent Show Boss/i });
+  await expect(talentShowPlan).toBeVisible();
+  await talentShowPlan.click();
+  await expect(page.getByText(/then \$19\/month unless canceled/i)).toBeVisible();
+  await expect(page.getByRole('button', { name: /Start 7-Day Free Trial/i })).toBeVisible();
 });
 
 test('signin renders password, passkey, and phone recovery without Google', async ({ page }) => {
@@ -44,7 +44,7 @@ test('signin renders password, passkey, and phone recovery without Google', asyn
   await expect(page.getByAltText(/Pie/i)).toBeVisible();
   await expect(page.getByText(/Sign in to your Pie account/i)).toBeVisible();
   await expect(page.getByLabel(/Email address/i)).toBeVisible();
-  await expect(page.getByLabel(/Password/i)).toBeVisible();
+  await expect(page.locator('input[autocomplete="current-password"]')).toBeVisible();
   await expect(page.getByRole('button', { name: /^Sign In$/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Use a Passkey/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Sign In with Phone Code/i })).toBeVisible();

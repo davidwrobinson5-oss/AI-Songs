@@ -80,6 +80,19 @@ async function syncBillingRecord(userId: string, values: {
   await entitlementAction({ action: 'syncBilling', userId, ...values });
 }
 
+function subscriptionPeriodEnd(object: any) {
+  const candidates = [
+    object?.current_period_end,
+    object?.items?.data?.[0]?.current_period_end,
+    object?.trial_end,
+  ];
+  for (const candidate of candidates) {
+    const value = Number(candidate || 0);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
 async function grantOverageFromCheckout(object: any) {
   const userId = String(object.client_reference_id || object.metadata?.pie_user_id || '');
   const credits = Number(object.metadata?.pie_overage_credits || 0);
@@ -171,7 +184,7 @@ export async function POST(request: NextRequest) {
           stripeCustomerId: object.customer || null,
           stripeSubscriptionId: object.id || null,
           stripePriceId: priceId,
-          currentPeriodEnd: Number(object.current_period_end || 0) || null,
+          currentPeriodEnd: subscriptionPeriodEnd(object),
           cancelAtPeriodEnd: Boolean(object.cancel_at_period_end),
         }),
       ]);

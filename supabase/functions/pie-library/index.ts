@@ -11,6 +11,7 @@ const TEAM_ID = "team_LxqzlcZa969N5n9I9VzwYlns";
 const PROJECT_ID = "prj_UNamKUXBj3xsrjUtqhTt4Sew3OMk";
 const PROJECT_NAME = "ai-songs";
 const LEGACY_OWNER_ID = "pie-primary";
+const ORIGINAL_OWNER_LIBRARY_ID = "user_3JCFRuy8lxa1w0d7a59MAznPXBZ";
 const STORAGE_PROJECT_REF = "ynkrlatwwwaachijacmb";
 const TUS_ENDPOINT = `https://${STORAGE_PROJECT_REF}.storage.supabase.co/storage/v1/upload/resumable`;
 const TUS_PREFIX = `${TUS_ENDPOINT}/`;
@@ -42,9 +43,12 @@ async function verifyPieProject(req:Request){
   const {payload}=await jwtVerify(token,JWKS,{issuer:ISSUER,audience:AUDIENCE});
   if(payload.owner_id!==TEAM_ID||payload.project_id!==PROJECT_ID||payload.project!==PROJECT_NAME) throw new Error("Untrusted Pie project identity.");
   if(payload.environment!=="production"&&payload.environment!=="preview") throw new Error("Untrusted Pie environment.");
-  const requested=(req.headers.get("x-pie-user-id")||LEGACY_OWNER_ID).trim();
+  const requested=(req.headers.get("x-pie-user-id")||"").trim();
   if(!validOwnerId(requested)) throw new Error("Invalid Pie user identity.");
-  return requested;
+  // The owner password and the original owner's Clerk account share one library.
+  // Resolve only after verifying the server's Vercel identity and explicit user ID.
+  // Other customer identities retain their own ownership scope.
+  return requested === LEGACY_OWNER_ID ? ORIGINAL_OWNER_LIBRARY_ID : requested;
 }
 
 async function assertOwnedOrMissing(table:"pie_songs"|"pie_song_versions",id:string,userId:string){const {data,error}=await supabase.from(table).select("owner_id").eq("id",id).maybeSingle();if(error)throw error;if(data&&data.owner_id!==userId)throw new Error("This library item belongs to another account.");}

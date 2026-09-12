@@ -220,7 +220,13 @@ export async function POST(request: NextRequest) {
     if (userId) {
       await Promise.all([
         setEntitlement(userId, { pieSubscriptionStatus: 'past_due', piePlanId: 'none', piePlanLevel: 0 }),
-        syncBillingRecord(userId, { planId: 'none', planLevel: 0, status: 'past_due' }),
+        syncBillingRecord(userId, {
+          planId: 'none', planLevel: 0, status: 'past_due',
+          stripeCustomerId: typeof object.customer === 'string' ? object.customer : object.customer?.id || null,
+          stripeSubscriptionId: typeof subscriptionDetails.subscription === 'string'
+            ? subscriptionDetails.subscription : subscriptionDetails.subscription?.id
+              || (typeof object.subscription === 'string' ? object.subscription : object.subscription?.id) || null,
+        }),
       ]);
     }
   }

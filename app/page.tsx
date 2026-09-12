@@ -700,6 +700,7 @@ export default function Home() {
   }
 
   function toggleSavedVersion(songId: string, version: SavedVersion) {
+    setSaveStatus('');
     const blob = bestSavedAudio(version);
     const cloudUrl = `/api/song-library?songId=${encodeURIComponent(songId)}`;
 
@@ -739,7 +740,7 @@ export default function Home() {
 
     audio.addEventListener('ended', cleanup, { once: true });
     audio.addEventListener('error', () => {
-      setSaveStatus('Pie could not play this saved audio. It will restore the cloud copy and you can tap Play again.');
+      setSaveStatus('Could not load this saved audio. Please refresh Pie and try again.');
       window.dispatchEvent(new CustomEvent('pie-local-library-changed'));
       cleanup();
     }, { once: true });
@@ -747,7 +748,7 @@ export default function Home() {
     setPlayingSongId(songId);
     void audio.play().catch((error) => {
       console.error('Pie song playback failed', error);
-      setSaveStatus('Could not start playback. Tap Play once more after the audio finishes restoring.');
+      setSaveStatus('Could not start playback. Please refresh Pie and try again.');
       window.dispatchEvent(new CustomEvent('pie-local-library-changed'));
       cleanup();
     });
@@ -1233,6 +1234,7 @@ export default function Home() {
         </section>
 
         <section className="songsLibraryPanel">
+          {saveStatus && <div className="statusBox" role="status">{saveStatus}</div>}
           <div id="captured"><CapturedSongResults /></div>
           <div className="songsSectionHead"><strong>{songs.length} {songs.length === 1 ? 'song' : 'songs'}</strong><span>Newest first</span></div>
           {songs.length === 0 && <div className="songsEmpty"><span>♫</span><strong>No songs yet</strong><small>Create music and it will appear here automatically.</small><button className="primary" onClick={newSong}>Create a Song</button></div>}

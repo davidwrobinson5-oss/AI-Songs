@@ -205,7 +205,7 @@ const clerkProxy = clerkMiddleware(async (auth, req) => {
 }, {
   frontendApiProxy: { enabled: clerkFrontendApiProxyEnabled(), path: '/__clerk' },
   authorizedParties: clerkAuthorizedParties(),
-  contentSecurityPolicy: { strict: true, directives: { 'media-src': ["'self'", 'blob:', 'data:'], 'connect-src': ['blob:'], 'manifest-src': ["'self'"], 'object-src': ["'none'"], 'frame-ancestors': ["'none'"] } },
+  contentSecurityPolicy: { strict: true, directives: { 'media-src': ["'self'", 'blob:', 'data:', 'https://ynkrlatwwwaachijacmb.supabase.co'], 'connect-src': ['blob:', 'https://ynkrlatwwwaachijacmb.supabase.co'], 'manifest-src': ["'self'"], 'object-src': ["'none'"], 'frame-ancestors': ["'none'"] } },
 });
 
 export async function proxy(req: NextRequest, event: NextFetchEvent) {

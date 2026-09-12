@@ -6,10 +6,11 @@ import { awardPieScore } from '../../scoreServer';
 
 const DATA_URL=`${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-data`;
 const SUPABASE_KEY=(process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
-const PRIVATE_STUDIO_OWNER_ID='pie-primary';
+import { hasOwnerAccess } from '../../ownerAccess';
+import { pieDeploymentTarget } from '../../deploymentEnvironment';
 
 async function resolveDataAccess(userId:string){
-  if(userId===PRIVATE_STUDIO_OWNER_ID)return {existingBeta:true,level:8};
+  if(hasOwnerAccess(userId,pieDeploymentTarget()))return {existingBeta:true,level:8};
   try{
     const session=await auth();
     if(session.userId===userId){

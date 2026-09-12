@@ -48,7 +48,7 @@ export async function consumeUsage(usageKey: string, trialLimit: number, units =
       apikey: SUPABASE_PUBLISHABLE_KEY,
       'X-Pie-Vercel-OIDC': oidc,
     },
-    body: JSON.stringify({ action: 'consume', userId, usageKey, freeLimit: trialLimit, units }),
+    body: JSON.stringify({ action: 'consume', requestId: crypto.randomUUID(), userId, usageKey, freeLimit: trialLimit, units }),
     cache: 'no-store',
   });
   const data = await response.json().catch(() => ({}));

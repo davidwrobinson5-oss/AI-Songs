@@ -1,0 +1,40 @@
+begin;
+set local role service_role;
+do $test$
+declare
+  a jsonb; b jsonb; before_count bigint; after_count bigint;
+  request_id uuid := gen_random_uuid();
+  cost_id uuid := gen_random_uuid();
+  release_id uuid := gen_random_uuid();
+  denied boolean := false;
+begin
+  a := public.pie_owner_meter('production','pie-primary','summary');
+  before_count := (a->>'ownerUsageRequests')::bigint;
+  a := public.pie_owner_meter('production','user_3JFNRykFY9nfjkxHkVkUBvPA34P','consume',jsonb_build_object('usageKey','music_generations','units',2,'requestId',request_id));
+  b := public.pie_owner_meter('production','user_3JFNRykFY9nfjkxHkVkUBvPA34P','consume',jsonb_build_object('usageKey','music_generations','units',2,'requestId',request_id));
+  if a<>b or a->>'allowed'<>'true' then raise exception 'consume retry failed'; end if;
+  a := public.pie_owner_meter('production','pie-primary','summary');
+  after_count := (a->>'ownerUsageRequests')::bigint;
+  if after_count<>before_count+1 then raise exception 'usage double counted'; end if;
+  begin perform public.pie_owner_meter('preview','user_3JFNRykFY9nfjkxHkVkUBvPA34P','summary'); exception when others then denied:=true; end;
+  if not denied then raise exception 'environment isolation failed'; end if;
+  denied:=false;
+  begin perform public.pie_owner_meter('preview','user_3JCFRuy8lxa1w0d7a59MAznPXBZ','summary'); exception when others then denied:=true; end;
+  if not denied then raise exception 'customer exemption leak'; end if;
+  a := public.pie_owner_meter('production','pie-primary','reserveCost',jsonb_build_object('usageKey','music','provider','test','model','test','reserveCents',100,'reservationId',cost_id));
+  if a->>'allowed'<>'true' then raise exception 'reserve failed'; end if;
+  a := public.pie_owner_meter('production','pie-primary','settleCost',jsonb_build_object('actualCents',75,'reservationId',cost_id));
+  b := public.pie_owner_meter('production','pie-primary','settleCost',jsonb_build_object('actualCents',75,'reservationId',cost_id));
+  if a<>b or a->>'ok'<>'true' then raise exception 'settlement retry failed'; end if;
+  denied:=false;
+  begin perform public.pie_owner_meter('production','pie-primary','releaseCost',jsonb_build_object('reservationId',cost_id)); exception when others then denied:=true; end;
+  if not denied then raise exception 'settled reservation released'; end if;
+  a := public.pie_owner_meter('production','pie-primary','reserveCost',jsonb_build_object('usageKey','music','provider','test','model','test','reserveCents',100,'reservationId',release_id));
+  a := public.pie_owner_meter('production','pie-primary','releaseCost',jsonb_build_object('reservationId',release_id));
+  if a->>'ok'<>'true' then raise exception 'release failed'; end if;
+  denied:=false;
+  begin perform public.pie_owner_meter('production','pie-primary','settleCost',jsonb_build_object('actualCents',75,'reservationId',release_id)); exception when others then denied:=true; end;
+  if not denied then raise exception 'released reservation settled'; end if;
+end $test$;
+select 'owner metering and isolation checks passed' as result;
+rollback;

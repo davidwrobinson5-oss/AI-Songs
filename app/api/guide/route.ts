@@ -2,9 +2,12 @@ import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
 import { currentUser } from '@clerk/nextjs/server';
 import { rateLimit, readJsonObject, safeClientError, textField } from '../../security';
-import { consumeUsage, usageDeniedMessage } from '../../usageEntitlements';
+import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../usageEntitlements';
 import { TRIAL_LIMITS } from '../../billingConfig';
 import { getPieContextSnapshot } from '../../pieContext';
+
+import { hasOwnerAccess } from '../../ownerAccess';
+import { pieDeploymentTarget } from '../../deploymentEnvironment';
 
 const stageContext: Record<number, string> = {
   1: 'Raw Talent: experimenting, creating songs, and learning a repeatable creative workflow.',
@@ -28,6 +31,7 @@ function fallback(level: number, context: any) {
 }
 
 async function serverStage() {
+  if (hasOwnerAccess(await resolvePieUserId(), pieDeploymentTarget())) return { level: 8, name: stageNames[8] };
   const user = await currentUser().catch(() => null);
   if (!user) return { level: 1, name: stageNames[1] };
   const p = (user.publicMetadata || {}) as Record<string, unknown>;

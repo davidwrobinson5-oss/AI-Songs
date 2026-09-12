@@ -125,25 +125,26 @@ Deno.serve(async(req:Request)=>{
       if(versionsError)throw versionsError;
       let chosenPath="";
       let chosenType:string|undefined;
+      let chosenBucket="pie-song-audio";
       for(const version of versions||[]){
-        const files=version.files&&typeof version.files==="object"?version.files as Record<string,{path?:string;type?:string}|string>:{};
+        const files=version.files&&typeof version.files==="object"?version.files as Record<string,{path?:string;type?:string;bucket?:string}|string>:{};
         for(const field of PLAYBACK_FIELDS){
           const value=files[field];
           const path=typeof value==="string"?value:value?.path;
           const type=typeof value==="object"&&value?value.type:undefined;
-          if(path&&ownsStoredPath(path,userId)){chosenPath=path;chosenType=type;break;}
+          if(path&&ownsStoredPath(path,userId)){chosenPath=path;chosenType=type;chosenBucket=typeof value==="object"&&value?.bucket==="pie-job-output"?"pie-job-output":"pie-song-audio";break;}
         }
         if(chosenPath)break;
       }
       if(!chosenPath)return json({error:"No playable audio was found for this song."},404,origin);
-      const {data,error}=await supabase.storage.from("pie-song-audio").createSignedUrl(chosenPath,PLAYBACK_URL_TTL_SECONDS);
+      const {data,error}=await supabase.storage.from(chosenBucket).createSignedUrl(chosenPath,PLAYBACK_URL_TTL_SECONDS);
       if(error||!data?.signedUrl)throw error||new Error("Could not create playback URL.");
       return json({url:data.signedUrl,type:chosenType,expiresIn:PLAYBACK_URL_TTL_SECONDS},200,origin);
     }
     if(action==="list"){
       const {data:songs,error:songsError}=await supabase.from("pie_songs").select("id,title,created_at,updated_at").eq("owner_id",userId).order("updated_at",{ascending:false}); if(songsError)throw songsError;
       const {data:versions,error:versionsError}=await supabase.from("pie_song_versions").select("id,song_id,version_number,created_at,prompt,mode,vocal_range,duration_ms,instrumental,lyrics,melody_analysis,files").eq("owner_id",userId).order("version_number",{ascending:false}); if(versionsError)throw versionsError;
-      const signedVersions=[]; for(const version of versions||[]){const files=version.files&&typeof version.files==="object"?version.files as Record<string,{path?:string;type?:string}|string>:{}; const signedFiles:Record<string,{url:string;type?:string}>={}; for(const [key,value] of Object.entries(files)){const path=typeof value==="string"?value:value?.path;const type=typeof value==="object"&&value?value.type:undefined;if(!path||!ownsStoredPath(path,userId))continue;const {data}=await supabase.storage.from("pie-song-audio").createSignedUrl(path,3600);if(data?.signedUrl)signedFiles[key]={url:data.signedUrl,type};} signedVersions.push({id:version.id,songId:version.song_id,versionNumber:version.version_number,createdAt:version.created_at,prompt:version.prompt,mode:version.mode,vocalRange:version.vocal_range,durationMs:version.duration_ms,instrumental:version.instrumental,lyrics:version.lyrics||undefined,melodyAnalysis:version.melody_analysis||undefined,files:signedFiles});}
+      const signedVersions=[]; for(const version of versions||[]){const files=version.files&&typeof version.files==="object"?version.files as Record<string,{path?:string;type?:string;bucket?:string}|string>:{}; const signedFiles:Record<string,{url:string;type?:string}>={}; for(const [key,value] of Object.entries(files)){const path=typeof value==="string"?value:value?.path;const type=typeof value==="object"&&value?value.type:undefined;if(!path||!ownsStoredPath(path,userId))continue;const {data}=await supabase.storage.from(typeof value==="object"&&value?.bucket==="pie-job-output"?"pie-job-output":"pie-song-audio").createSignedUrl(path,3600);if(data?.signedUrl)signedFiles[key]={url:data.signedUrl,type};} signedVersions.push({id:version.id,songId:version.song_id,versionNumber:version.version_number,createdAt:version.created_at,prompt:version.prompt,mode:version.mode,vocalRange:version.vocal_range,durationMs:version.duration_ms,instrumental:version.instrumental,lyrics:version.lyrics||undefined,melodyAnalysis:version.melody_analysis||undefined,files:signedFiles});}
       return json({songs:(songs||[]).map(s=>({id:s.id,title:s.title,createdAt:s.created_at,updatedAt:s.updated_at})),versions:signedVersions},200,origin);
     }
     return json({error:"Unknown action."},400,origin);

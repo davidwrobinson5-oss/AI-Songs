@@ -1,6 +1,8 @@
 import { auth } from '@clerk/nextjs/server';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { NextResponse } from 'next/server';
+import { billingStripe, ownedBillingSubscription, stripeObjectId } from '../../../billingStripeServer';
+import { billingTiming } from '../../../billingTiming';
 
 const ENTITLEMENT_URL = `${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-entitlements`;
 const SUPABASE_PUBLISHABLE_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
@@ -32,11 +34,30 @@ export async function GET() {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) return NextResponse.json({ error: data?.error || 'Could not load usage.' }, { status: 502 });
 
+  let timing: ReturnType<typeof billingTiming> = null;
+  let management: { available: boolean; periodEnd?: number; cancelAt?: number | null; hasSchedule?: boolean; status?: string } = { available: false };
+  try {
+    const sub = await ownedBillingSubscription(userId);
+    if (sub) {
+      const item = sub.items?.data?.[0];
+      const end = Number(item?.current_period_end || sub.current_period_end);
+      management = { available: process.env.PIE_SCHEDULED_DOWNGRADES_ENABLED === 'true', periodEnd: end,
+        cancelAt: sub.cancel_at || null, hasSchedule: Boolean(sub.schedule), status: sub.status };
+      let now = Date.now() / 1000;
+      if (!sub.livemode && sub.test_clock) {
+        const clock = await billingStripe(`/test_helpers/test_clocks/${encodeURIComponent(stripeObjectId(sub.test_clock))}`);
+        if (clock.id !== stripeObjectId(sub.test_clock) || clock.livemode !== false || clock.status !== 'ready') throw new Error('Simulation is not ready.');
+        now = Number(clock.frozen_time);
+      }
+      timing = billingTiming(Number(item?.current_period_start || sub.current_period_start), end, now);
+    }
+  } catch { console.warn('Billing timing or management details unavailable'); }
+
   const computeUsed = Math.max(0, Number(data?.computeUsed || 0));
   const computeLimit = data?.computeLimit == null ? null : Math.max(0, Number(data.computeLimit || 0));
   const overageCredits = Math.max(0, Number(data?.overageCredits || 0));
-  const daysElapsed = Math.max(1, Number(data?.daysElapsed || 1));
-  const daysRemaining = Math.max(0, Number(data?.daysRemaining || 0));
+  const daysElapsed = timing?.daysElapsed || 1;
+  const daysRemaining = timing?.daysRemaining || 0;
   const cycleDays = daysElapsed + daysRemaining;
   const averagePerDay = computeUsed / daysElapsed;
   const projectedTotal = Math.ceil(averagePerDay * cycleDays);
@@ -50,6 +71,11 @@ export async function GET() {
 
   return NextResponse.json({
     ...data,
+    management,
+    forecastAvailable: Boolean(timing),
+    daysElapsed,
+    daysRemaining,
+    resetAt: timing?.resetAt || data.resetAt || null,
     computeUsed,
     computeLimit,
     overageCredits,

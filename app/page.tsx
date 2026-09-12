@@ -489,7 +489,7 @@ export default function Home() {
   }
 
   async function findDrobModel() {
-    const modelsRes = await fetch('/api/kits/models', { cache: 'no-store' });
+    const modelsRes = await fetch('/api/kits/models?myModels=true', { cache: 'no-store' });
     const payload = await modelsRes.json().catch(() => ({}));
     if (!modelsRes.ok) throw new Error(payload?.error || 'Could not load Kits voices.');
     const models = Array.isArray(payload?.models) ? payload.models : [];

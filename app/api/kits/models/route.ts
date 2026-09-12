@@ -24,6 +24,9 @@ export async function GET(req: Request) {
 
   try {
     const url = new URL(`${KITS_BASE}/voice-models`);
+    if (new URL(req.url).searchParams.get('myModels') === 'true') {
+      url.searchParams.set('myModels', 'true');
+    }
     url.searchParams.set('order', 'asc');
     url.searchParams.set('page', '1');
     url.searchParams.set('perPage', '100');

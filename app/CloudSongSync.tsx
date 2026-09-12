@@ -85,6 +85,7 @@ function cloudMetadataVersion(version: CloudVersion): SavedVersion {
     instrumental: version.instrumental,
     lyrics: version.lyrics,
     melodyAnalysis: version.melodyAnalysis,
+    hasDrobVocal: Boolean(version.files?.drobVocalBlob?.url),
   };
 }
 

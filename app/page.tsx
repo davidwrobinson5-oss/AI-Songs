@@ -2,7 +2,7 @@
 
 import { deleteSong } from './songStore';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { unzipSync } from 'fflate';
 import DrobMixPlayer from './DrobMixPlayer';
 import CapturedSongResults from './CapturedSongResults';
@@ -131,7 +131,7 @@ export default function Home() {
   }
 
   async function restoreLatestPlayableMusic() {
-    if (audioUrl || generatedBlob) return;
+    if (currentSongId || audioUrl || generatedBlob) return;
     try {
       const allSongs = await listSongs();
       for (const song of allSongs) {
@@ -668,10 +668,42 @@ export default function Home() {
     }
   }
 
-  function loadSavedVersion(song: SavedSong, version: SavedVersion) {
+  function savedVersionTitle(song: SavedSong, version?: SavedVersion) {
+    const drob = version?.hasDrobVocal || version?.drobVocalBlob;
+    return drob && !/\bdrob\b/i.test(song.title) ? `${song.title}/Drob` : song.title;
+  }
+
+  const savedLoadSequence = useRef(0);
+  async function loadSavedVersion(song: SavedSong, selected: SavedVersion) {
+    const sequence = ++savedLoadSequence.current;
+    setSaveStatus(`Loading ${savedVersionTitle(song, selected)}…`);
+    let version = selected;
+    try {
+      const response = await fetch('/api/song-library', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'list' }), cache: 'no-store',
+      });
+      if (!response.ok) throw new Error('Could not load the saved audio. Please try again.');
+      const cloud = await response.json();
+      const remote = cloud.versions?.find((item: {id: string; songId: string}) => item.id === selected.id && item.songId === song.id);
+      const fields = ['melodyBlob', 'precisionGuideBlob', 'generatedBlob', 'backingBlob', 'guideVocalBlob', 'drobVocalBlob', 'masterBlob'] as const;
+      const loaded: Partial<SavedVersion> = {};
+      await Promise.all(fields.map(async field => {
+        const file = remote?.files?.[field];
+        if (!file?.url) return;
+        const audio = await fetch(file.url);
+        if (!audio.ok) throw new Error('A saved audio file could not be loaded. Please try again.');
+        loaded[field] = await audio.blob();
+      }));
+      version = { ...selected, ...loaded };
+    } catch (error) {
+      if (sequence === savedLoadSequence.current) setSaveStatus(error instanceof Error ? error.message : 'Could not load this version.');
+      return;
+    }
+    if (sequence !== savedLoadSequence.current) return;
     setCurrentSongId(song.id);
     setCurrentVersionNumber(version.versionNumber);
-    setSongTitle(song.title);
+    setSongTitle(savedVersionTitle(song, version));
     setPrompt(version.prompt);
     setLyrics(version.lyrics || '');
     setMelodyBlob(version.melodyBlob || null);
@@ -1259,7 +1291,7 @@ export default function Home() {
                     <span>{playingSongId === song.id ? '■' : '▶'}</span>
                   </button>
                   <button className="songRowInfo" onClick={() => latest && loadSavedVersion(song, latest)} disabled={!latest}>
-                    <div className="songTitleLine"><strong>{song.title}</strong>{latest && <span>v{latest.versionNumber}</span>}</div>
+                    <div className="songTitleLine"><strong>{savedVersionTitle(song, latest)}</strong>{latest && <span>v{latest.versionNumber}</span>}</div>
                     <small className="songDescription">{latest?.prompt || 'Pie project'}</small>
                     <div className="songMeta">
                       {latest && <span>{Math.floor(latest.durationMs / 60000)}:{String(Math.floor((latest.durationMs % 60000) / 1000)).padStart(2, '0')}</span>}
@@ -1284,7 +1316,7 @@ export default function Home() {
                           </>}
                           <button type="button" role="menuitem" onClick={() => { setSongMenuId(null); window.dispatchEvent(new CustomEvent('pie-song-score', { detail: { songId: song.id, title: song.title, lyrics: latest?.lyrics || '', prompt: latest?.prompt || '', vocalRange: latest?.vocalRange || '' } })); }}>🎯 Song Score</button>
                           <button type="button" role="menuitem" onClick={() => { setSongMenuId(null); window.dispatchEvent(new CustomEvent('pie-originality-score', { detail: { songId: song.id, title: song.title, lyrics: latest?.lyrics || '', prompt: latest?.prompt || '' } })); }}>🧬 Originality Score</button>
-                          {versions.length > 1 && <div className="songVersionMenu"><small>OLDER VERSIONS</small><div>{versions.slice(1).map((version) => <button type="button" key={version.id} onClick={() => { setSongMenuId(null); loadSavedVersion(song, version); }}>Version {version.versionNumber}<span>{new Date(version.createdAt).toLocaleDateString()}</span></button>)}</div></div>}
+                          {versions.length > 1 && <div className="songVersionMenu"><small>OLDER VERSIONS</small><div>{versions.slice(1).map((version) => <button type="button" key={version.id} onClick={() => { setSongMenuId(null); loadSavedVersion(song, version); }}>{savedVersionTitle(song, version)} · Version {version.versionNumber}<span>{new Date(version.createdAt).toLocaleDateString()}</span></button>)}</div></div>}
                           <button type="button" className="songDeleteAction" role="menuitem" onClick={() => void deleteSavedSong(song)}>🗑 Delete Song</button>
                           <button type="button" className="songMenuCloseAction" onClick={() => setSongMenuId(null)}>Close</button>
                         </div>
@@ -1545,7 +1577,7 @@ export default function Home() {
                     ]);
                     const baseTitle = songTitle.trim() || 'Untitled Song';
                     const saved = await saveVersion({
-                      title: `${baseTitle}/Drob`,
+                      title: /\bdrob\b/i.test(baseTitle) ? baseTitle : `${baseTitle}/Drob`,
                       prompt,
                       mode,
                       vocalRange,

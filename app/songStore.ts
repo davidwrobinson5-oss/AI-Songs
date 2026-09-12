@@ -27,6 +27,7 @@ export type SavedVersion = {
   backingBlob?: Blob;
   guideVocalBlob?: Blob;
   drobVocalBlob?: Blob;
+  hasDrobVocal?: boolean;
   masterBlob?: Blob;
 };
 

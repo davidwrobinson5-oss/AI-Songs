@@ -1,6 +1,7 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { planById } from '../../../billingConfig';
+import { confirmsDowngrade } from '../../../billingSchedule';
 import { pieDeploymentTarget } from '../../../deploymentEnvironment';
 import { stripeEnvironmentSafe, stripePlan, stripePlanIdForPrice } from '../../../stripePlans';
 
@@ -115,7 +116,10 @@ async function loadSchedule(stripeSecret: string, value: any) {
   const id = scheduleId(value);
   if (!id) return null;
   const result = await stripeRequest(stripeSecret, `/subscription_schedules/${encodeURIComponent(id)}`);
-  return result.ok ? result.data : null;
+  if (!result.ok || result.data?.id !== id || !Array.isArray(result.data?.phases)) {
+    throw new Error('Stripe schedule retrieval could not be verified.');
+  }
+  return result.data;
 }
 
 function appendMetadata(params: URLSearchParams, phaseIndex: number, metadata: Record<string, unknown>) {
@@ -186,6 +190,9 @@ export async function POST(request: NextRequest) {
     }
     const items = Array.isArray(subscription?.items?.data) ? subscription.items.data : [];
     if (items.length !== 1) return json({ error: 'This subscription needs support assistance before its plan can be changed.' }, 409);
+    if (items[0]?.quantity !== 1) {
+      return json({ error: 'Contact Pie support to change a subscription with a custom quantity.' }, 409);
+    }
     if (subscription?.discount || (Array.isArray(subscription?.discounts) && subscription.discounts.length)) {
       return json({ error: 'Contact Pie support to change a subscription that has a promotion attached.' }, 409);
     }
@@ -208,7 +215,10 @@ export async function POST(request: NextRequest) {
     }
     const existingPending = schedule ? pendingChange(schedule, effectiveAt) : null;
     if (existingPending) {
-      if (existingPending.planId === targetPlanId) {
+      if (existingPending.planId === targetPlanId && confirmsDowngrade(schedule, {
+        subscriptionId: subscription.id, currentPriceId, targetPriceId: targetStripePlan.priceId,
+        effectiveAt, planId: targetPlanId, userId,
+      })) {
         return json({ scheduled: true, pending: existingPending });
       }
       return json({ error: `A downgrade to ${existingPending.planName} is already scheduled. Contact Pie support to replace it.` }, 409);
@@ -266,11 +276,20 @@ export async function POST(request: NextRequest) {
       `/subscription_schedules/${encodeURIComponent(schedule.id)}`,
       'POST',
       update,
-      `pie-downgrade-update-${subscription.id}-${targetPlanId}-${effectiveAt}`,
+      // Different concurrent targets must not both overwrite the same schedule.
+      // Stripe rejects a reused key with different request parameters.
+      `pie-downgrade-update-${subscription.id}-${effectiveAt}`,
     );
     if (!updated.ok) {
       console.error('Pie could not configure the Stripe subscription schedule.', { status: updated.status });
       return json({ error: 'The schedule update could not be confirmed. Contact Pie support to check its status before retrying.' }, 502);
+    }
+
+    if (!confirmsDowngrade(updated.data, {
+      subscriptionId: subscription.id, currentPriceId, targetPriceId: targetStripePlan.priceId,
+      effectiveAt, planId: targetPlanId, userId,
+    })) {
+      return json({ error: 'Stripe returned an unexpected schedule. Contact Pie support to verify it before retrying.' }, 502);
     }
 
     return json({

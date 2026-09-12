@@ -24,7 +24,7 @@ const configuredPriceByPlan = {
 export type PiePlanId = keyof typeof configuredPriceByPlan;
 
 export function stripePlan(planId: string) {
-  if (!(planId in configuredPriceByPlan)) return null;
+  if (!Object.prototype.hasOwnProperty.call(configuredPriceByPlan, planId)) return null;
   const id = planId as PiePlanId;
   const configured = configuredPriceByPlan[id];
   if (configured.priceId) return configured;

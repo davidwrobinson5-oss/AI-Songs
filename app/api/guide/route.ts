@@ -1,3 +1,4 @@
+import { createProviderFetch } from '../../providerFetch';
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
 import { currentUser } from '@clerk/nextjs/server';
@@ -82,7 +83,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: usageDeniedMessage('Pie AI Artist Manager', entitlement) }, { status: 403 });
     }
 
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const client = new OpenAI({fetch:createProviderFetch('guide'), apiKey: process.env.OPENAI_API_KEY });
     const compactContext = JSON.stringify(context || {}).slice(0, 9000);
     const response = await client.responses.create({
       model: process.env.OPENAI_TEXT_MODEL || 'gpt-5.6',

@@ -1,3 +1,5 @@
+import { createProviderFetch } from '../../../providerFetch';
+const providerFetch = createProviderFetch('elevenlabs/voice-instrument');
 import { NextResponse } from 'next/server';
 import { FREE_LIMITS } from '../../../billingConfig';
 import { boundedNumber, rateLimit, readResponseBytesLimited, safeClientError, textField, validateAudioFile } from '../../../security';
@@ -62,7 +64,7 @@ export async function POST(req: Request) {
     const safeName = (file.name || 'voice-sketch').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
     const uploadForm = new FormData();
     uploadForm.append('file', file, safeName || 'voice-sketch');
-    const uploadResponse = await fetch(`${ELEVENLABS_BASE}/v1/music/upload`, {
+    const uploadResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/upload`, {
       method: 'POST',
       headers: { 'xi-api-key': apiKey },
       body: uploadForm,
@@ -78,7 +80,7 @@ export async function POST(req: Request) {
       ? `Turn a human mouth/voice performance into an isolated studio-quality ${instrumentLabel(target)} performance. The uploaded recording is a performance sketch: preserve its recognizable rhythm, attack pattern, rests, groove, phrasing, and melodic contour as closely as the model allows, but replace the human vocal timbre with a convincing ${instrumentLabel(target)} sound. Use ONLY the target instrument. No singing, spoken voice, beatboxing voice, extra instruments, audience, or count-in.${direction ? ` Creative direction: ${direction}` : ''}`
       : `Build a polished original instrumental song from the uploaded rough arrangement made from AI-rendered instrument sketches. Preserve the recognizable core bass movement, drum groove, guitar/keys phrasing, rhythmic relationships, and overall arrangement suggested by the reference while developing it into a cohesive finished production. No lead vocals. Do not add spoken words or mouth sounds.${direction ? ` Production direction: ${direction}` : ''}`;
 
-    const planResponse = await fetch(`${ELEVENLABS_BASE}/v1/music/plan`, {
+    const planResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/plan`, {
       method: 'POST',
       headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt, music_length_ms: musicLengthMs, model_id: 'music_v2' }),
@@ -98,7 +100,7 @@ export async function POST(req: Request) {
     compositionPlan.chunks[0].conditioning_ref = { song_id: uploadData.song_id, range: { start_ms: 0, end_ms: referenceDurationMs } };
     compositionPlan.chunks[0].condition_strength = 'xhigh';
 
-    const composeResponse = await fetch(`${ELEVENLABS_BASE}/v1/music`, {
+    const composeResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music`, {
       method: 'POST',
       headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
       body: JSON.stringify({ model_id: 'music_v2', composition_plan: compositionPlan }),

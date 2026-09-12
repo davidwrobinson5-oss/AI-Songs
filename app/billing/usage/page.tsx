@@ -6,6 +6,7 @@ import { formatBillingDate } from '../../billingDate';
 
 type Pack = { id: string; name: string; credits: number; price: number };
 type UsageData = {
+  providerCosts?: { requestCount: number; confirmedUsd: number | null; confirmedCount: number; estimatedUsd: number | null; estimatedCount: number; unpricedCount: number; pendingCount: number } | null;
   ownerUsageRequests?: number;
   ownerUsageUnits?: number;
   recordedProviderCostCents?: number;
@@ -165,7 +166,12 @@ export default function BillingUsagePage() {
             <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
               <div>Metered requests this month: <strong>{data.ownerUsageRequests ?? 0}</strong></div>
               <div>Usage credits recorded: <strong>{data.computeUsed}</strong></div>
-              <div>Reported provider costs: <strong>{data.providerCostReports ? `$${((data.recordedProviderCostCents || 0) / 100).toFixed(2)}` : 'Not yet reported'}</strong></div>
+              <div>Provider attempts recorded: <strong>{data.providerCosts?.requestCount ?? 'Unavailable'}</strong></div>
+              <div>Confirmed request costs: <strong>{data.providerCosts?.confirmedUsd != null ? `$${Number(data.providerCosts.confirmedUsd).toFixed(4)}` : 'Not yet reconciled'}</strong></div>
+              <div>Estimated costs (unconfirmed requests): <strong>{data.providerCosts?.estimatedUsd != null ? `$${Number(data.providerCosts.estimatedUsd).toFixed(4)}` : 'No verified rate available'}</strong></div>
+              <div>Requests awaiting pricing: <strong>{data.providerCosts?.unpricedCount ?? 'Unavailable'}</strong></div>
+              <div>Requests with unresolved outcomes: <strong>{data.providerCosts?.pendingCount ?? 'Unavailable'}</strong></div>
+              <div>Legacy reported provider costs: <strong>{data.providerCostReports ? `$${((data.recordedProviderCostCents || 0) / 100).toFixed(2)}` : 'Not yet reported'}</strong></div>
             </div>
             <p style={{ color: '#a7a9b4', lineHeight: 1.55 }}>Requests are counted when authorized, including attempts that later fail. Credits measure activity, not dollars. Provider cost reporting is incomplete; unreported costs are not zero. Historical activity before tracking started is not included.</p>
             <p style={{ color: '#b9bbc4', lineHeight: 1.55 }}>Music and voice generation still use paid provider services. Your owner activity is recorded separately from customer subscriptions.</p>

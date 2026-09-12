@@ -1,3 +1,5 @@
+import { createProviderFetch } from '../../../providerFetch';
+const providerFetch = createProviderFetch('elevenlabs/generate-reference');
 import { NextResponse } from 'next/server';
 import { FREE_LIMITS } from '../../../billingConfig';
 import { boundedNumber, rateLimit, readResponseBytesLimited, safeClientError, textField, validateAudioFile } from '../../../security';
@@ -56,7 +58,7 @@ export async function POST(req: Request) {
     const safeName = (file.name || 'reference-audio').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
     const uploadForm = new FormData();
     uploadForm.append('file', file, safeName || 'reference-audio');
-    const uploadResponse = await fetch(`${ELEVENLABS_BASE}/v1/music/upload`, {
+    const uploadResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/upload`, {
       method: 'POST', headers: { 'xi-api-key': apiKey }, body: uploadForm, cache: 'no-store',
     });
     const uploadData = await uploadResponse.json().catch(() => ({})) as { song_id?: string };
@@ -69,7 +71,7 @@ export async function POST(req: Request) {
       ? `${prompt}\n\nCreate an original instrumental composition with no lead vocals. Use the uploaded reference only for sound, production style, instrumentation, tempo, groove, and mood. Do not copy the composition.`
       : `${prompt}\n\nCreate an original composition. Use the uploaded reference only for sound, production style, instrumentation, tempo, groove, and mood. Do not copy the composition.`;
 
-    const planResponse = await fetch(`${ELEVENLABS_BASE}/v1/music/plan`, {
+    const planResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/plan`, {
       method: 'POST', headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: planPrompt, music_length_ms: musicLengthMs, model_id: 'music_v2' }), cache: 'no-store',
     });
     const compositionPlan = await planResponse.json().catch(() => ({})) as { chunks?: MusicV2Chunk[] };
@@ -95,7 +97,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const composeResponse = await fetch(`${ELEVENLABS_BASE}/v1/music`, {
+    const composeResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music`, {
       method: 'POST', headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' }, body: JSON.stringify({ model_id: 'music_v2', composition_plan: compositionPlan }), cache: 'no-store',
     });
     if (!composeResponse.ok) {

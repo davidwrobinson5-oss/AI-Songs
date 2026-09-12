@@ -1,3 +1,5 @@
+import { createProviderFetch } from '../../providerFetch';
+const providerFetch = createProviderFetch('precision-guide');
 import { NextResponse } from 'next/server';
 import { FREE_LIMITS } from '../../billingConfig';
 import { rateLimit } from '../../security';
@@ -48,7 +50,7 @@ export async function POST(req: Request) {
     uploadForm.append('purpose', 'melody');
     uploadForm.append('file', melody, 'ai-songs-melody.mp3');
 
-    const uploadRes = await fetch(`${BASE}/v1/files/upload`, {
+    const uploadRes = await providerFetch(`${BASE}/v1/files/upload`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/json' },
       body: uploadForm,
@@ -62,7 +64,7 @@ export async function POST(req: Request) {
     const melodyId = upload?.id || upload?.file_id;
     if (!melodyId) return NextResponse.json({ error: 'Mureka did not return a melody file ID.' }, { status: 502 });
 
-    const generationRes = await fetch(`${BASE}/v1/song/generate`, {
+    const generationRes = await providerFetch(`${BASE}/v1/song/generate`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,

@@ -1,3 +1,5 @@
+import { createProviderFetch } from '../../../providerFetch';
+const providerFetch = createProviderFetch('jobs/lyrics-song-generation');
 import OpenAI from 'openai';
 import { NextRequest, NextResponse, after } from 'next/server';
 import { enqueuePieJob } from '../../../jobQueue';
@@ -52,7 +54,7 @@ async function expandLyrics(original: string, freedom: LyricsFreedom, prompt: st
   };
 
   try {
-    const client = new OpenAI({ apiKey });
+    const client = new OpenAI({fetch:createProviderFetch('jobs/lyrics-song-generation'), apiKey });
     const response = await client.responses.create({
       model: process.env.OPENAI_TEXT_MODEL || 'gpt-5.6',
       input: [
@@ -187,7 +189,7 @@ export async function POST(request: NextRequest) {
     const totalDuration = durations.reduce((sum, value) => sum + value, 0);
     const stylePrompt = `${prompt || 'Create a polished original contemporary song whose production serves the emotional meaning of the supplied lyrics.'}\nLead vocal should sit comfortably in a ${vocalRange} range. Focus this plan on genre, instrumentation, groove, dynamics, vocal character, and arrangement. Lyrics will be supplied separately and must be followed closely.`.slice(0, 4000);
 
-    const planResponse = await fetch(`${ELEVENLABS_BASE}/v1/music/plan`, {
+    const planResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/plan`, {
       method: 'POST',
       headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ prompt: stylePrompt, music_length_ms: totalDuration, model_id: 'music_v2' }),

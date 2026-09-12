@@ -1,3 +1,4 @@
+import { createProviderFetch } from '../../providerFetch';
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
 
@@ -32,7 +33,7 @@ export async function POST(req: Request) {
       notes: phrase.notes,
     }));
 
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const client = new OpenAI({fetch:createProviderFetch('melody-fit'), apiKey: process.env.OPENAI_API_KEY });
     const response = await client.responses.create({
       model: process.env.OPENAI_TEXT_MODEL || 'gpt-5.6',
       input: [

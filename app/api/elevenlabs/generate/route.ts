@@ -1,3 +1,5 @@
+import { createProviderFetch } from '../../../providerFetch';
+const providerFetch = createProviderFetch('elevenlabs/generate');
 import { NextResponse } from 'next/server';
 import { FREE_LIMITS } from '../../../billingConfig';
 import { rateLimit, readJsonObject, safeClientError } from '../../../security';
@@ -29,7 +31,7 @@ async function parseProviderError(response: Response): Promise<ProviderError> {
 }
 
 async function requestMusic(apiKey: string, body: Record<string, unknown>) {
-  return fetch(`${ELEVENLABS_BASE}/v1/music`, {
+  return providerFetch(`${ELEVENLABS_BASE}/v1/music`, {
     method: 'POST',
     headers: {
       'xi-api-key': apiKey,

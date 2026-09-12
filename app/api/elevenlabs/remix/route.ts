@@ -1,3 +1,5 @@
+import { createProviderFetch } from '../../../providerFetch';
+const providerFetch = createProviderFetch('elevenlabs/remix');
 import { NextResponse } from 'next/server';
 import { FREE_LIMITS } from '../../../billingConfig';
 import { boundedNumber, rateLimit, readResponseBytesLimited, safeClientError, textField, validateAudioFile } from '../../../security';
@@ -76,7 +78,7 @@ export async function POST(req: Request) {
     const safeName = (file.name || 'remix-source').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
     const uploadForm = new FormData();
     uploadForm.append('file', file, safeName || 'remix-source');
-    const uploadResponse = await fetch(`${ELEVENLABS_BASE}/v1/music/upload`, {
+    const uploadResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/upload`, {
       method: 'POST',
       headers: { 'xi-api-key': apiKey },
       body: uploadForm,
@@ -117,7 +119,7 @@ export async function POST(req: Request) {
       cursor = end;
     }
 
-    const composeResponse = await fetch(`${ELEVENLABS_BASE}/v1/music`, {
+    const composeResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music`, {
       method: 'POST',
       headers: {
         'xi-api-key': apiKey,

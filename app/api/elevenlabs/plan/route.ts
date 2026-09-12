@@ -1,3 +1,5 @@
+import { createProviderFetch } from '../../../providerFetch';
+const providerFetch = createProviderFetch('elevenlabs/plan');
 import { NextResponse } from 'next/server';
 import { FREE_LIMITS } from '../../../billingConfig';
 import { boundedNumber, rateLimit, readJsonObject, safeClientError, textField } from '../../../security';
@@ -30,7 +32,7 @@ export async function POST(req: Request) {
       }, { status: entitlement.userId ? 402 : 401, headers: { 'Cache-Control': 'no-store' } });
     }
 
-    const response = await fetch(`${ELEVENLABS_BASE}/v1/music/plan`, {
+    const response = await providerFetch(`${ELEVENLABS_BASE}/v1/music/plan`, {
       method: 'POST',
       headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({

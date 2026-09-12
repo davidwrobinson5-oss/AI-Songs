@@ -1,3 +1,4 @@
+import { createProviderFetch } from './providerFetch';
 import { FREE_LIMITS } from './billingConfig';
 import {
   claimPieJob,
@@ -12,7 +13,6 @@ import {
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io';
 const MAX_PROMPT_CHARS = 4100;
 const WORKER_ID = 'vercel-song-worker';
-const PRIVATE_STUDIO_OWNER_ID = 'pie-primary';
 
 export type SongWorkerResult = { processed: number };
 
@@ -81,20 +81,12 @@ async function processSongGeneration(job: PieJob) {
     return;
   }
 
-  // The private owner gateway is an internal production-testing surface, not a customer plan.
-  // It intentionally has no Stripe plan record, so normal customer allowance checks would
-  // otherwise reject every owner smoke test with usageLimit=0 before the provider is called.
-  if (job.user_id !== PRIVATE_STUDIO_OWNER_ID) {
-    const usage = await consumePieJobUsage(
-      job.id,
-      'elevenlabs_music_generations',
-      FREE_LIMITS.musicGenerationsPerMonth,
-    );
-    if (!usage.allowed) {
-      await markPieJobFailed(job, 'PIE_USAGE_LIMIT', 'This account has reached its music generation allowance.', false);
-      return;
-    }
+  const usage = await consumePieJobUsage(job.id, 'elevenlabs_music_generations', FREE_LIMITS.musicGenerationsPerMonth);
+  if (!usage.allowed) {
+    await markPieJobFailed(job, 'PIE_USAGE_LIMIT', 'This account has reached its music generation allowance.', false);
+    return;
   }
+  const providerFetch = createProviderFetch('queued-song-generation', {userId:job.user_id,jobId:job.id});
 
   const providerBody = compositionPlan
     ? { composition_plan: compositionPlan, model_id: 'music_v2' }
@@ -110,7 +102,7 @@ async function processSongGeneration(job: PieJob) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90_000);
     try {
-      response = await fetch(`${ELEVENLABS_BASE}/v1/music`, {
+      response = await providerFetch(`${ELEVENLABS_BASE}/v1/music`, {
         method: 'POST',
         headers: {
           'xi-api-key': apiKey,

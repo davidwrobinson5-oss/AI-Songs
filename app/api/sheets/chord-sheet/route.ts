@@ -1,3 +1,4 @@
+import { createProviderFetch } from '../../../providerFetch';
 import OpenAI from 'openai';
 import { PDFDocument, StandardFonts, rgb } from 'pdf-lib';
 import { NextResponse } from 'next/server';
@@ -184,7 +185,7 @@ async function generateChart(body:Record<string,unknown>):Promise<ChordSheet>{
   const events=cleanChords(raw);
   if(!events.length)throw new Error('NO_CHORDS_DETECTED');
 
-  const client=new OpenAI({apiKey:process.env.OPENAI_API_KEY});
+  const client=new OpenAI({fetch:createProviderFetch('sheets/chord-sheet'),apiKey:process.env.OPENAI_API_KEY});
   const file=await fetchSourceAudio(stagedPath);
   const transcript=await client.audio.transcriptions.create({
     file,

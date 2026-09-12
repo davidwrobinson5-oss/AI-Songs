@@ -31,11 +31,13 @@ async function verifyProject(req: Request) {
   const { payload } = await jwtVerify(token, JWKS, { issuer: ISSUER, audience: AUDIENCE });
   if (payload.owner_id !== TEAM_ID || payload.project_id !== PROJECT_ID || payload.project !== PROJECT_NAME) throw new Error("Untrusted Pie project identity.");
   if (payload.environment !== "production" && payload.environment !== "preview") throw new Error("Untrusted Pie environment.");
+  return payload.environment;
 }
 
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return json({ error: "Method not allowed." }, 405);
-  try { await verifyProject(req); } catch (error) { return json({ error: error instanceof Error ? error.message : "Authentication failed." }, 401); }
+  let environment: string;
+  try { environment = await verifyProject(req); } catch (error) { return json({ error: error instanceof Error ? error.message : "Authentication failed." }, 401); }
 
   try {
     const body = await req.json().catch(() => ({}));
@@ -101,6 +103,13 @@ Deno.serve(async (req: Request) => {
     if (action === "consumeUsage") {
       const jobId = String(body?.jobId || "").trim();
       if (!validUuid(jobId)) return json({ error: "Invalid job id." }, 400);
+      const job = await supabase.from("pie_jobs").select("user_id").eq("id", jobId).single();
+      if (job.error) throw job.error;
+      if (job.data.user_id === "pie-primary" || (environment === "production" && job.data.user_id === "user_3JFNRykFY9nfjkxHkVkUBvPA34P")) {
+        const metered = await supabase.rpc("pie_owner_meter", { p_environment: environment, p_user_id: job.data.user_id, p_action: "consumeJob", p_body: { jobId, usageKey: body.usageKey, units: body.units || 1 } });
+        if (metered.error) throw metered.error;
+        return json({ usage: metered.data });
+      }
       const { data, error } = await supabase.rpc("pie_consume_job_usage", { p_job_id: jobId, p_usage_key: String(body?.usageKey || "").slice(0,80), p_free_limit: Number(body?.freeLimit || 0), p_units: Math.max(1, Math.min(Number(body?.units || 1),100)) });
       if (error) throw error;
       return json({ usage: data || {} });

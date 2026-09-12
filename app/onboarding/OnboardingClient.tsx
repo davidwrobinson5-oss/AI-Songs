@@ -3,6 +3,7 @@
 import { useUser } from '@clerk/nextjs';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { DEFAULT_PLAN_ID, PIE_PLANS, TRIAL_DAYS, planById } from '../billingConfig';
+import PasskeySetupBanner from '../PasskeySetupBanner';
 
 export default function OnboardingClient() {
   const { isLoaded, isSignedIn, user } = useUser();
@@ -109,6 +110,8 @@ export default function OnboardingClient() {
             Pie will not start checkout until the required account verification is complete.
           </span>
         </section>
+
+        <PasskeySetupBanner />
 
         <div>
           <div style={eyebrow}>CHOOSE YOUR PLAN</div>

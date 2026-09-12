@@ -26,6 +26,15 @@ export async function POST(request: NextRequest) {
       if (invoice.status !== 'open' || invoice.amount_remaining <= 0) return json({ error: 'There is no unpaid invoice. Refresh your billing status.' }, 409);
       const url = new URL(invoice.hosted_invoice_url || '');
       if (url.protocol !== 'https:' || url.hostname !== 'invoice.stripe.com') throw new Error('A secure payment page is unavailable. Contact Pie support.');
+      // Let Stripe save a successfully paid invoice's method on this subscription.
+      // Do not replace the existing method before payment succeeds.
+      if (subscription.payment_settings?.save_default_payment_method !== 'on_subscription') {
+        const updated = await billingStripe(`/subscriptions/${subscription.id}`,
+          new URLSearchParams({ 'payment_settings[save_default_payment_method]': 'on_subscription' }));
+        if (updated.payment_settings?.save_default_payment_method !== 'on_subscription') {
+          throw new Error('Could not enable saving your payment method for renewals. Please retry.');
+        }
+      }
       return json({ url: url.toString() });
     }
     if (process.env.PIE_SCHEDULED_DOWNGRADES_ENABLED !== 'true') return json({ error: 'Self-service subscription changes are not available yet.' }, 503);

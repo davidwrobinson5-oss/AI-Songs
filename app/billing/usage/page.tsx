@@ -223,7 +223,7 @@ export default function BillingUsagePage() {
             {['past_due', 'unpaid', 'incomplete'].includes(data.management.status || '') ? (
               <section style={cardStyle}>
                 <h2>Resolve your payment</h2>
-                <p>Paid features are paused until payment is confirmed. Pay securely through Stripe. The payment method used successfully will be saved for future subscription renewals. Then refresh this page.</p>
+                <p>Paid features are paused until payment is confirmed. Pay securely through Stripe. To use your new payment method for subscription renewals, select “Save payment details to Pie for future purchases” on Stripe’s payment page. Then refresh this page.</p>
                 <button style={actionStyle} disabled={Boolean(busyAction)} onClick={() => manage('recover')}>{busyAction === 'recover' ? 'Opening…' : 'Pay outstanding invoice'}</button>
                 <button style={actionStyle} onClick={() => void load()}>Refresh billing status</button>
               </section>

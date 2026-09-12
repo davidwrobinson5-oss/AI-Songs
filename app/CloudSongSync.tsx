@@ -173,9 +173,23 @@ async function uploadVersion(song: SavedSong, version: SavedVersion) {
   }
 }
 
+let attemptedSaturdayRecovery = false;
+
 async function synchronize() {
   const local = await exportLocalLibrary();
   let cloud = await libraryRequest({ action: 'list' }) as CloudLibrary;
+
+  const missingSaturdayVocal = cloud.versions.some((version) =>
+    version.id === 'version_1789239377628_15qrx437' && !version.files?.drobVocalBlob?.url);
+  if (missingSaturdayVocal && !attemptedSaturdayRecovery) {
+    attemptedSaturdayRecovery = true;
+    try {
+      await jsonRequest('/api/kits/recover-saturday', { method: 'POST' });
+      cloud = await libraryRequest({ action: 'list' }) as CloudLibrary;
+    } catch (error) {
+      console.error('Pie Saturday vocal recovery:', error);
+    }
+  }
 
   // Keep cloud metadata in IndexedDB, but do not eagerly download full audio files.
   // Saved songs now stream directly from short-lived signed storage URLs on demand.

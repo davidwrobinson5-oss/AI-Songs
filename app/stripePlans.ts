@@ -32,6 +32,13 @@ export function stripePlan(planId: string) {
   return null;
 }
 
+export function stripePlanIdForPrice(priceId: string) {
+  for (const planId of Object.keys(configuredPriceByPlan) as PiePlanId[]) {
+    if (stripePlan(planId)?.priceId === priceId) return planId;
+  }
+  return null;
+}
+
 export function stripePlanConfigurationReady() {
   if (pieDeploymentTarget() !== 'production') return true;
   return Object.values(configuredPriceByPlan).every((plan) => /^price_[A-Za-z0-9]+$/.test(plan.priceId));

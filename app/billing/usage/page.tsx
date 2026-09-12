@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { PIE_PLANS, planById } from '../../billingConfig';
+import { formatBillingDate } from '../../billingDate';
 
 type Pack = { id: string; name: string; credits: number; price: number };
 type UsageData = {
@@ -21,11 +22,16 @@ type UsageData = {
   daysRemaining: number;
   packs: Pack[];
 };
+type PendingPlan = { planId: string; planName: string; monthlyPrice: number; effectiveAt: string };
 
 export default function BillingUsagePage() {
   const [data, setData] = useState<UsageData | null>(null);
   const [error, setError] = useState('');
   const [busyPack, setBusyPack] = useState('');
+  const [busyPlan, setBusyPlan] = useState('');
+  const [selectedPlanId, setSelectedPlanId] = useState('');
+  const [pendingPlan, setPendingPlan] = useState<PendingPlan | null>(null);
+  const [planChangesEnabled, setPlanChangesEnabled] = useState(false);
   const [notice, setNotice] = useState('');
 
   async function load() {
@@ -37,6 +43,13 @@ export default function BillingUsagePage() {
       return;
     }
     setData(body);
+
+    const pendingResponse = await fetch('/api/billing/change-plan', { cache: 'no-store' }).catch(() => null);
+    if (pendingResponse?.ok) {
+      const pendingBody = await pendingResponse.json().catch(() => ({}));
+      setPendingPlan(pendingBody?.pending || null);
+      setPlanChangesEnabled(pendingBody?.enabled === true);
+    }
   }
 
   useEffect(() => {
@@ -50,6 +63,12 @@ export default function BillingUsagePage() {
   const percent = data?.computeLimit ? Math.min(100, Math.round((data.computeUsed / data.computeLimit) * 100)) : 0;
   const active = data?.status === 'active';
   const trialing = data?.status === 'trialing';
+  const resetLabel = formatBillingDate(data?.resetAt);
+  const lowerPlans = useMemo(
+    () => PIE_PLANS.filter((candidate) => candidate.level > 1 && candidate.level < plan.level).sort((left, right) => right.level - left.level),
+    [plan.level],
+  );
+  const selectedPlan = selectedPlanId ? planById(selectedPlanId) : null;
 
   async function buy(packId: string) {
     if (busyPack) return;
@@ -67,6 +86,28 @@ export default function BillingUsagePage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not start top-up checkout.');
       setBusyPack('');
+    }
+  }
+
+  async function scheduleDowngrade(planId: string) {
+    if (busyPlan) return;
+    setBusyPlan(planId);
+    setError('');
+    try {
+      const response = await fetch('/api/billing/change-plan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ planId }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body?.scheduled || !body?.pending) throw new Error(body?.error || 'Could not schedule this downgrade.');
+      setPendingPlan(body.pending);
+      setSelectedPlanId('');
+      setNotice(`${plan.name} stays active through ${formatBillingDate(body.pending.effectiveAt)}. Your ${body.pending.planName} plan starts at renewal.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not schedule this downgrade.');
+    } finally {
+      setBusyPlan('');
     }
   }
 
@@ -106,7 +147,52 @@ export default function BillingUsagePage() {
                   You are averaging <strong style={{ color: '#fff' }}>{data.averagePerDay} credits/day</strong>. With {data.daysRemaining} days left before reset, Pie projects about <strong style={{ color: '#fff' }}>{data.projectedTotal} credits</strong> for this cycle.
                 </p>
                 {data.projectedShortfall > 0 ? <p style={{ margin: '12px 0 0', color: '#f1c5ff', fontWeight: 800 }}>Projected need beyond your current allowance: about {data.projectedShortfall} more credits.</p> : <p style={{ margin: '12px 0 0', color: '#bdf7ce', fontWeight: 800 }}>Your current allowance looks sufficient through the next reset.</p>}
-                <div style={{ marginTop: 12, color: '#8f92a0', fontSize: 12 }}>Reset: {data.resetAt ? new Date(data.resetAt).toLocaleDateString() : 'next billing cycle'}</div>
+                <div style={{ marginTop: 12, color: '#8f92a0', fontSize: 12 }}>Reset: {resetLabel || 'next billing cycle'}</div>
+              </section>
+            ) : null}
+
+            {active ? (
+              <section style={cardStyle}>
+                <div style={eyebrow}>Manage plan</div>
+                <h2 style={{ margin: '5px 0 8px' }}>Change at your next renewal</h2>
+                {pendingPlan ? (
+                  <div style={{ border: '1px solid #59468d', borderRadius: 14, background: '#19132a', padding: 14, color: '#ddd3ff', lineHeight: 1.55 }}>
+                    <strong>Downgrade scheduled</strong>
+                    <div>{plan.name} stays active through {formatBillingDate(pendingPlan.effectiveAt)}.</div>
+                    <div>{pendingPlan.planName} starts at ${pendingPlan.monthlyPrice}/month on that renewal date.</div>
+                    <div style={{ marginTop: 7, color: '#aaa0c6', fontSize: 12 }}>No mid-cycle proration and no early loss of access.</div>
+                  </div>
+                ) : !planChangesEnabled ? (
+                  <p style={{ margin: 0, color: '#a7a9b4', lineHeight: 1.5 }}>Self-service plan changes are not available yet. Contact Pie support to schedule a downgrade.</p>
+                ) : lowerPlans.length ? (
+                  <>
+                    <p style={{ margin: '0 0 14px', color: '#a7a9b4', lineHeight: 1.5 }}>Choose a lower plan. Your current access remains unchanged until {resetLabel || 'the next renewal'}.</p>
+                    <div style={{ display: 'grid', gap: 10 }}>
+                      {lowerPlans.map((candidate) => (
+                        <button key={candidate.id} type="button" onClick={() => setSelectedPlanId(candidate.id)} disabled={Boolean(busyPlan)} style={{ border: selectedPlanId === candidate.id ? '1px solid #9b72ff' : '1px solid #353846', borderRadius: 14, background: selectedPlanId === candidate.id ? '#1b1530' : '#10131a', color: '#fff', padding: 14, textAlign: 'left', display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                          <span><strong>{candidate.name}</strong><br /><span style={{ color: '#9fa2ae', fontSize: 12 }}>{candidate.monthlyCredits} monthly credits</span></span>
+                          <strong>${candidate.monthlyPrice}/mo</strong>
+                        </button>
+                      ))}
+                    </div>
+                    {selectedPlan ? (
+                      <div style={{ marginTop: 14, border: '1px solid #59468d', borderRadius: 14, background: '#19132a', padding: 14 }}>
+                        <strong>Confirm your scheduled downgrade</strong>
+                        <p style={{ margin: '8px 0 12px', color: '#c8c0dc', lineHeight: 1.5 }}>
+                          Keep {plan.name} through {resetLabel || 'the current billing period'}, then switch to {selectedPlan.name} at ${selectedPlan.monthlyPrice}/month. There is no mid-cycle credit or charge.
+                        </p>
+                        <div style={{ display: 'flex', gap: 9, flexWrap: 'wrap' }}>
+                          <button type="button" onClick={() => scheduleDowngrade(selectedPlan.id)} disabled={Boolean(busyPlan)} style={{ border: 0, borderRadius: 11, background: '#7c3aed', color: '#fff', minHeight: 42, padding: '0 15px', fontWeight: 900 }}>
+                            {busyPlan ? 'Scheduling…' : `Confirm downgrade to ${selectedPlan.name}`}
+                          </button>
+                          <button type="button" onClick={() => setSelectedPlanId('')} disabled={Boolean(busyPlan)} style={{ border: '1px solid #454958', borderRadius: 11, background: 'transparent', color: '#d4d6de', minHeight: 42, padding: '0 15px', fontWeight: 800 }}>Keep current plan</button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <p style={{ margin: 0, color: '#a7a9b4', lineHeight: 1.5 }}>You’re on Pie’s lowest paid plan. There is no lower monthly plan to switch to.</p>
+                )}
               </section>
             ) : null}
 

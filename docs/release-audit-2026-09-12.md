@@ -20,7 +20,7 @@ All 19 navigation tabs opened with matching main headings: Music, Voice, Songs, 
 
 Songs shows the same ten library entries and visible version counts in both sessions. Sheets displays no saved files in either session; absence is not proof of persistence correctness. No user data was modified during this navigation pass.
 
-Open finding: Production Data reports 'Pie data service failed' and falls back to Stage 1, while Preview resolves Stage 2. This is not acceptable owner parity and requires further diagnosis. Both Accounting tabs show zero linked bank accounts; the ChatGPT monthly Finances/Gmail automation is separate from the app's Plaid connection.
+Intermittent finding: Production Data reported 'Pie data service failed' and incorrectly displayed default Stage 1. A fresh load recovered Stage 8 owner access; Preview resolves Stage 2. Runtime logs confirm both 200 and 400 responses. This PR now shows loading/error with Retry instead of a false Stage 1 on failed initial load. The upstream transient service failure still requires monitoring. Both Accounting tabs show zero linked bank accounts; the ChatGPT monthly Finances/Gmail automation is separate from the app's Plaid connection.
 
 ## Remaining release gates
 

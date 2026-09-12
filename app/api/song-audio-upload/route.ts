@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@clerk/nextjs/server';
 import { getVercelOidcToken } from '@vercel/oidc';
-import { cookies } from 'next/headers';
-import { SESSION_COOKIE, verifySessionToken } from '../../auth';
+import { resolvePieUserId } from '../../usageEntitlements';
 import { boundedNumber, rateLimit, readJsonObject, safeHttpsUrl, textField } from '../../security';
 
 export const runtime = 'nodejs';
@@ -14,12 +12,6 @@ const MAX_CHUNK_BYTES = 2 * 1024 * 1024;
 const MAX_AUDIO_BYTES = 500 * 1024 * 1024;
 
 function noStore(body: unknown, status = 200) { return NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } }); }
-async function isAuthenticated() {
-  try { const clerk = await auth(); if (clerk.userId) return true; } catch {}
-  const jar = await cookies();
-  const legacyToken = jar.get(SESSION_COOKIE)?.value || '';
-  return verifySessionToken(legacyToken, process.env.AI_SONGS_SESSION_SECRET);
-}
 async function projectIdentity() { return getVercelOidcToken().catch(() => ''); }
 function safeStoragePath(value:unknown){
   const path=textField(value,500);
@@ -29,7 +21,8 @@ function safeStoragePath(value:unknown){
 
 export async function POST(req: NextRequest) {
   const limited=rateLimit(req,'song-audio-upload-start',20,60_000);if(limited)return limited;
-  if (!(await isAuthenticated())) return noStore({ error: 'Authentication required.' }, 401);
+  const userId = await resolvePieUserId();
+  if (!userId) return noStore({ error: 'Authentication required.' }, 401);
   try {
     const body = await readJsonObject(req,32_000);
     const path = safeStoragePath(body.path);
@@ -38,7 +31,7 @@ export async function POST(req: NextRequest) {
     const oidc = await projectIdentity();
     if (!oidc) return noStore({ error: 'Cloud identity is temporarily unavailable.' }, 503);
     const response = await fetch(LIBRARY_URL, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_PUBLISHABLE_KEY, 'X-Pie-Vercel-OIDC': oidc, 'X-Pie-Audio-Action': 'start' }, body: JSON.stringify({ path, type, size }), cache: 'no-store',
+      method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_PUBLISHABLE_KEY, 'X-Pie-Vercel-OIDC': oidc, 'X-Pie-User-Id': userId, 'X-Pie-Audio-Action': 'start' }, body: JSON.stringify({ path, type, size }), cache: 'no-store',
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) { console.error('Pie audio start proxy failed', response.status); return noStore({ error: 'Audio upload could not be started.' }, response.status >= 500 ? 502 : 400); }
@@ -49,7 +42,8 @@ export async function POST(req: NextRequest) {
 
 export async function PATCH(req: NextRequest) {
   const limited=rateLimit(req,'song-audio-upload-chunk',180,60_000);if(limited)return limited;
-  if (!(await isAuthenticated())) return noStore({ error: 'Authentication required.' }, 401);
+  const userId = await resolvePieUserId();
+  if (!userId) return noStore({ error: 'Authentication required.' }, 401);
   try {
     const uploadUrl = safeHttpsUrl(req.headers.get('x-pie-upload-url') || '');
     const offset = boundedNumber(req.headers.get('x-pie-upload-offset') || '0',0,MAX_AUDIO_BYTES,0);
@@ -60,7 +54,7 @@ export async function PATCH(req: NextRequest) {
     const oidc = await projectIdentity();
     if (!oidc) return noStore({ error: 'Cloud identity is temporarily unavailable.' }, 503);
     const response = await fetch(LIBRARY_URL, {
-      method: 'POST', headers: { 'Content-Type': 'application/octet-stream', apikey: SUPABASE_PUBLISHABLE_KEY, 'X-Pie-Vercel-OIDC': oidc, 'X-Pie-Audio-Action': 'chunk', 'X-Pie-Upload-Url': uploadUrl, 'X-Pie-Upload-Offset': String(Math.floor(offset)) }, body: Buffer.from(bytes), cache: 'no-store',
+      method: 'POST', headers: { 'Content-Type': 'application/octet-stream', apikey: SUPABASE_PUBLISHABLE_KEY, 'X-Pie-Vercel-OIDC': oidc, 'X-Pie-User-Id': userId, 'X-Pie-Audio-Action': 'chunk', 'X-Pie-Upload-Url': uploadUrl, 'X-Pie-Upload-Offset': String(Math.floor(offset)) }, body: Buffer.from(bytes), cache: 'no-store',
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) { console.error('Pie audio chunk proxy failed', response.status); return noStore({ error: 'Audio chunk upload failed.' }, response.status >= 500 ? 502 : 400); }

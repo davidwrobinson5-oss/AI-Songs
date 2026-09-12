@@ -545,7 +545,10 @@ export default function Home() {
       const stemForm = new FormData();
       stemForm.append('file', generatedBlob, 'generated-song.mp3');
       const stemsRes = await fetch('/api/elevenlabs/stems', { method: 'POST', body: stemForm });
-      if (!stemsRes.ok) throw new Error((await stemsRes.text()) || 'Music Engine stem separation failed.');
+      if (!stemsRes.ok) {
+        const failure = await stemsRes.json().catch(() => ({}));
+        throw new Error(typeof failure?.error === 'string' ? failure.error : 'Music Engine stem separation failed.');
+      }
 
       const archive = unzipSync(new Uint8Array(await stemsRes.arrayBuffer()));
       const entries = Object.entries(archive).filter(([name]) => /\.(mp3|wav|m4a)$/i.test(name));

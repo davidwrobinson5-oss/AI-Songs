@@ -12,6 +12,7 @@ const PROJECT_ID = "prj_UNamKUXBj3xsrjUtqhTt4Sew3OMk";
 const PROJECT_NAME = "ai-songs";
 const LEGACY_OWNER_ID = "pie-primary";
 const ORIGINAL_OWNER_LIBRARY_ID = "user_3JCFRuy8lxa1w0d7a59MAznPXBZ";
+const PRODUCTION_OWNER_ID = "user_3JFNRykFY9nfjkxHkVkUBvPA34P";
 const STORAGE_PROJECT_REF = "ynkrlatwwwaachijacmb";
 const TUS_ENDPOINT = `https://${STORAGE_PROJECT_REF}.storage.supabase.co/storage/v1/upload/resumable`;
 const TUS_PREFIX = `${TUS_ENDPOINT}/`;
@@ -48,7 +49,8 @@ async function verifyPieProject(req:Request){
   // The owner password and the original owner's Clerk account share one library.
   // Resolve only after verifying the server's Vercel identity and explicit user ID.
   // Other customer identities retain their own ownership scope.
-  return requested === LEGACY_OWNER_ID ? ORIGINAL_OWNER_LIBRARY_ID : requested;
+  return requested === LEGACY_OWNER_ID || requested === PRODUCTION_OWNER_ID
+    ? ORIGINAL_OWNER_LIBRARY_ID : requested;
 }
 
 async function assertOwnedOrMissing(table:"pie_songs"|"pie_song_versions",id:string,userId:string){const {data,error}=await supabase.from(table).select("owner_id").eq("id",id).maybeSingle();if(error)throw error;if(data&&data.owner_id!==userId)throw new Error("This library item belongs to another account.");}

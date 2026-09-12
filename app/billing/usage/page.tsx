@@ -47,6 +47,11 @@ export default function BillingUsagePage() {
       return;
     }
     setData(body);
+    if (body.planId === 'internal') {
+      setPendingPlan(null);
+      setPlanChangesEnabled(false);
+      return;
+    }
 
     const pendingResponse = await fetch('/api/billing/change-plan', { cache: 'no-store' }).catch(() => null);
     if (pendingResponse?.ok) {
@@ -65,6 +70,7 @@ export default function BillingUsagePage() {
 
   const plan = useMemo(() => data ? planById(data.planId) : PIE_PLANS[0], [data]);
   const percent = data?.computeLimit ? Math.min(100, Math.round((data.computeUsed / data.computeLimit) * 100)) : 0;
+  const internal = data?.planId === 'internal';
   const active = data?.status === 'active';
   const trialing = data?.status === 'trialing';
   const canceled = data?.status === 'canceled';
@@ -139,15 +145,23 @@ export default function BillingUsagePage() {
       <section style={{ width: 'min(760px,100%)', margin: '0 auto', display: 'grid', gap: 16 }}>
         <div>
           <a href="/" style={{ color: '#b9a7ff', textDecoration: 'none', fontWeight: 800 }}>← Back to Pie</a>
-          <h1 style={{ margin: '18px 0 6px', fontSize: 'clamp(28px,7vw,44px)' }}>Usage & top-ups</h1>
-          <p style={{ margin: 0, color: '#a7a9b4', lineHeight: 1.5 }}>Your included Pie credits reset with your subscription billing cycle. Top-ups are optional and never charged automatically.</p>
+          <h1 style={{ margin: '18px 0 6px', fontSize: 'clamp(28px,7vw,44px)' }}>{internal ? 'Owner access' : 'Usage & top-ups'}</h1>
+          <p style={{ margin: 0, color: '#a7a9b4', lineHeight: 1.5 }}>{internal ? 'Your owner access does not require a paid Pie subscription.' : 'Your included Pie credits reset with your subscription billing cycle. Top-ups are optional and never charged automatically.'}</p>
         </div>
 
         {notice ? <div style={noticeStyle}>{notice}</div> : null}
         {error ? <div style={errorStyle}>{error}</div> : null}
         {!data && !error ? <div style={cardStyle}>Loading your usage…</div> : null}
 
-        {data ? (
+        {data && internal ? (
+          <section style={cardStyle}>
+            <div style={eyebrow}>Owner account</div>
+            <h2 style={{ margin: '5px 0 10px' }}>No subscription required</h2>
+            <p style={{ color: '#b9bbc4', lineHeight: 1.55 }}>Music and voice generation still use paid provider services. Owner usage totals are not available on this page yet.</p>
+          </section>
+        ) : null}
+
+        {data && !internal ? (
           <>
             <section style={cardStyle}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>

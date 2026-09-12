@@ -1,4 +1,4 @@
-import { auth } from '@clerk/nextjs/server';
+import { resolvePieUserId } from '../../../usageEntitlements';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { NextResponse } from 'next/server';
 import { billingStripe, ownedBillingSubscription, stripeObjectId } from '../../../billingStripeServer';
@@ -14,7 +14,7 @@ export const OVERAGE_PACKS = [
 ] as const;
 
 export async function GET() {
-  const { userId } = await auth();
+  const userId = await resolvePieUserId();
   if (!userId) return NextResponse.json({ error: 'Sign in first.' }, { status: 401 });
 
   const oidc = await getVercelOidcToken().catch(() => '');
@@ -37,7 +37,7 @@ export async function GET() {
   let timing: ReturnType<typeof billingTiming> = null;
   let management: { available: boolean; periodEnd?: number; cancelAt?: number | null; hasSchedule?: boolean; status?: string } = { available: false };
   try {
-    const sub = await ownedBillingSubscription(userId);
+    const sub = data?.planId === 'internal' ? null : await ownedBillingSubscription(userId);
     if (sub) {
       const item = sub.items?.data?.[0];
       const end = Number(item?.current_period_end || sub.current_period_end);

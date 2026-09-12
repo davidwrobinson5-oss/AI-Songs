@@ -31,7 +31,7 @@ Deno.serve(async(req:Request)=>{
     const body=await req.json().catch(()=>({}));
     const action=text(body?.action,80);
     const authenticatedUserId=text(body?.userId,128);
-    const shareOwnerData = ["supportCreate", "supportList", "supportMessages", "supportReply", "contractSave", "contractList"].includes(action);
+    const shareOwnerData = ["supportCreate", "supportList", "supportMessages", "supportReply", "contractSave", "contractList", "scoreProfile", "scoreIdentity", "scoreEvent"].includes(action);
     const userId = shareOwnerData ? sharedOwnerId(authenticatedUserId) : authenticatedUserId;
     if(action!=="scoreTop100"&&!validUserId(userId))return json({error:"Invalid user identity."},400);
 

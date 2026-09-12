@@ -52,6 +52,11 @@ export default function AudioPolicy() {
       if (document.visibilityState === 'hidden') stopAllAudio();
     };
 
+    const onStartWebAudio = () => {
+      clearNavigationGuard();
+      stopAllAudio();
+    };
+
     const onPageHide = () => stopAllAudio();
     const onStopAll = () => {
       stopAllAudio();
@@ -63,12 +68,14 @@ export default function AudioPolicy() {
     document.addEventListener('play', onPlay, true);
     document.addEventListener('visibilitychange', onVisibility);
     window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('ai-songs-start-webaudio', onStartWebAudio);
     window.addEventListener('ai-songs-stop-all-audio', onStopAll);
 
     return () => {
       document.removeEventListener('play', onPlay, true);
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('ai-songs-start-webaudio', onStartWebAudio);
       window.removeEventListener('ai-songs-stop-all-audio', onStopAll);
       clearNavigationGuard();
     };

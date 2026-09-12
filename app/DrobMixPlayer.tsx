@@ -285,6 +285,7 @@ function audioBufferToWav(buffer: AudioBuffer) {
 export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl, onMasterRendered }: Props) {
   const contextRef = useRef<AudioContext | null>(null);
   const sourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const playbackRequestRef = useRef(0);
   const [status, setStatus] = useState('');
   const [rendering, setRendering] = useState(false);
   const [masterUrl, setMasterUrl] = useState('');
@@ -293,6 +294,7 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl,
   const [fineTimingMs, setFineTimingMs] = useState(0);
 
   function stop() {
+    playbackRequestRef.current++;
     for (const source of sourcesRef.current) {
       try { source.stop(); } catch {}
     }
@@ -303,7 +305,12 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl,
   useEffect(() => {
     const stopWebAudio = () => stop();
     window.addEventListener('ai-songs-stop-webaudio', stopWebAudio);
-    return () => window.removeEventListener('ai-songs-stop-webaudio', stopWebAudio);
+    return () => {
+      window.removeEventListener('ai-songs-stop-webaudio', stopWebAudio);
+      stop();
+      void contextRef.current?.close();
+      contextRef.current = null;
+    };
   }, []);
 
   function applyPreset(name: string) {
@@ -338,11 +345,13 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl,
   }
 
   async function playAligned() {
-    window.dispatchEvent(new Event('ai-songs-stop-all-audio'));
+    window.dispatchEvent(new Event('ai-songs-start-webaudio'));
     stop();
-    setStatus('Turning up the heat…');
+    const requestId = playbackRequestRef.current;
+    setStatus('Loading mix…');
     try {
       const { context, backing, guide, drob } = await loadAudio();
+      if (requestId !== playbackRequestRef.current) return;
       const alignment = analyzeVocalAlignment(guide, drob);
       const backingSource = context.createBufferSource();
       const backingGain = context.createGain();
@@ -361,6 +370,7 @@ export default function DrobMixPlayer({ backingUrl, guideVocalUrl, drobVocalUrl,
       sourcesRef.current = [backingSource, ...vocalSources];
       setStatus(`${presetName} polish · ${alignmentLabel(alignment, fineTimingMs)} · pitch preserved`);
     } catch (error) {
+      if (requestId !== playbackRequestRef.current) return;
       setStatus(error instanceof Error ? error.message : 'Could not Tight Sync these stems.');
     }
   }

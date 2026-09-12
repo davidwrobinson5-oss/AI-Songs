@@ -1,14 +1,16 @@
 import { auth, currentUser } from '@clerk/nextjs/server';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { NextRequest, NextResponse } from 'next/server';
+import { pieDeploymentTarget } from '../../../deploymentEnvironment';
+import { stripeEnvironmentSafe } from '../../../stripePlans';
 
 const ENTITLEMENT_URL = `${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-entitlements`;
 const SUPABASE_PUBLISHABLE_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
 
 const PACKS: Record<string, { name: string; credits: number; amountCents: number }> = {
-  boost: { name: 'Pie Boost — 10 credits', credits: 10, amountCents: 600 },
-  plus: { name: 'Pie Plus — 25 credits', credits: 25, amountCents: 1200 },
-  power: { name: 'Pie Power — 60 credits', credits: 60, amountCents: 2400 },
+  boost: { name: 'Pie Boost — 10 credits', credits: 10, amountCents: 800 },
+  plus: { name: 'Pie Plus — 25 credits', credits: 25, amountCents: 1800 },
+  power: { name: 'Pie Power — 60 credits', credits: 60, amountCents: 3900 },
 };
 
 async function activeSubscription(userId: string) {
@@ -37,6 +39,15 @@ export async function POST(request: NextRequest) {
 
   const stripeSecret = process.env.STRIPE_SECRET_KEY;
   if (!stripeSecret) return NextResponse.json({ error: 'Stripe billing is not configured yet.' }, { status: 503 });
+
+  if (!stripeEnvironmentSafe()) {
+    return NextResponse.json(
+      { error: pieDeploymentTarget() === 'production'
+        ? 'Production billing is not fully configured with live Stripe prices.'
+        : 'This non-production deployment must use the Pie Stripe test configuration.' },
+      { status: 503 },
+    );
+  }
 
   const body = await request.json().catch(() => ({}));
   const packId = String(body?.packId || '');

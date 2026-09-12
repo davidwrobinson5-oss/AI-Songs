@@ -1,6 +1,7 @@
 import { clerkClient } from '@clerk/nextjs/server';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { NextRequest, NextResponse } from 'next/server';
+import { pieDeploymentTarget } from '../../../deploymentEnvironment';
 
 const ENTITLEMENT_URL = `${(process.env.SUPABASE_URL || 'https://ynkrlatwwwaachijacmb.supabase.co').replace(/\/$/, '')}/functions/v1/pie-entitlements`;
 const SUPABASE_PUBLISHABLE_KEY = (process.env.SUPABASE_PUBLISHABLE_KEY || 'sb_publishable_FwpXHHEMnJuwdJ0MNTGWtw_yyOCZ9wg');
@@ -79,6 +80,19 @@ async function syncBillingRecord(userId: string, values: {
   await entitlementAction({ action: 'syncBilling', userId, ...values });
 }
 
+function subscriptionPeriodEnd(object: any) {
+  const candidates = [
+    object?.current_period_end,
+    object?.items?.data?.[0]?.current_period_end,
+    object?.trial_end,
+  ];
+  for (const candidate of candidates) {
+    const value = Number(candidate || 0);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
 async function grantOverageFromCheckout(object: any) {
   const userId = String(object.client_reference_id || object.metadata?.pie_user_id || '');
   const credits = Number(object.metadata?.pie_overage_credits || 0);
@@ -98,6 +112,17 @@ export async function POST(request: NextRequest) {
   }
 
   const event = JSON.parse(rawBody);
+  const target = pieDeploymentTarget();
+  const expectsLiveEvent = target === 'production';
+  if (Boolean(event?.livemode) !== expectsLiveEvent) {
+    console.error('Rejected Stripe webhook from the wrong billing environment.', {
+      target,
+      livemode: Boolean(event?.livemode),
+      eventType: String(event?.type || ''),
+    });
+    return NextResponse.json({ error: 'Stripe event environment mismatch.' }, { status: 400 });
+  }
+
   const object = event?.data?.object || {};
   const checkoutType = String(object.metadata?.pie_checkout_type || '');
 
@@ -159,7 +184,7 @@ export async function POST(request: NextRequest) {
           stripeCustomerId: object.customer || null,
           stripeSubscriptionId: object.id || null,
           stripePriceId: priceId,
-          currentPeriodEnd: Number(object.current_period_end || 0) || null,
+          currentPeriodEnd: subscriptionPeriodEnd(object),
           cancelAtPeriodEnd: Boolean(object.cancel_at_period_end),
         }),
       ]);
@@ -195,7 +220,13 @@ export async function POST(request: NextRequest) {
     if (userId) {
       await Promise.all([
         setEntitlement(userId, { pieSubscriptionStatus: 'past_due', piePlanId: 'none', piePlanLevel: 0 }),
-        syncBillingRecord(userId, { planId: 'none', planLevel: 0, status: 'past_due' }),
+        syncBillingRecord(userId, {
+          planId: 'none', planLevel: 0, status: 'past_due',
+          stripeCustomerId: typeof object.customer === 'string' ? object.customer : object.customer?.id || null,
+          stripeSubscriptionId: typeof subscriptionDetails.subscription === 'string'
+            ? subscriptionDetails.subscription : subscriptionDetails.subscription?.id
+              || (typeof object.subscription === 'string' ? object.subscription : object.subscription?.id) || null,
+        }),
       ]);
     }
   }

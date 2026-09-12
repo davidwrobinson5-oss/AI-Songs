@@ -358,6 +358,7 @@ export default function Home() {
       setSaveStatus(saveError instanceof Error ? `Music created, but auto-save failed: ${saveError.message}` : 'Music created, but auto-save failed.');
     }
   } catch (error) {
+    setResult('');
     setMusicError(error instanceof Error ? error.message : 'Could not reach Music Generator.');
   } finally {
     setMusicLoading(false);
@@ -468,6 +469,7 @@ export default function Home() {
         setSaveStatus(saveError instanceof Error ? `Song created, but auto-save failed: ${saveError.message}` : 'Song created, but auto-save failed.');
       }
     } catch (error) {
+      setResult('');
       setMusicError(error instanceof Error ? error.message : 'Could not create a song from these lyrics.');
     } finally {
       setMusicLoading(false);
@@ -487,11 +489,13 @@ export default function Home() {
   }
 
   async function findDrobModel() {
-    const modelsRes = await fetch('/api/kits/models', { cache: 'no-store' });
-    const models = await modelsRes.json();
-    const model = models?.data?.find((m: { title?: string; isUsable?: boolean }) => m.title?.toLowerCase() === 'drob' && m.isUsable)
-      || models?.data?.find((m: { isUsable?: boolean }) => m.isUsable);
-    if (!modelsRes.ok || !model?.id) throw new Error('No usable Kits custom voice was found.');
+    const modelsRes = await fetch('/api/kits/models?myModels=true', { cache: 'no-store' });
+    const payload = await modelsRes.json().catch(() => ({}));
+    if (!modelsRes.ok) throw new Error(payload?.error || 'Could not load Kits voices.');
+    const models = Array.isArray(payload?.models) ? payload.models : [];
+    const model = models.find((m: { id?: string; title?: string }) =>
+      m.id && m.title?.trim().toLowerCase() === 'drob');
+    if (!model) throw new Error('Drob was not found in the connected Kits account. Check the Kits key and voice name.');
     return model;
   }
 
@@ -541,7 +545,10 @@ export default function Home() {
       const stemForm = new FormData();
       stemForm.append('file', generatedBlob, 'generated-song.mp3');
       const stemsRes = await fetch('/api/elevenlabs/stems', { method: 'POST', body: stemForm });
-      if (!stemsRes.ok) throw new Error((await stemsRes.text()) || 'Music Engine stem separation failed.');
+      if (!stemsRes.ok) {
+        const failure = await stemsRes.json().catch(() => ({}));
+        throw new Error(typeof failure?.error === 'string' ? failure.error : 'Music Engine stem separation failed.');
+      }
 
       const archive = unzipSync(new Uint8Array(await stemsRes.arrayBuffer()));
       const entries = Object.entries(archive).filter(([name]) => /\.(mp3|wav|m4a)$/i.test(name));
@@ -700,6 +707,7 @@ export default function Home() {
   }
 
   function toggleSavedVersion(songId: string, version: SavedVersion) {
+    setSaveStatus('');
     const blob = bestSavedAudio(version);
     const cloudUrl = `/api/song-library?songId=${encodeURIComponent(songId)}`;
 
@@ -739,7 +747,7 @@ export default function Home() {
 
     audio.addEventListener('ended', cleanup, { once: true });
     audio.addEventListener('error', () => {
-      setSaveStatus('Pie could not play this saved audio. It will restore the cloud copy and you can tap Play again.');
+      setSaveStatus('Could not load this saved audio. Please refresh Pie and try again.');
       window.dispatchEvent(new CustomEvent('pie-local-library-changed'));
       cleanup();
     }, { once: true });
@@ -747,7 +755,7 @@ export default function Home() {
     setPlayingSongId(songId);
     void audio.play().catch((error) => {
       console.error('Pie song playback failed', error);
-      setSaveStatus('Could not start playback. Tap Play once more after the audio finishes restoring.');
+      setSaveStatus('Could not start playback. Please refresh Pie and try again.');
       window.dispatchEvent(new CustomEvent('pie-local-library-changed'));
       cleanup();
     });
@@ -1233,6 +1241,7 @@ export default function Home() {
         </section>
 
         <section className="songsLibraryPanel">
+          {saveStatus && <div className="statusBox" role="status">{saveStatus}</div>}
           <div id="captured"><CapturedSongResults /></div>
           <div className="songsSectionHead"><strong>{songs.length} {songs.length === 1 ? 'song' : 'songs'}</strong><span>Newest first</span></div>
           {songs.length === 0 && <div className="songsEmpty"><span>♫</span><strong>No songs yet</strong><small>Create music and it will appear here automatically.</small><button className="primary" onClick={newSong}>Create a Song</button></div>}

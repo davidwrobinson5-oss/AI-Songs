@@ -11,6 +11,7 @@
     "start": "next start",
     "smoke": "node scripts/smoke-test.mjs",
     "health:repo": "node scripts/code-health-agent.mjs code-health-report.md",
+    "test:unit": "node --test tests/unit/*.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

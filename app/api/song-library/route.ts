@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
     if(!action)return noStore({error:'Invalid cloud library request.'},400);
     const response = await callLibrary({...body,action}, ownerId);
     const data = await response.json().catch(() => ({}));
-    if (!response.ok) console.info('Pie cloud response diagnostic', { status: response.status });
+    if (!response.ok) console.info('Pie cloud response diagnostic', { action, status: response.status, reason: typeof data?.error === 'string' ? data.error.slice(0,240) : 'Unknown cloud error' });
     if (response.ok && action === 'upsertVersion' && body?.song && typeof body.song==='object' && !Array.isArray(body.song)) {
       const song=body.song as Record<string,unknown>;
       const version=body.version && typeof body.version==='object' && !Array.isArray(body.version)?body.version as Record<string,unknown>:{};

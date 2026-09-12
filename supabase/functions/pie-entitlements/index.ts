@@ -36,12 +36,19 @@ Deno.serve(async(req:Request)=>{
     const userId=String(body?.userId||"").trim();
     if(!validUserId(userId))return json({error:"Invalid user identity."},400);
 
+    // OIDC and caller identity have been checked above. Preview Clerk remains a customer test account.
+    const owner = userId === "pie-primary" || (environment === "production" && userId === "user_3JFNRykFY9nfjkxHkVkUBvPA34P");
+    if(owner && ["consume", "consumeJob", "summary", "reserveCost", "settleCost", "releaseCost"].includes(action)) {
+      const {data,error}=await supabase.rpc("pie_owner_meter",{p_environment:environment,p_user_id:userId,p_action:action,p_body:body});
+      if(error)throw error;
+      return json(data);
+    }
+
     if(action==="consume"||action==="consumeJob"){
       const usageKey=String(body?.usageKey||"").trim().slice(0,80);
       const freeLimit=Number(body?.freeLimit);
       const units=Number(body?.units||1);
       if(!usageKey||!Number.isInteger(freeLimit)||freeLimit<0||freeLimit>100000||!Number.isInteger(units)||units<1||units>100)return json({error:"Invalid usage request."},400);
-      if(userId==="pie-primary")return json({planId:"internal",planLevel:8,status:"active",allowed:true,usageCount:0,usageLimit:null,outputQuality:"premium"});
       if(action==="consumeJob"){
         const jobId=String(body?.jobId||"").trim();
         if(!validUuid(jobId))return json({error:"Invalid job identity."},400);
@@ -69,7 +76,6 @@ Deno.serve(async(req:Request)=>{
       const reserveCents=Number(body?.reserveCents||0);
       const reservationId=String(body?.reservationId||"").trim();
       if(!usageKey||!provider||!model||!Number.isInteger(reserveCents)||reserveCents<1||reserveCents>100000||!validUuid(reservationId))return json({error:"Invalid external-cost reservation."},400);
-      if(userId==="pie-primary")return json({allowed:true,reservationId,budgetCents:null,usedCents:0,remainingCents:null,billingStatus:"internal",reason:"Internal account."});
       const {data,error}=await supabase.rpc("pie_reserve_external_cost",{p_user_id:userId,p_usage_key:usageKey,p_provider:provider,p_model:model,p_reserve_cents:reserveCents,p_reservation_id:reservationId});
       if(error)throw error;
       const row=Array.isArray(data)?data[0]:data;
@@ -80,7 +86,6 @@ Deno.serve(async(req:Request)=>{
       const reservationId=String(body?.reservationId||"").trim();
       const actualCents=Number(body?.actualCents);
       if(!validUuid(reservationId)||!Number.isInteger(actualCents)||actualCents<0||actualCents>100000)return json({error:"Invalid external-cost settlement."},400);
-      if(userId==="pie-primary")return json({ok:true,remainingCents:null,reason:"Internal account."});
       const {data,error}=await supabase.rpc("pie_settle_external_cost",{p_user_id:userId,p_reservation_id:reservationId,p_actual_cents:actualCents});
       if(error)throw error;
       const row=Array.isArray(data)?data[0]:data;
@@ -90,7 +95,6 @@ Deno.serve(async(req:Request)=>{
     if(action==="releaseCost"){
       const reservationId=String(body?.reservationId||"").trim();
       if(!validUuid(reservationId))return json({error:"Invalid external-cost release."},400);
-      if(userId==="pie-primary")return json({ok:true,remainingCents:null,reason:"Internal account."});
       const {data,error}=await supabase.rpc("pie_release_external_cost",{p_user_id:userId,p_reservation_id:reservationId});
       if(error)throw error;
       const row=Array.isArray(data)?data[0]:data;
@@ -98,7 +102,6 @@ Deno.serve(async(req:Request)=>{
     }
 
     if(action==="summary"){
-      if(userId==="pie-primary")return json({planId:"internal",planLevel:8,status:"active",computeUsed:0,computeLimit:null,overageCredits:0,daysElapsed:1,daysRemaining:30,resetAt:null});
       const {data,error}=await supabase.rpc("pie_usage_summary",{p_user_id:userId});
       if(error)throw error;
       return json(data||{});

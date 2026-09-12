@@ -6,6 +6,11 @@ import { formatBillingDate } from '../../billingDate';
 
 type Pack = { id: string; name: string; credits: number; price: number };
 type UsageData = {
+  ownerUsageRequests?: number;
+  ownerUsageUnits?: number;
+  recordedProviderCostCents?: number;
+  providerCostReports?: number;
+  periodStart?: string;
   forecastAvailable: boolean;
   management: { available: boolean; periodEnd?: number; cancelAt?: number | null; hasSchedule?: boolean; status?: string };
   planId: string;
@@ -157,7 +162,13 @@ export default function BillingUsagePage() {
           <section style={cardStyle}>
             <div style={eyebrow}>Owner account</div>
             <h2 style={{ margin: '5px 0 10px' }}>No subscription required</h2>
-            <p style={{ color: '#b9bbc4', lineHeight: 1.55 }}>Music and voice generation still use paid provider services. Owner usage totals are not available on this page yet.</p>
+            <div style={{ display: 'grid', gap: 10, marginTop: 16 }}>
+              <div>Metered requests this month: <strong>{data.ownerUsageRequests ?? 0}</strong></div>
+              <div>Usage credits recorded: <strong>{data.computeUsed}</strong></div>
+              <div>Reported provider costs: <strong>{data.providerCostReports ? `$${((data.recordedProviderCostCents || 0) / 100).toFixed(2)}` : 'Not yet reported'}</strong></div>
+            </div>
+            <p style={{ color: '#a7a9b4', lineHeight: 1.55 }}>Requests are counted when authorized, including attempts that later fail. Credits measure activity, not dollars. Provider cost reporting is incomplete; unreported costs are not zero. Historical activity before tracking started is not included.</p>
+            <p style={{ color: '#b9bbc4', lineHeight: 1.55 }}>Music and voice generation still use paid provider services. Your owner activity is recorded separately from customer subscriptions.</p>
           </section>
         ) : null}
 

@@ -358,6 +358,7 @@ export default function Home() {
       setSaveStatus(saveError instanceof Error ? `Music created, but auto-save failed: ${saveError.message}` : 'Music created, but auto-save failed.');
     }
   } catch (error) {
+    setResult('');
     setMusicError(error instanceof Error ? error.message : 'Could not reach Music Generator.');
   } finally {
     setMusicLoading(false);
@@ -468,6 +469,7 @@ export default function Home() {
         setSaveStatus(saveError instanceof Error ? `Song created, but auto-save failed: ${saveError.message}` : 'Song created, but auto-save failed.');
       }
     } catch (error) {
+      setResult('');
       setMusicError(error instanceof Error ? error.message : 'Could not create a song from these lyrics.');
     } finally {
       setMusicLoading(false);

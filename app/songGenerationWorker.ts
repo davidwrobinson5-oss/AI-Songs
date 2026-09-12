@@ -75,6 +75,12 @@ async function processSongGeneration(job: PieJob) {
     return;
   }
 
+  const apiKey = process.env.ELEVENLABS_API_KEY?.trim();
+  if (!apiKey) {
+    await markPieJobFailed(job, 'provider_not_configured', 'Music generation is not configured. No Pie credits were used.', false);
+    return;
+  }
+
   // The private owner gateway is an internal production-testing surface, not a customer plan.
   // It intentionally has no Stripe plan record, so normal customer allowance checks would
   // otherwise reject every owner smoke test with usageLimit=0 before the provider is called.
@@ -88,12 +94,6 @@ async function processSongGeneration(job: PieJob) {
       await markPieJobFailed(job, 'PIE_USAGE_LIMIT', 'This account has reached its music generation allowance.', false);
       return;
     }
-  }
-
-  const apiKey = process.env.ELEVENLABS_API_KEY;
-  if (!apiKey) {
-    await markPieJobFailed(job, 'provider_unavailable', 'Music generation is temporarily unavailable.', true);
-    return;
   }
 
   const providerBody = compositionPlan

@@ -490,10 +490,12 @@ export default function Home() {
 
   async function findDrobModel() {
     const modelsRes = await fetch('/api/kits/models', { cache: 'no-store' });
-    const models = await modelsRes.json();
-    const model = models?.data?.find((m: { title?: string; isUsable?: boolean }) => m.title?.toLowerCase() === 'drob' && m.isUsable)
-      || models?.data?.find((m: { isUsable?: boolean }) => m.isUsable);
-    if (!modelsRes.ok || !model?.id) throw new Error('No usable Kits custom voice was found.');
+    const payload = await modelsRes.json().catch(() => ({}));
+    if (!modelsRes.ok) throw new Error(payload?.error || 'Could not load Kits voices.');
+    const models = Array.isArray(payload?.models) ? payload.models : [];
+    const model = models.find((m: { id?: string; title?: string }) =>
+      m.id && m.title?.trim().toLowerCase() === 'drob');
+    if (!model) throw new Error('Drob was not found in the connected Kits account. Check the Kits key and voice name.');
     return model;
   }
 

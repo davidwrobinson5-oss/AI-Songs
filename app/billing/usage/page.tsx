@@ -63,6 +63,8 @@ export default function BillingUsagePage() {
   const percent = data?.computeLimit ? Math.min(100, Math.round((data.computeUsed / data.computeLimit) * 100)) : 0;
   const active = data?.status === 'active';
   const trialing = data?.status === 'trialing';
+  const canceled = data?.status === 'canceled';
+  const hasCurrentPlan = (active || trialing) && PIE_PLANS.some((candidate) => candidate.id === data?.planId);
   const resetLabel = formatBillingDate(data?.resetAt);
   const lowerPlans = useMemo(
     () => PIE_PLANS.filter((candidate) => candidate.level > 1 && candidate.level < plan.level).sort((left, right) => right.level - left.level),
@@ -128,9 +130,10 @@ export default function BillingUsagePage() {
           <>
             <section style={cardStyle}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'baseline', flexWrap: 'wrap' }}>
-                <div><div style={eyebrow}>Current plan</div><strong style={{ fontSize: 22 }}>{plan.name}</strong></div>
-                <strong>${plan.monthlyPrice}/mo</strong>
+                <div><div style={eyebrow}>Current plan</div><strong style={{ fontSize: 22 }}>{canceled ? 'Canceled' : hasCurrentPlan ? plan.name : 'No active subscription'}</strong></div>
+                {hasCurrentPlan ? <strong>${plan.monthlyPrice}/mo</strong> : null}
               </div>
+              {canceled ? <p style={{ margin: '12px 0 0', color: '#a7a9b4', lineHeight: 1.5 }}>Your subscription has ended. It will not renew, and paid plan access is no longer active.</p> : null}
               <div style={{ marginTop: 18, display: 'grid', gap: 9 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}><span>Included monthly credits</span><strong>{data.computeLimit ?? '—'}</strong></div>
                 <div style={{ height: 12, borderRadius: 999, background: '#242733', overflow: 'hidden' }}><div style={{ width: `${percent}%`, height: '100%', background: 'linear-gradient(90deg,#6d4aff,#a572ff)' }} /></div>

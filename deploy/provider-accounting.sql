@@ -22,6 +22,7 @@ alter table public.pie_provider_requests enable row level security;
 revoke all on public.pie_provider_requests from anon, authenticated;
 grant select,insert,update on public.pie_provider_requests to service_role;
 create index pie_provider_requests_scope on public.pie_provider_requests(environment,user_id,started_at);
+create index pie_provider_requests_job_id on public.pie_provider_requests(job_id) where job_id is not null;
 comment on column public.pie_provider_requests.confirmed_usd is 'Only a reconciled provider charge attributable to this request, with source evidence. Never allocate an invoice equally and call it confirmed.';
 comment on column public.pie_provider_requests.estimated_usd is 'Optional estimate from measured usage and a documented applicable rate. Missing rate means NULL, not zero.';
 
@@ -43,4 +44,3 @@ returns jsonb language sql stable security invoker set search_path='' as $$
 $$;
 revoke all on function public.pie_provider_summary(text,text) from public,anon,authenticated;
 grant execute on function public.pie_provider_summary(text,text) to service_role;
-

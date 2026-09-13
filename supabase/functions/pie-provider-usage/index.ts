@@ -94,4 +94,3 @@ Deno.serve(async(req: Request)=>{
   return json({requestId:id});
  }catch{ return json({error:"Provider accounting unavailable."},500); }
 });
-

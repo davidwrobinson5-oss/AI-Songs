@@ -3,10 +3,6 @@ name: Pie Browser E2E
 on:
   pull_request:
     branches: [main]
-  push:
-    branches: [main]
-  schedule:
-    - cron: '23 9 * * *'
   workflow_dispatch:
 
 permissions:
@@ -71,6 +67,17 @@ jobs:
           echo "Last response body (first 1000 bytes):"
           head -c 1000 /tmp/pie-health || true
           exit 1
+      - name: Verify Preview health contract
+        if: github.event_name == 'pull_request'
+        env:
+          PIE_BASE_URL: ${{ env.PIE_E2E_BASE_URL }}
+          PIE_EXPECTED_COMMIT_SHA: ${{ env.PIE_EXPECTED_COMMIT_SHA }}
+          PIE_EXPECTED_ENVIRONMENT: preview
+          PIE_EXPECTED_CLERK_MODE: test
+          PIE_EXPECTED_STRIPE_MODE: test
+          PIE_EXPECTED_PUBLIC: 'false'
+          PIE_EXPECTED_GATED: 'false'
+        run: node scripts/smoke-test.mjs
       - name: Install app dependencies
         run: npm ci
       - name: Install Playwright test runner

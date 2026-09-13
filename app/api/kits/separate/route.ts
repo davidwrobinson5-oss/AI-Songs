@@ -1,3 +1,5 @@
+import { createProviderFetch } from '../../../providerFetch';
+const providerFetch = createProviderFetch('kits/separate');
 import { NextResponse } from 'next/server';
 import { FREE_LIMITS } from '../../../billingConfig';
 import { rateLimit, safeClientError, validateAudioFile } from '../../../security';
@@ -30,7 +32,7 @@ export async function POST(req: Request) {
 
     const form = new FormData();
     form.append('inputFile', file, 'generated-song.mp3');
-    const response = await fetch(`${KITS_BASE}/vocal-separations`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form, cache: 'no-store' });
+    const response = await providerFetch(`${KITS_BASE}/vocal-separations`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form, cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       console.error('Kits vocal separation failed', response.status);

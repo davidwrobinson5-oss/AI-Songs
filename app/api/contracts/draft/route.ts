@@ -1,3 +1,4 @@
+import { createProviderFetch } from '../../../providerFetch';
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
 import { rateLimit, readJsonObject, safeClientError, textField } from '../../../security';
@@ -24,7 +25,7 @@ export async function POST(req:Request){
     if(!contractTypes.includes(contractType))return NextResponse.json({error:'Choose a supported contract type.'},{status:400,headers:{'Cache-Control':'no-store'}});
     if(!process.env.OPENAI_API_KEY)return NextResponse.json({error:'Advanced contract drafting is temporarily unavailable.'},{status:503,headers:{'Cache-Control':'no-store'}});
 
-    const client=new OpenAI({apiKey:process.env.OPENAI_API_KEY});
+    const client=new OpenAI({fetch:createProviderFetch('contracts/draft'),apiKey:process.env.OPENAI_API_KEY});
     const response=await client.responses.create({
       model:process.env.OPENAI_TEXT_MODEL||'gpt-5.6',
       input:[

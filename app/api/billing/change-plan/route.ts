@@ -11,6 +11,12 @@ function json(body: Record<string, unknown>, status = 200) {
   return NextResponse.json(body, { status, headers: { 'Cache-Control': 'no-store' } });
 }
 
+function scheduledDowngradesEnabled() {
+  // The sandbox flow is safe to exercise by default. Live billing remains an
+  // explicit launch decision controlled by the Production environment flag.
+  return pieDeploymentTarget() !== 'production' || process.env.PIE_SCHEDULED_DOWNGRADES_ENABLED === 'true';
+}
+
 function sameOrigin(request: NextRequest) {
   const origin = request.headers.get('origin');
   if (!origin) return true;
@@ -141,7 +147,7 @@ export async function GET() {
     const subscription = loaded.subscription;
     const effectiveAt = subscriptionPeriodEnd(subscription);
     const schedule = await loadSchedule(stripeSecret, subscription.schedule);
-    return json({ enabled: process.env.PIE_SCHEDULED_DOWNGRADES_ENABLED === 'true', pending: schedule && effectiveAt ? pendingChange(schedule, effectiveAt) : null });
+    return json({ enabled: scheduledDowngradesEnabled(), pending: schedule && effectiveAt ? pendingChange(schedule, effectiveAt) : null });
   } catch (error) {
     console.error('Pie could not load a pending plan change.', error instanceof Error ? error.message : 'unknown');
     return json({ error: 'Your pending plan change could not be loaded.' }, 502);
@@ -153,8 +159,7 @@ export async function POST(request: NextRequest) {
 
   const { userId } = await auth();
   if (!userId) return json({ error: 'Sign in first.' }, 401);
-  // Enable only after sandbox end-to-end validation with schedule write access.
-  if (process.env.PIE_SCHEDULED_DOWNGRADES_ENABLED !== 'true') {
+  if (!scheduledDowngradesEnabled()) {
     return json({ error: 'Self-service downgrades are not enabled yet. Contact Pie support.' }, 503);
   }
 

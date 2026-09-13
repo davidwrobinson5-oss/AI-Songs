@@ -5,6 +5,12 @@ import { stripeEnvironmentSafe, stripePlan } from '../../../stripePlans';
 
 const TRIAL_DAYS = 7;
 
+function integrationIdentifier() {
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+  const bytes = crypto.getRandomValues(new Uint8Array(8));
+  return `pie_signup_${Array.from(bytes, (byte) => alphabet[byte % alphabet.length]).join('')}`;
+}
+
 function verificationIsComplete(item: { verification?: { status?: string | null } | null } | null | undefined) {
   return item?.verification?.status === 'verified';
 }
@@ -79,10 +85,7 @@ export async function POST(request: NextRequest) {
   params.set('cancel_url', `${origin}/signin?created=1&checkout=cancelled`);
   params.set('allow_promotion_codes', 'true');
   params.set('payment_method_collection', 'always');
-  params.set('payment_method_types[0]', 'card');
-  // Card-only still permits Stripe's Link wallet unless Link is explicitly
-  // suppressed at the wallet layer. This keeps signup focused on card entry.
-  params.set('wallet_options[link][display]', 'never');
+  params.set('integration_identifier', integrationIdentifier());
   params.set('subscription_data[trial_period_days]', String(TRIAL_DAYS));
   params.set('metadata[pie_user_id]', userId);
   params.set('metadata[pie_plan_id]', planId);
@@ -102,6 +105,7 @@ export async function POST(request: NextRequest) {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${stripeSecret}`,
+        'Stripe-Version': '2026-07-29.dahlia',
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body: params.toString(),

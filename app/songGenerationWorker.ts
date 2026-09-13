@@ -1,4 +1,6 @@
-import { FREE_LIMITS } from './billingConfig';
+import { createProviderFetch } from './providerFetch';
+import { FREE_LIMITS, musicUsageUnitsForDurationMs } from './billingConfig';
+import { releaseExternalCost, reserveExternalCost, settleExternalCost } from './usageEntitlements';
 import {
   claimPieJob,
   claimPieJobs,
@@ -12,7 +14,6 @@ import {
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io';
 const MAX_PROMPT_CHARS = 4100;
 const WORKER_ID = 'vercel-song-worker';
-const PRIVATE_STUDIO_OWNER_ID = 'pie-primary';
 
 export type SongWorkerResult = { processed: number };
 
@@ -81,20 +82,34 @@ async function processSongGeneration(job: PieJob) {
     return;
   }
 
-  // The private owner gateway is an internal production-testing surface, not a customer plan.
-  // It intentionally has no Stripe plan record, so normal customer allowance checks would
-  // otherwise reject every owner smoke test with usageLimit=0 before the provider is called.
-  if (job.user_id !== PRIVATE_STUDIO_OWNER_ID) {
-    const usage = await consumePieJobUsage(
-      job.id,
-      'elevenlabs_music_generations',
-      FREE_LIMITS.musicGenerationsPerMonth,
-    );
-    if (!usage.allowed) {
-      await markPieJobFailed(job, 'PIE_USAGE_LIMIT', 'This account has reached its music generation allowance.', false);
-      return;
-    }
+  const requestedDurationMs = compositionPlan
+    ? compositionPlan.chunks.reduce((sum, chunk) => sum + Number(chunk.duration_ms || 0), 0)
+    : Number(input.music_length_ms || 30000);
+  const usageUnits = musicUsageUnitsForDurationMs(requestedDurationMs);
+  const costReservation = await reserveExternalCost({
+    userId: job.user_id,
+    usageKey: 'elevenlabs_music_generations',
+    provider: 'elevenlabs',
+    model: 'music_v2',
+    durationMs: requestedDurationMs,
+  });
+  if (!costReservation.allowed) {
+    await markPieJobFailed(job, 'PIE_COST_LIMIT', costReservation.reason || 'This account has reached its protected provider-cost budget.', false);
+    return;
   }
+  let usage;
+  try {
+    usage = await consumePieJobUsage(job.id, 'elevenlabs_music_generations', FREE_LIMITS.musicGenerationsPerMonth, usageUnits);
+  } catch (error) {
+    await releaseExternalCost(job.user_id, costReservation.reservationId).catch((releaseError) => console.error('release unused music cost reservation', releaseError));
+    throw error;
+  }
+  if (!usage.allowed) {
+    await releaseExternalCost(job.user_id, costReservation.reservationId).catch((error) => console.error('release unused music cost reservation', error));
+    await markPieJobFailed(job, 'PIE_USAGE_LIMIT', 'This account has reached its music generation allowance.', false);
+    return;
+  }
+  const providerFetch = createProviderFetch('queued-song-generation', {userId:job.user_id,jobId:job.id});
 
   const providerBody = compositionPlan
     ? { composition_plan: compositionPlan, model_id: 'music_v2' }
@@ -110,7 +125,7 @@ async function processSongGeneration(job: PieJob) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 90_000);
     try {
-      response = await fetch(`${ELEVENLABS_BASE}/v1/music`, {
+      response = await providerFetch(`${ELEVENLABS_BASE}/v1/music`, {
         method: 'POST',
         headers: {
           'xi-api-key': apiKey,
@@ -125,10 +140,13 @@ async function processSongGeneration(job: PieJob) {
       clearTimeout(timeout);
     }
   } catch (error) {
+    await settleExternalCost(job.user_id, costReservation.reservationId).catch((settleError) => console.error('settle uncertain music cost reservation', settleError));
     const timedOut = error instanceof Error && error.name === 'AbortError';
     await markPieJobFailed(job, timedOut ? 'provider_timeout' : 'provider_network', timedOut ? 'Music provider timed out.' : 'Music provider could not be reached.', true);
     return;
   }
+
+  await settleExternalCost(job.user_id, costReservation.reservationId).catch((error) => console.error('settle music cost reservation', error));
 
   if (!response.ok) {
     const providerError = await parseProviderError(response);

@@ -34,6 +34,17 @@ export async function GET() {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) return NextResponse.json({ error: data?.error || 'Could not load usage.' }, { status: 502 });
 
+  let providerCosts = null;
+  if (data?.planId === 'internal') {
+    try {
+      const costs = await fetch(ENTITLEMENT_URL.replace('/pie-entitlements', '/pie-provider-usage'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json', apikey: SUPABASE_PUBLISHABLE_KEY, 'X-Pie-Vercel-OIDC': oidc },
+        body: JSON.stringify({ action: 'summary', userId }), cache: 'no-store', signal: AbortSignal.timeout(10000),
+      });
+      if (costs.ok) providerCosts = await costs.json();
+    } catch { console.warn('Provider cost summary unavailable'); }
+  }
+
   let timing: ReturnType<typeof billingTiming> = null;
   let management: { available: boolean; periodEnd?: number; cancelAt?: number | null; hasSchedule?: boolean; status?: string } = { available: false };
   try {
@@ -72,6 +83,7 @@ export async function GET() {
   return NextResponse.json({
     ...data,
     management,
+    providerCosts,
     forecastAvailable: Boolean(timing),
     daysElapsed,
     daysRemaining,

@@ -1,3 +1,5 @@
+import { createProviderFetch } from '../../../providerFetch';
+const providerFetch = createProviderFetch('elevenlabs/stems');
 import { NextResponse } from 'next/server';
 import { FREE_LIMITS } from '../../../billingConfig';
 import { rateLimit, readResponseBytesLimited, safeClientError, validateAudioFile } from '../../../security';
@@ -39,7 +41,7 @@ export async function POST(req: Request) {
     form.append('file', file, 'generated-song.mp3');
     form.append('stem_variation_id', 'two_stems_v1');
 
-    const response = await fetch(`${ELEVENLABS_BASE}/v1/music/stem-separation?output_format=mp3_44100_192`, {
+    const response = await providerFetch(`${ELEVENLABS_BASE}/v1/music/stem-separation?output_format=mp3_44100_192`, {
       method: 'POST',
       headers: { 'xi-api-key': apiKey },
       body: form,

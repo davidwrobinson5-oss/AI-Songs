@@ -1,7 +1,9 @@
+import { createProviderFetch } from '../../../providerFetch';
+const providerFetch = createProviderFetch('elevenlabs/generate');
 import { NextResponse } from 'next/server';
-import { FREE_LIMITS } from '../../../billingConfig';
-import { rateLimit, readJsonObject, safeClientError } from '../../../security';
-import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../../usageEntitlements';
+import { FREE_LIMITS, musicUsageUnitsForDurationMs } from '../../../billingConfig';
+import { boundedNumber, rateLimit, readJsonObject, safeClientError } from '../../../security';
+import { consumeUsage, releaseExternalCost, reserveExternalCost, resolvePieUserId, settleExternalCost, usageDeniedMessage } from '../../../usageEntitlements';
 
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io';
 const MAX_PROMPT_CHARS = 4100;
@@ -29,7 +31,7 @@ async function parseProviderError(response: Response): Promise<ProviderError> {
 }
 
 async function requestMusic(apiKey: string, body: Record<string, unknown>) {
-  return fetch(`${ELEVENLABS_BASE}/v1/music`, {
+  return providerFetch(`${ELEVENLABS_BASE}/v1/music`, {
     method: 'POST',
     headers: {
       'xi-api-key': apiKey,
@@ -57,6 +59,8 @@ export async function POST(req: Request) {
     const body = await readJsonObject(req, 64_000);
     delete body.model_id;
     delete body.modelId;
+    const musicLengthMs = boundedNumber(body.music_length_ms ?? 30000, 3000, 600000, 30000);
+    body.music_length_ms = musicLengthMs;
 
     const prompt = typeof body.prompt === 'string' ? body.prompt : '';
     if (prompt.length > MAX_PROMPT_CHARS) {
@@ -69,8 +73,18 @@ export async function POST(req: Request) {
       );
     }
 
-    const entitlement = await consumeUsage('elevenlabs_music_generations', FREE_LIMITS.musicGenerationsPerMonth);
+    const costReservation = await reserveExternalCost({ userId, usageKey: 'elevenlabs_music_generations', provider: 'elevenlabs', model: 'music_v2', durationMs: musicLengthMs });
+    if (!costReservation.allowed) return NextResponse.json({ error: costReservation.reason || 'Protected provider-cost budget reached.', code: 'PIE_COST_LIMIT' }, { status: 402 });
+
+    let entitlement;
+    try {
+      entitlement = await consumeUsage('elevenlabs_music_generations', FREE_LIMITS.musicGenerationsPerMonth, musicUsageUnitsForDurationMs(musicLengthMs));
+    } catch (error) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch(() => null);
+      throw error;
+    }
     if (!entitlement.allowed) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch(() => null);
       return NextResponse.json({
         error: usageDeniedMessage('music generations', entitlement),
         code: 'PIE_USAGE_LIMIT',
@@ -78,7 +92,14 @@ export async function POST(req: Request) {
       }, { status: entitlement.userId ? 402 : 401, headers: { 'Cache-Control': 'no-store' } });
     }
 
-    let response = await requestMusic(apiKey, body);
+    let response;
+    try {
+      response = await requestMusic(apiKey, body);
+    } catch (error) {
+      await settleExternalCost(userId, costReservation.reservationId).catch(() => null);
+      throw error;
+    }
+    await settleExternalCost(userId, costReservation.reservationId).catch(() => null);
 
     if (!response.ok) {
       const providerError = await parseProviderError(response);

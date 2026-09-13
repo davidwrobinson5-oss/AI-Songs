@@ -1,3 +1,5 @@
+import { createProviderFetch } from '../../providerFetch';
+const providerFetch = createProviderFetch('sheet-transcription');
 import { TRIAL_LIMITS } from '../../billingConfig';
 import { readResponseBytesLimited } from '../../security';
 import { consumeUsage } from '../../usageEntitlements';
@@ -25,7 +27,7 @@ async function request(path: string, init: RequestInit = {}, timeoutMs = 45_000)
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(`${BASE_URL}${path}`, {
+    return await providerFetch(`${BASE_URL}${path}`, {
       ...init,
       cache: 'no-store',
       signal: controller.signal,

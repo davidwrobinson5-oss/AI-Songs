@@ -1,3 +1,4 @@
+import { createProviderFetch } from '../../providerFetch';
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
 
@@ -8,7 +9,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'OPENAI_API_KEY is not configured yet.' }, { status: 503 });
     }
 
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const client = new OpenAI({fetch:createProviderFetch('song-idea'), apiKey: process.env.OPENAI_API_KEY });
     const response = await client.responses.create({
       model: process.env.OPENAI_TEXT_MODEL || 'gpt-5.6',
       input: [

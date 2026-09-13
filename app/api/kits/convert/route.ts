@@ -1,3 +1,5 @@
+import { createProviderFetch } from '../../../providerFetch';
+const providerFetch = createProviderFetch('kits/convert');
 import { NextResponse } from 'next/server';
 import { FREE_LIMITS } from '../../../billingConfig';
 import { boundedNumber, rateLimit, safeClientError, safeId, validateAudioFile } from '../../../security';
@@ -35,7 +37,7 @@ export async function POST(req: Request) {
     form.append('voiceModelId', modelId);
     form.append('soundFile', file, 'clean-guide-vocal.mp3');
     form.append('pitchShift', String(pitchShift));
-    const response = await fetch(`${KITS_BASE}/voice-conversions`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form, cache: 'no-store' });
+    const response = await providerFetch(`${KITS_BASE}/voice-conversions`, { method: 'POST', headers: { Authorization: `Bearer ${apiKey}` }, body: form, cache: 'no-store' });
     const data = await response.json().catch(() => ({}));
     if (!response.ok) {
       console.error('Kits conversion failed', response.status);

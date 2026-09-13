@@ -1,3 +1,5 @@
+import { createProviderFetch } from '../../../providerFetch';
+const providerFetch = createProviderFetch('elevenlabs/reference');
 import { NextResponse } from 'next/server';
 import { FREE_LIMITS } from '../../../billingConfig';
 import { rateLimit, safeClientError, validateAudioFile } from '../../../security';
@@ -43,7 +45,7 @@ export async function POST(req: Request) {
     const form = new FormData();
     form.append('file', file, safeName || 'reference-audio');
 
-    const response = await fetch(`${ELEVENLABS_BASE}/v1/music/upload`, {
+    const response = await providerFetch(`${ELEVENLABS_BASE}/v1/music/upload`, {
       method: 'POST',
       headers: { 'xi-api-key': apiKey },
       body: form,

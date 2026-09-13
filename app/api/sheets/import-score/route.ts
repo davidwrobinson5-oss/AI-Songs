@@ -1,3 +1,4 @@
+import { createProviderFetch } from '../../../providerFetch';
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
 import { rateLimit, safeClientError } from '../../../security';
@@ -95,7 +96,7 @@ export async function POST(req: Request) {
     const filename = String(body.name || 'score').replace(/[^a-zA-Z0-9._ -]/g, '_').slice(0, 120);
     const fileType = String(body.type || 'application/pdf').toLowerCase();
     const bytes = await readStaged(stagedPath);
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const client = new OpenAI({fetch:createProviderFetch('sheets/import-score'), apiKey: process.env.OPENAI_API_KEY });
     const instructions = `Read this uploaded music score accurately enough to reconstruct its composition. Return ONLY valid JSON, no markdown.\n\nJSON shape:\n{\n  "title": string,\n  "composer": string,\n  "tempo": number,\n  "key": string,\n  "timeSignature": string,\n  "style": string,\n  "lyrics": string,\n  "parts": [\n    {\n      "name": string,\n      "instrument": string,\n      "isVocal": boolean,\n      "choirRole": "soprano" | "alto" | "tenor" | "bass" | "",\n      "lyrics": string,\n      "notes": [{"midi": number, "startBeat": number, "durationBeats": number, "velocity": number}]\n    }\n  ]\n}\n\nUse MIDI note numbers 21-108. startBeat begins at 0. Preserve rests with gaps and chords with shared startBeat. Use the written tempo when visible. Expand repeats into the performed sequence when practical. Detect every clearly written instrument and vocal staff. IMPORTANT: choir writing must identify Soprano, Alto, Tenor, and Choir Bass as distinct vocal parts using choirRole. Choir Bass is NOT bass guitar/electric bass/acoustic bass; instrument bass must use choirRole "". Transcribe printed lyrics per vocal part when possible. Keep the total note-event count under ${MAX_NOTES}; for a large score preserve the whole-song structure and prioritize complete SATB voices, melody, instrument bass, harmony, percussion cues, and principal accompaniment across the whole piece.`;
 
     const lowerName = filename.toLowerCase();

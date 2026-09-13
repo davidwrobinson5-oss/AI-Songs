@@ -1,3 +1,4 @@
+import { createProviderFetch } from '../../providerFetch';
 import OpenAI from 'openai';
 import { NextResponse } from 'next/server';
 import { rateLimit, readJsonObject, safeClientError, textField } from '../../security';
@@ -30,7 +31,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Lyrics generation is temporarily unavailable.' }, { status: 503 });
     }
 
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const client = new OpenAI({fetch:createProviderFetch('lyrics'), apiKey: process.env.OPENAI_API_KEY });
     const common = `Lead vocal range: ${vocalRange}\nSong direction: ${prompt || 'Original compelling pop song.'}\nEmotional arc: ${emotionalArc || 'Choose the strongest arc for the concept.'}\nCreative brief:\n${briefText || 'No brief supplied.'}`;
 
     let system = '';

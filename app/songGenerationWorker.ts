@@ -1,5 +1,5 @@
 import { createProviderFetch } from './providerFetch';
-import { FREE_LIMITS } from './billingConfig';
+import { FREE_LIMITS, musicUsageUnitsForDurationMs } from './billingConfig';
 import {
   claimPieJob,
   claimPieJobs,
@@ -81,7 +81,11 @@ async function processSongGeneration(job: PieJob) {
     return;
   }
 
-  const usage = await consumePieJobUsage(job.id, 'elevenlabs_music_generations', FREE_LIMITS.musicGenerationsPerMonth);
+  const requestedDurationMs = compositionPlan
+    ? compositionPlan.chunks.reduce((sum, chunk) => sum + Number(chunk.duration_ms || 0), 0)
+    : Number(input.music_length_ms || 30000);
+  const usageUnits = musicUsageUnitsForDurationMs(requestedDurationMs);
+  const usage = await consumePieJobUsage(job.id, 'elevenlabs_music_generations', FREE_LIMITS.musicGenerationsPerMonth, usageUnits);
   if (!usage.allowed) {
     await markPieJobFailed(job, 'PIE_USAGE_LIMIT', 'This account has reached its music generation allowance.', false);
     return;

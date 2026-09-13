@@ -1,7 +1,7 @@
 import { createProviderFetch } from '../../../providerFetch';
 const providerFetch = createProviderFetch('elevenlabs/voice-instrument');
 import { NextResponse } from 'next/server';
-import { FREE_LIMITS } from '../../../billingConfig';
+import { FREE_LIMITS, musicUsageUnitsForDurationMs } from '../../../billingConfig';
 import { boundedNumber, rateLimit, readResponseBytesLimited, safeClientError, textField, validateAudioFile } from '../../../security';
 import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../../usageEntitlements';
 
@@ -52,7 +52,11 @@ export async function POST(req: Request) {
     if (mode !== 'instrument' && mode !== 'song') return NextResponse.json({ error: 'Unknown Voice-to-Instruments mode.' }, { status: 400 });
     if (mode === 'instrument' && !INSTRUMENTS.has(target)) return NextResponse.json({ error: 'Choose a supported instrument.' }, { status: 400 });
 
-    const entitlement = await consumeUsage('elevenlabs_reference_generations', FREE_LIMITS.musicGenerationsPerMonth);
+    const entitlement = await consumeUsage(
+      'elevenlabs_reference_generations',
+      FREE_LIMITS.musicGenerationsPerMonth,
+      musicUsageUnitsForDurationMs(musicLengthMs),
+    );
     if (!entitlement.allowed) {
       return NextResponse.json({
         error: usageDeniedMessage('Voice-to-Instruments generations', entitlement),

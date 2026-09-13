@@ -306,7 +306,7 @@ export default function BillingUsagePage() {
                 <div>Normal AI planning / analysis: <strong>1 credit</strong></div>
                 <div>Voice render / conversion: <strong>2 credits</strong></div>
                 <div>Stem or sheet processing job: <strong>3 credits</strong></div>
-                <div>Music generation / AI remix: <strong>4 credits</strong></div>
+                <div>Music generation / AI remix: <strong>4 credits for up to 3 minutes</strong>, then 4 more credits per additional 3-minute block</div>
                 <div>Heavy voice-training job: <strong>8 credits</strong></div>
               </div>
             </section>

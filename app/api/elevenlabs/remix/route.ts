@@ -1,7 +1,7 @@
 import { createProviderFetch } from '../../../providerFetch';
 const providerFetch = createProviderFetch('elevenlabs/remix');
 import { NextResponse } from 'next/server';
-import { FREE_LIMITS } from '../../../billingConfig';
+import { FREE_LIMITS, musicUsageUnitsForDurationMs } from '../../../billingConfig';
 import { boundedNumber, rateLimit, readResponseBytesLimited, safeClientError, textField, validateAudioFile } from '../../../security';
 import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../../usageEntitlements';
 
@@ -66,7 +66,11 @@ export async function POST(req: Request) {
     validateAudioFile(file, 30 * 1024 * 1024);
     if (!style) return NextResponse.json({ error: 'Choose or describe a remix style.' }, { status: 400 });
 
-    const entitlement = await consumeUsage('elevenlabs_remixes', FREE_LIMITS.musicGenerationsPerMonth);
+    const entitlement = await consumeUsage(
+      'elevenlabs_remixes',
+      FREE_LIMITS.musicGenerationsPerMonth,
+      musicUsageUnitsForDurationMs(durationMs),
+    );
     if (!entitlement.allowed) {
       return NextResponse.json({
         error: usageDeniedMessage('remixes', entitlement),

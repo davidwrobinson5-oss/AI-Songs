@@ -1,7 +1,7 @@
 import { createProviderFetch } from '../../../providerFetch';
 const providerFetch = createProviderFetch('elevenlabs/generate-reference');
 import { NextResponse } from 'next/server';
-import { FREE_LIMITS } from '../../../billingConfig';
+import { FREE_LIMITS, musicUsageUnitsForDurationMs } from '../../../billingConfig';
 import { boundedNumber, rateLimit, readResponseBytesLimited, safeClientError, textField, validateAudioFile } from '../../../security';
 import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../../usageEntitlements';
 
@@ -46,7 +46,11 @@ export async function POST(req: Request) {
     validateAudioFile(file, 30 * 1024 * 1024);
     if (!prompt) return NextResponse.json({ error: 'Describe the music you want to build from the reference.' }, { status: 400 });
 
-    const entitlement = await consumeUsage('elevenlabs_reference_generations', FREE_LIMITS.musicGenerationsPerMonth);
+    const entitlement = await consumeUsage(
+      'elevenlabs_reference_generations',
+      FREE_LIMITS.musicGenerationsPerMonth,
+      musicUsageUnitsForDurationMs(musicLengthMs),
+    );
     if (!entitlement.allowed) {
       return NextResponse.json({
         error: usageDeniedMessage('reference generations', entitlement),

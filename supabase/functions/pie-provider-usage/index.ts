@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 import { createRemoteJWKSet, jwtVerify } from "npm:jose@6.1.0";
+import { estimateProviderUsd } from "../_shared/providerPricing.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -75,6 +76,7 @@ Deno.serve(async(req: Request)=>{
    }
   }
   receipt.units=units;
+  const estimate=body.status==="accepted" ? estimateProviderUsd(provider,receipt) : null;
   const httpStatus=body.httpStatus??null;
   if(httpStatus!==null&&(!Number.isInteger(httpStatus)||httpStatus<100||httpStatus>599))return json({error:"Invalid HTTP status."},400);
   const current=await supabase.from("pie_provider_requests").select("*").eq("id",id).eq("environment",environment).eq("user_id",userId).eq("provider",provider).eq("feature",feature).single();
@@ -88,7 +90,14 @@ Deno.serve(async(req: Request)=>{
     && Object.entries(units).every(([k,v])=>previous.units?.[k]===v);
    return json(same?{requestId:id}:{error:"Receipt already finalized."},same?200:409);
   }
-  const updated=await supabase.from("pie_provider_requests").update({status:body.status,http_status:httpStatus,receipt,finished_at:new Date().toISOString()}).eq("id",id).eq("status","started").select("id");
+  const updated=await supabase.from("pie_provider_requests").update({
+    status:body.status,
+    http_status:httpStatus,
+    receipt,
+    estimated_usd:estimate?.usd??null,
+    estimate_source:estimate?.source??null,
+    finished_at:new Date().toISOString(),
+  }).eq("id",id).eq("status","started").select("id");
   if(updated.error)throw updated.error;
   if(!updated.data?.length)return json({error:"Concurrent receipt update; retry."},409);
   return json({requestId:id});

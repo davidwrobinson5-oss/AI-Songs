@@ -1,8 +1,8 @@
 import { createProviderFetch } from '../../../providerFetch';
 const providerFetch = createProviderFetch('elevenlabs/generate');
 import { NextResponse } from 'next/server';
-import { FREE_LIMITS } from '../../../billingConfig';
-import { rateLimit, readJsonObject, safeClientError } from '../../../security';
+import { FREE_LIMITS, musicUsageUnitsForDurationMs } from '../../../billingConfig';
+import { boundedNumber, rateLimit, readJsonObject, safeClientError } from '../../../security';
 import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../../usageEntitlements';
 
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io';
@@ -59,6 +59,8 @@ export async function POST(req: Request) {
     const body = await readJsonObject(req, 64_000);
     delete body.model_id;
     delete body.modelId;
+    const musicLengthMs = boundedNumber(body.music_length_ms ?? 30000, 3000, 600000, 30000);
+    body.music_length_ms = musicLengthMs;
 
     const prompt = typeof body.prompt === 'string' ? body.prompt : '';
     if (prompt.length > MAX_PROMPT_CHARS) {
@@ -71,7 +73,11 @@ export async function POST(req: Request) {
       );
     }
 
-    const entitlement = await consumeUsage('elevenlabs_music_generations', FREE_LIMITS.musicGenerationsPerMonth);
+    const entitlement = await consumeUsage(
+      'elevenlabs_music_generations',
+      FREE_LIMITS.musicGenerationsPerMonth,
+      musicUsageUnitsForDurationMs(musicLengthMs),
+    );
     if (!entitlement.allowed) {
       return NextResponse.json({
         error: usageDeniedMessage('music generations', entitlement),

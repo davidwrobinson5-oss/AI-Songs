@@ -47,6 +47,17 @@ export const PIE_CREDIT_COSTS = {
   heavyVoiceTraining: 8,
 } as const;
 
+// ElevenLabs bills music by generated duration. One metered music unit is four
+// Pie credits, so keep the existing four-credit price through three minutes
+// and add another four-credit block for each additional three minutes.
+export const MUSIC_USAGE_BLOCK_MS = 3 * 60 * 1000;
+
+export function musicUsageUnitsForDurationMs(durationMs: unknown) {
+  const parsed = Number(durationMs);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  return Math.max(1, Math.min(100, Math.ceil(parsed / MUSIC_USAGE_BLOCK_MS)));
+}
+
 export function planById(id: string | null | undefined) {
   return PIE_PLANS.find((plan) => plan.id === id) || PIE_PLANS[0];
 }

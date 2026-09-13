@@ -3,7 +3,7 @@ const providerFetch = createProviderFetch('elevenlabs/voice-instrument');
 import { NextResponse } from 'next/server';
 import { FREE_LIMITS, musicUsageUnitsForDurationMs } from '../../../billingConfig';
 import { boundedNumber, rateLimit, readResponseBytesLimited, safeClientError, textField, validateAudioFile } from '../../../security';
-import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../../usageEntitlements';
+import { consumeUsage, releaseExternalCost, reserveExternalCost, resolvePieUserId, settleExternalCost, usageDeniedMessage } from '../../../usageEntitlements';
 
 export const maxDuration = 120;
 
@@ -52,12 +52,18 @@ export async function POST(req: Request) {
     if (mode !== 'instrument' && mode !== 'song') return NextResponse.json({ error: 'Unknown Voice-to-Instruments mode.' }, { status: 400 });
     if (mode === 'instrument' && !INSTRUMENTS.has(target)) return NextResponse.json({ error: 'Choose a supported instrument.' }, { status: 400 });
 
-    const entitlement = await consumeUsage(
-      'elevenlabs_reference_generations',
-      FREE_LIMITS.musicGenerationsPerMonth,
-      musicUsageUnitsForDurationMs(musicLengthMs),
-    );
+    const costReservation = await reserveExternalCost({ userId, usageKey: 'elevenlabs_reference_generations', provider: 'elevenlabs', model: 'music_v2', durationMs: musicLengthMs });
+    if (!costReservation.allowed) return NextResponse.json({ error: costReservation.reason || 'Protected provider-cost budget reached.', code: 'PIE_COST_LIMIT' }, { status: 402 });
+
+    let entitlement;
+    try {
+      entitlement = await consumeUsage('elevenlabs_reference_generations', FREE_LIMITS.musicGenerationsPerMonth, musicUsageUnitsForDurationMs(musicLengthMs));
+    } catch (error) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch(() => null);
+      throw error;
+    }
     if (!entitlement.allowed) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch(() => null);
       return NextResponse.json({
         error: usageDeniedMessage('Voice-to-Instruments generations', entitlement),
         code: 'PIE_USAGE_LIMIT',
@@ -68,14 +74,23 @@ export async function POST(req: Request) {
     const safeName = (file.name || 'voice-sketch').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
     const uploadForm = new FormData();
     uploadForm.append('file', file, safeName || 'voice-sketch');
-    const uploadResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/upload`, {
-      method: 'POST',
-      headers: { 'xi-api-key': apiKey },
-      body: uploadForm,
-      cache: 'no-store',
-    });
+    let uploadResponse;
+    try {
+      uploadResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/upload`, {
+        method: 'POST',
+        headers: { 'xi-api-key': apiKey },
+        body: uploadForm,
+        cache: 'no-store',
+      });
+    } catch (error) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch((releaseError) => {
+        console.error('Could not release voice upload cost reservation', releaseError);
+      });
+      throw error;
+    }
     const uploadData = await uploadResponse.json().catch(() => ({})) as { song_id?: string };
     if (!uploadResponse.ok || !uploadData.song_id || uploadData.song_id.length > 200) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch(() => null);
       console.error('Voice instrument reference upload failed', uploadResponse.status);
       return NextResponse.json({ error: 'The music provider rejected that sketch.' }, { status: uploadResponse.status >= 500 ? 502 : 400 });
     }
@@ -84,14 +99,23 @@ export async function POST(req: Request) {
       ? `Turn a human mouth/voice performance into an isolated studio-quality ${instrumentLabel(target)} performance. The uploaded recording is a performance sketch: preserve its recognizable rhythm, attack pattern, rests, groove, phrasing, and melodic contour as closely as the model allows, but replace the human vocal timbre with a convincing ${instrumentLabel(target)} sound. Use ONLY the target instrument. No singing, spoken voice, beatboxing voice, extra instruments, audience, or count-in.${direction ? ` Creative direction: ${direction}` : ''}`
       : `Build a polished original instrumental song from the uploaded rough arrangement made from AI-rendered instrument sketches. Preserve the recognizable core bass movement, drum groove, guitar/keys phrasing, rhythmic relationships, and overall arrangement suggested by the reference while developing it into a cohesive finished production. No lead vocals. Do not add spoken words or mouth sounds.${direction ? ` Production direction: ${direction}` : ''}`;
 
-    const planResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/plan`, {
-      method: 'POST',
-      headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ prompt, music_length_ms: musicLengthMs, model_id: 'music_v2' }),
-      cache: 'no-store',
-    });
+    let planResponse;
+    try {
+      planResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/plan`, {
+        method: 'POST',
+        headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt, music_length_ms: musicLengthMs, model_id: 'music_v2' }),
+        cache: 'no-store',
+      });
+    } catch (error) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch((releaseError) => {
+        console.error('Could not release voice plan cost reservation', releaseError);
+      });
+      throw error;
+    }
     const compositionPlan = await planResponse.json().catch(() => ({})) as { chunks?: MusicV2Chunk[] };
     if (!planResponse.ok || !compositionPlan.chunks?.length || compositionPlan.chunks.length > 100) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch(() => null);
       console.error('Voice instrument plan failed', planResponse.status);
       return NextResponse.json({ error: 'Could not plan the instrument conversion.' }, { status: planResponse.status >= 500 ? 502 : 400 });
     }
@@ -104,12 +128,17 @@ export async function POST(req: Request) {
     compositionPlan.chunks[0].conditioning_ref = { song_id: uploadData.song_id, range: { start_ms: 0, end_ms: referenceDurationMs } };
     compositionPlan.chunks[0].condition_strength = 'xhigh';
 
-    const composeResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music`, {
+    let composeResponse;
+    try { composeResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music`, {
       method: 'POST',
       headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' },
       body: JSON.stringify({ model_id: 'music_v2', composition_plan: compositionPlan }),
       cache: 'no-store',
-    });
+    }); } catch (error) {
+      await settleExternalCost(userId, costReservation.reservationId).catch(() => null);
+      throw error;
+    }
+    await settleExternalCost(userId, costReservation.reservationId).catch(() => null);
     if (!composeResponse.ok) {
       console.error('Voice instrument generation failed', composeResponse.status);
       return NextResponse.json({ error: 'The music provider could not render this sketch.' }, { status: composeResponse.status >= 500 ? 502 : 400 });

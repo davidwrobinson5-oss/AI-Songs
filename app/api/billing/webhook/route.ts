@@ -99,8 +99,9 @@ async function grantOverageFromCheckout(object: any) {
   const userId = String(object.client_reference_id || object.metadata?.pie_user_id || '');
   const credits = Number(object.metadata?.pie_overage_credits || 0);
   const sessionId = String(object.id || '');
-  if (!userId || !Number.isInteger(credits) || credits < 1 || credits > 10000 || !sessionId) return;
-  await entitlementAction({ action: 'grantOverage', userId, credits, stripeSessionId: sessionId });
+  const amountTotal = Number(object.amount_total);
+  if (!userId || !Number.isInteger(credits) || credits < 1 || credits > 10000 || !sessionId || !Number.isInteger(amountTotal) || amountTotal < 1) return;
+  await entitlementAction({ action: 'grantOverage', userId, credits, stripeSessionId: sessionId, amountTotal });
 }
 
 export async function POST(request: NextRequest) {

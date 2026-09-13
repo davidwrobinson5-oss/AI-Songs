@@ -3,7 +3,7 @@ const providerFetch = createProviderFetch('elevenlabs/generate-reference');
 import { NextResponse } from 'next/server';
 import { FREE_LIMITS, musicUsageUnitsForDurationMs } from '../../../billingConfig';
 import { boundedNumber, rateLimit, readResponseBytesLimited, safeClientError, textField, validateAudioFile } from '../../../security';
-import { consumeUsage, resolvePieUserId, usageDeniedMessage } from '../../../usageEntitlements';
+import { consumeUsage, releaseExternalCost, reserveExternalCost, resolvePieUserId, settleExternalCost, usageDeniedMessage } from '../../../usageEntitlements';
 
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io';
 
@@ -46,12 +46,18 @@ export async function POST(req: Request) {
     validateAudioFile(file, 30 * 1024 * 1024);
     if (!prompt) return NextResponse.json({ error: 'Describe the music you want to build from the reference.' }, { status: 400 });
 
-    const entitlement = await consumeUsage(
-      'elevenlabs_reference_generations',
-      FREE_LIMITS.musicGenerationsPerMonth,
-      musicUsageUnitsForDurationMs(musicLengthMs),
-    );
+    const costReservation = await reserveExternalCost({ userId, usageKey: 'elevenlabs_reference_generations', provider: 'elevenlabs', model: 'music_v2', durationMs: musicLengthMs });
+    if (!costReservation.allowed) return NextResponse.json({ error: costReservation.reason || 'Protected provider-cost budget reached.', code: 'PIE_COST_LIMIT' }, { status: 402 });
+
+    let entitlement;
+    try {
+      entitlement = await consumeUsage('elevenlabs_reference_generations', FREE_LIMITS.musicGenerationsPerMonth, musicUsageUnitsForDurationMs(musicLengthMs));
+    } catch (error) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch(() => null);
+      throw error;
+    }
     if (!entitlement.allowed) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch(() => null);
       return NextResponse.json({
         error: usageDeniedMessage('reference generations', entitlement),
         code: 'PIE_USAGE_LIMIT',
@@ -62,11 +68,20 @@ export async function POST(req: Request) {
     const safeName = (file.name || 'reference-audio').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 80);
     const uploadForm = new FormData();
     uploadForm.append('file', file, safeName || 'reference-audio');
-    const uploadResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/upload`, {
-      method: 'POST', headers: { 'xi-api-key': apiKey }, body: uploadForm, cache: 'no-store',
-    });
+    let uploadResponse;
+    try {
+      uploadResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/upload`, {
+        method: 'POST', headers: { 'xi-api-key': apiKey }, body: uploadForm, cache: 'no-store',
+      });
+    } catch (error) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch((releaseError) => {
+        console.error('Could not release reference upload cost reservation', releaseError);
+      });
+      throw error;
+    }
     const uploadData = await uploadResponse.json().catch(() => ({})) as { song_id?: string };
     if (!uploadResponse.ok || !uploadData.song_id || uploadData.song_id.length > 200) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch(() => null);
       console.error('Reference upload failed', uploadResponse.status);
       return NextResponse.json({ error: 'Reference audio provider rejected the upload.' }, { status: uploadResponse.status >= 500 ? 502 : 400 });
     }
@@ -75,11 +90,20 @@ export async function POST(req: Request) {
       ? `${prompt}\n\nCreate an original instrumental composition with no lead vocals. Use the uploaded reference only for sound, production style, instrumentation, tempo, groove, and mood. Do not copy the composition.`
       : `${prompt}\n\nCreate an original composition. Use the uploaded reference only for sound, production style, instrumentation, tempo, groove, and mood. Do not copy the composition.`;
 
-    const planResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/plan`, {
-      method: 'POST', headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: planPrompt, music_length_ms: musicLengthMs, model_id: 'music_v2' }), cache: 'no-store',
-    });
+    let planResponse;
+    try {
+      planResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music/plan`, {
+        method: 'POST', headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: planPrompt, music_length_ms: musicLengthMs, model_id: 'music_v2' }), cache: 'no-store',
+      });
+    } catch (error) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch((releaseError) => {
+        console.error('Could not release reference plan cost reservation', releaseError);
+      });
+      throw error;
+    }
     const compositionPlan = await planResponse.json().catch(() => ({})) as { chunks?: MusicV2Chunk[] };
     if (!planResponse.ok || !compositionPlan.chunks?.length || compositionPlan.chunks.length > 100) {
+      await releaseExternalCost(userId, costReservation.reservationId).catch(() => null);
       console.error('Reference plan failed', planResponse.status);
       return NextResponse.json({ error: 'Could not create a safe composition plan.' }, { status: planResponse.status >= 500 ? 502 : 400 });
     }
@@ -101,9 +125,14 @@ export async function POST(req: Request) {
       }
     }
 
-    const composeResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music`, {
+    let composeResponse;
+    try { composeResponse = await providerFetch(`${ELEVENLABS_BASE}/v1/music`, {
       method: 'POST', headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', Accept: 'audio/mpeg' }, body: JSON.stringify({ model_id: 'music_v2', composition_plan: compositionPlan }), cache: 'no-store',
-    });
+    }); } catch (error) {
+      await settleExternalCost(userId, costReservation.reservationId).catch(() => null);
+      throw error;
+    }
+    await settleExternalCost(userId, costReservation.reservationId).catch(() => null);
     if (!composeResponse.ok) {
       console.error('Reference-conditioned generation failed', composeResponse.status);
       return NextResponse.json({ error: 'Reference-based generation provider rejected the request.' }, { status: composeResponse.status >= 500 ? 502 : 400 });

@@ -1,5 +1,6 @@
 import { createProviderFetch } from './providerFetch';
 import { FREE_LIMITS, musicUsageUnitsForDurationMs } from './billingConfig';
+import { releaseExternalCost, reserveExternalCost, settleExternalCost } from './usageEntitlements';
 import {
   claimPieJob,
   claimPieJobs,
@@ -85,8 +86,26 @@ async function processSongGeneration(job: PieJob) {
     ? compositionPlan.chunks.reduce((sum, chunk) => sum + Number(chunk.duration_ms || 0), 0)
     : Number(input.music_length_ms || 30000);
   const usageUnits = musicUsageUnitsForDurationMs(requestedDurationMs);
-  const usage = await consumePieJobUsage(job.id, 'elevenlabs_music_generations', FREE_LIMITS.musicGenerationsPerMonth, usageUnits);
+  const costReservation = await reserveExternalCost({
+    userId: job.user_id,
+    usageKey: 'elevenlabs_music_generations',
+    provider: 'elevenlabs',
+    model: 'music_v2',
+    durationMs: requestedDurationMs,
+  });
+  if (!costReservation.allowed) {
+    await markPieJobFailed(job, 'PIE_COST_LIMIT', costReservation.reason || 'This account has reached its protected provider-cost budget.', false);
+    return;
+  }
+  let usage;
+  try {
+    usage = await consumePieJobUsage(job.id, 'elevenlabs_music_generations', FREE_LIMITS.musicGenerationsPerMonth, usageUnits);
+  } catch (error) {
+    await releaseExternalCost(job.user_id, costReservation.reservationId).catch((releaseError) => console.error('release unused music cost reservation', releaseError));
+    throw error;
+  }
   if (!usage.allowed) {
+    await releaseExternalCost(job.user_id, costReservation.reservationId).catch((error) => console.error('release unused music cost reservation', error));
     await markPieJobFailed(job, 'PIE_USAGE_LIMIT', 'This account has reached its music generation allowance.', false);
     return;
   }
@@ -121,10 +140,13 @@ async function processSongGeneration(job: PieJob) {
       clearTimeout(timeout);
     }
   } catch (error) {
+    await settleExternalCost(job.user_id, costReservation.reservationId).catch((settleError) => console.error('settle uncertain music cost reservation', settleError));
     const timedOut = error instanceof Error && error.name === 'AbortError';
     await markPieJobFailed(job, timedOut ? 'provider_timeout' : 'provider_network', timedOut ? 'Music provider timed out.' : 'Music provider could not be reached.', true);
     return;
   }
+
+  await settleExternalCost(job.user_id, costReservation.reservationId).catch((error) => console.error('settle music cost reservation', error));
 
   if (!response.ok) {
     const providerError = await parseProviderError(response);

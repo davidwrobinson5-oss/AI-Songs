@@ -18,6 +18,30 @@ export type UsageEntitlement = {
   outputQuality: 'standard' | 'premium';
 };
 
+export type ExternalCostReservation = {
+  allowed: boolean;
+  reservationId: string;
+  budgetCents: number;
+  usedCents: number;
+  remainingCents: number;
+  billingStatus: string;
+  reason: string;
+};
+
+async function entitlementAction<T>(body: Record<string, unknown>): Promise<T> {
+  const oidc = await getVercelOidcToken().catch(() => '');
+  if (!oidc) throw new Error('Pie entitlement identity is temporarily unavailable.');
+  const response = await fetch(ENTITLEMENT_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', apikey: SUPABASE_PUBLISHABLE_KEY, 'X-Pie-Vercel-OIDC': oidc },
+    body: JSON.stringify(body),
+    cache: 'no-store',
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(typeof data?.error === 'string' ? data.error : 'Pie entitlement service failed.');
+  return data as T;
+}
+
 export async function resolvePieUserId() {
   try {
     const clerk = await auth();
@@ -38,21 +62,7 @@ export async function consumeUsage(usageKey: string, trialLimit: number, units =
     return { userId: '', planId: 'none', planLevel: 0, status: 'signed_out', allowed: false, usageCount: 0, usageLimit: trialLimit, outputQuality: 'standard' };
   }
 
-  const oidc = await getVercelOidcToken().catch(() => '');
-  if (!oidc) throw new Error('Pie entitlement identity is temporarily unavailable.');
-
-  const response = await fetch(ENTITLEMENT_URL, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      apikey: SUPABASE_PUBLISHABLE_KEY,
-      'X-Pie-Vercel-OIDC': oidc,
-    },
-    body: JSON.stringify({ action: 'consume', requestId: crypto.randomUUID(), userId, usageKey, freeLimit: trialLimit, units }),
-    cache: 'no-store',
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(typeof data?.error === 'string' ? data.error : 'Could not verify Pie usage entitlement.');
+  const data = await entitlementAction<any>({ action: 'consume', requestId: crypto.randomUUID(), userId, usageKey, freeLimit: trialLimit, units });
 
   return {
     userId,
@@ -64,6 +74,35 @@ export async function consumeUsage(usageKey: string, trialLimit: number, units =
     usageLimit: data?.usageLimit == null ? null : Number(data.usageLimit),
     outputQuality: data?.outputQuality === 'premium' ? 'premium' : 'standard',
   };
+}
+
+export async function reserveExternalCost(input: {
+  userId: string;
+  usageKey: string;
+  provider: string;
+  model: string;
+  durationMs: number;
+  reservationId?: string;
+}): Promise<ExternalCostReservation> {
+  const reservationId = input.reservationId || crypto.randomUUID();
+  const data = await entitlementAction<any>({ action: 'reserveCost', ...input, reservationId });
+  return {
+    allowed: Boolean(data?.allowed),
+    reservationId: String(data?.reservationId || reservationId),
+    budgetCents: Number(data?.budgetCents || 0),
+    usedCents: Number(data?.usedCents || 0),
+    remainingCents: Number(data?.remainingCents || 0),
+    billingStatus: String(data?.billingStatus || 'inactive'),
+    reason: String(data?.reason || ''),
+  };
+}
+
+export async function settleExternalCost(userId: string, reservationId: string) {
+  return entitlementAction<{ ok: boolean; remainingCents: number; reason: string }>({ action: 'settleCost', userId, reservationId });
+}
+
+export async function releaseExternalCost(userId: string, reservationId: string) {
+  return entitlementAction<{ ok: boolean; remainingCents: number; reason: string }>({ action: 'releaseCost', userId, reservationId });
 }
 
 export function usageDeniedMessage(label: string, entitlement: UsageEntitlement) {

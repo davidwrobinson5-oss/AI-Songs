@@ -29,3 +29,9 @@ Intermittent finding: Production Data reported 'Pie data service failed' and inc
 - Exercise signup, checkout, credits, renewal, downgrade, cancellation, failed payment/recovery in Stripe test mode. Existing billing unit tests pass but the full lifecycle has not been rerun in this increment.
 - Collect attributable provider usage/charges and fixed costs before finalizing plan margins. Current prices/credits are provisional; no changes made.
 - Verify Android Chrome and Apple Safari recording, playback, uploads, downloads, keyboard/layout and interrupted sessions. Cloud Chromium navigation is not a physical-device certification.
+
+## Billing continuation — 2026-09-13
+
+Found webhook snapshots could overwrite recovered access when delivered late; checkout always wrote trialing, and tier selection trusted plan metadata rather than the actual subscription price. The webhook now retrieves current Stripe subscription state for subscription, checkout and invoice paid/success/failure events; validates customer, environment and user identity; maps the current price to the plan; and avoids letting a prior subscription displace a currently linked nonterminal subscription.
+
+Nine signed, locally simulated webhook scenarios pass: active checkout, renewal boundary, recovery, delayed failed invoice after recovery, past-due blocking, price-based downgrade with stale metadata, cancellation, trial access and unknown-price rejection without writes. These are mocked regression tests, not live Stripe test-clock certification. Parallel in-flight webhook reconciliation and full end-to-end lifecycle remain verification gates. Source: https://docs.stripe.com/webhooks and https://docs.stripe.com/billing/subscriptions/webhooks.

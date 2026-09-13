@@ -1,3 +1,5 @@
+import { billingStripe, stripeObjectId } from '../../../billingStripeServer';
+import { stripePlan, stripePlanIdForPrice } from '../../../stripePlans';
 import { clerkClient } from '@clerk/nextjs/server';
 import { getVercelOidcToken } from '@vercel/oidc';
 import { NextRequest, NextResponse } from 'next/server';
@@ -136,99 +138,55 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ received: true });
   }
 
-  if (event.type === 'checkout.session.completed') {
-    const userId = String(object.client_reference_id || object.metadata?.pie_user_id || '');
-    const level = Number(object.metadata?.pie_plan_level || 0);
-    const planId = String(object.metadata?.pie_plan_id || 'none');
-    if (userId) {
-      await Promise.all([
-        setEntitlement(userId, {
-          pieSubscriptionStatus: 'trialing',
-          piePlanId: planId,
-          piePlanLevel: level,
-          pieStripeCustomerId: object.customer || null,
-          pieStripeSubscriptionId: object.subscription || null,
-          pieOnboardingCompleted: true,
-        }),
-        syncBillingRecord(userId, {
-          planId,
-          planLevel: level,
-          status: 'trialing',
-          stripeCustomerId: object.customer || null,
-          stripeSubscriptionId: object.subscription || null,
-        }),
-      ]);
+  // Events can arrive late or out of order. Reconcile current Stripe state instead
+  // of allowing an old checkout/failure snapshot to overwrite recovered access.
+  const subscriptionEvent = ['customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted'].includes(event.type);
+  const invoiceEvent = ['invoice.paid', 'invoice.payment_succeeded', 'invoice.payment_failed'].includes(event.type);
+  const checkoutEvent = event.type === 'checkout.session.completed' && object.mode === 'subscription';
+  if (subscriptionEvent || invoiceEvent || checkoutEvent) {
+    const details = object.parent?.subscription_details || object.subscription_details || {};
+    const subscriptionId = subscriptionEvent ? stripeObjectId(object) : stripeObjectId(details.subscription || object.subscription);
+    if (!subscriptionId && invoiceEvent) return NextResponse.json({ received: true }); // One-time invoice.
+    if (!/^sub_[A-Za-z0-9]+$/.test(subscriptionId)) return NextResponse.json({ error: 'Subscription reference missing.' }, { status: 400 });
+    const current = await billingStripe(`/subscriptions/${subscriptionId}`);
+    const userId = String(current.metadata?.pie_user_id || '');
+    const eventUser = String(object.client_reference_id || object.metadata?.pie_user_id || details.metadata?.pie_user_id || '');
+    if (current.id !== subscriptionId || current.livemode !== expectsLiveEvent
+      || stripeObjectId(current.customer) !== stripeObjectId(object.customer)
+      || (eventUser && eventUser !== userId)) {
+      return NextResponse.json({ error: 'Subscription identity mismatch.' }, { status: 400 });
     }
-  }
-
-  if (event.type === 'customer.subscription.updated' || event.type === 'customer.subscription.created') {
-    const userId = String(object.metadata?.pie_user_id || '');
-    const level = Number(object.metadata?.pie_plan_level || 0);
-    const planId = String(object.metadata?.pie_plan_id || 'none');
-    if (userId) {
-      const status = String(object.status || '');
-      const entitled = ['active', 'trialing'].includes(status);
-      const priceId = String(object.items?.data?.[0]?.price?.id || '') || null;
-      await Promise.all([
-        setEntitlement(userId, {
-          pieSubscriptionStatus: status,
-          piePlanId: entitled ? planId : 'none',
-          piePlanLevel: entitled ? level : 0,
-          pieStripeCustomerId: object.customer || null,
-          pieStripeSubscriptionId: object.id || null,
-        }),
-        syncBillingRecord(userId, {
-          planId: entitled ? planId : 'none',
-          planLevel: entitled ? level : 0,
-          status,
-          stripeCustomerId: object.customer || null,
-          stripeSubscriptionId: object.id || null,
-          stripePriceId: priceId,
-          currentPeriodEnd: subscriptionPeriodEnd(object),
-          cancelAtPeriodEnd: Boolean(object.cancel_at_period_end),
-        }),
-      ]);
+    if (!userId) return NextResponse.json({ received: true }); // Not a Pie subscription.
+    const client = await clerkClient();
+    const user = await client.users.getUser(userId);
+    const linkedSubscription = String(user.publicMetadata?.pieStripeSubscriptionId || '');
+    if (linkedSubscription && linkedSubscription !== subscriptionId) {
+      const linked = await billingStripe(`/subscriptions/${encodeURIComponent(linkedSubscription)}`);
+      if (linked.metadata?.pie_user_id !== userId || stripeObjectId(linked.customer) !== stripeObjectId(current.customer)) {
+        return NextResponse.json({ error: 'Linked subscription identity mismatch.' }, { status: 400 });
+      }
+      if (!['canceled', 'incomplete_expired'].includes(linked.status)) {
+        return NextResponse.json({ received: true }); // A prior subscription must not replace the current one.
+      }
     }
-  }
-
-  if (event.type === 'customer.subscription.deleted') {
-    const userId = String(object.metadata?.pie_user_id || '');
-    if (userId) {
-      await Promise.all([
-        setEntitlement(userId, {
-          pieSubscriptionStatus: 'canceled',
-          piePlanId: 'none',
-          piePlanLevel: 0,
-          pieStripeSubscriptionId: object.id || null,
-        }),
-        syncBillingRecord(userId, {
-          planId: 'none',
-          planLevel: 0,
-          status: 'canceled',
-          stripeCustomerId: object.customer || null,
-          stripeSubscriptionId: object.id || null,
-          stripePriceId: String(object.items?.data?.[0]?.price?.id || '') || null,
-          cancelAtPeriodEnd: true,
-        }),
-      ]);
-    }
-  }
-
-  if (event.type === 'invoice.payment_failed') {
-    const subscriptionDetails = object.parent?.subscription_details || object.subscription_details || {};
-    const userId = String(subscriptionDetails.metadata?.pie_user_id || '');
-    if (userId) {
-      await Promise.all([
-        setEntitlement(userId, { pieSubscriptionStatus: 'past_due', piePlanId: 'none', piePlanLevel: 0 }),
-        syncBillingRecord(userId, {
-          planId: 'none', planLevel: 0, status: 'past_due',
-          stripeCustomerId: typeof object.customer === 'string' ? object.customer : object.customer?.id || null,
-          stripeSubscriptionId: typeof subscriptionDetails.subscription === 'string'
-            ? subscriptionDetails.subscription : subscriptionDetails.subscription?.id
-              || (typeof object.subscription === 'string' ? object.subscription : object.subscription?.id) || null,
-        }),
-      ]);
-    }
+    const status = String(current.status || '');
+    const entitled = ['active', 'trialing'].includes(status);
+    const priceId = stripeObjectId(current.items?.data?.[0]?.price);
+    const planId = stripePlanIdForPrice(priceId);
+    if (entitled && !planId) return NextResponse.json({ error: 'Unrecognized subscription price.' }, { status: 503 });
+    const level = planId ? stripePlan(planId)?.level || 0 : 0;
+    await Promise.all([
+      setEntitlement(userId, {
+        pieSubscriptionStatus: status, piePlanId: entitled ? planId : 'none', piePlanLevel: entitled ? level : 0,
+        pieStripeCustomerId: stripeObjectId(current.customer), pieStripeSubscriptionId: current.id,
+        ...(checkoutEvent ? { pieOnboardingCompleted: true } : {}),
+      }),
+      syncBillingRecord(userId, {
+        status, planId: entitled ? planId! : 'none', planLevel: entitled ? level : 0,
+        stripeCustomerId: stripeObjectId(current.customer), stripeSubscriptionId: current.id,
+        stripePriceId: priceId, currentPeriodEnd: subscriptionPeriodEnd(current), cancelAtPeriodEnd: Boolean(current.cancel_at_period_end),
+      }),
+    ]);
   }
 
   return NextResponse.json({ received: true });
